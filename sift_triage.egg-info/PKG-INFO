@@ -1,0 +1,200 @@
+Metadata-Version: 2.4
+Name: sift-triage
+Version: 0.1.0
+Summary: AI-powered alert triage summarizer for SOC teams
+Author-email: Christian Huhn <duathron@gmail.com>
+License-Expression: MIT
+Project-URL: Homepage, https://github.com/duathron/sift
+Project-URL: Repository, https://github.com/duathron/sift
+Project-URL: Bug Tracker, https://github.com/duathron/sift/issues
+Keywords: siem,alert-triage,soc,dfir,mitre-attack,ai,cli
+Classifier: Development Status :: 3 - Alpha
+Classifier: Environment :: Console
+Classifier: Intended Audience :: Information Technology
+Classifier: Topic :: Security
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Programming Language :: Python :: 3.14
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: typer>=0.12.0
+Requires-Dist: rich>=13.7.0
+Requires-Dist: pydantic>=2.7.0
+Requires-Dist: pyyaml>=6.0.1
+Requires-Dist: python-dotenv>=1.0.0
+Provides-Extra: llm
+Requires-Dist: anthropic>=0.30.0; extra == "llm"
+Requires-Dist: openai>=1.30.0; extra == "llm"
+Provides-Extra: enrich
+Requires-Dist: barb-phish>=1.0.0; extra == "enrich"
+Requires-Dist: vex-ioc>=1.2.0; extra == "enrich"
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0.0; extra == "dev"
+Requires-Dist: ruff>=0.4.0; extra == "dev"
+Requires-Dist: mypy>=1.10.0; extra == "dev"
+
+# sift
+
+```
+ ___  _  __  _
+/ __|| ||  \| |_
+\__ \| || |) |  _|
+|___/|_||__/|_|
+```
+
+**AI-Powered Alert Triage Summarizer for SOC Teams**
+
+`sift` ingests raw security alerts, deduplicates and clusters related events, scores them by priority, and delivers a structured triage summary — with optional AI-generated analysis. Part of the barb → vex → sift SOC workflow trilogy.
+
+---
+
+## Features
+
+- Ingest alerts from generic JSON, Splunk exports, or CSV
+- Deduplicate noisy alert streams before analysis
+- Extract IOCs (IPs, domains, hashes, URLs) from alert fields automatically
+- Cluster related alerts by IOC overlap, category + time window, or IP-pair correlation
+- Score clusters across five priority tiers: NOISE / LOW / MEDIUM / HIGH / CRITICAL
+- AI summarization via Anthropic Claude, OpenAI, or Ollama (local) — or template-based with no LLM required
+- Rich terminal output with priority-colored cluster table
+- Export to JSON or CSV for downstream tooling
+- `sift doctor` diagnostics to verify configuration and LLM connectivity
+- PyPI version check on startup
+
+---
+
+## Installation
+
+```bash
+pip install sift-triage
+```
+
+**Optional extras:**
+
+```bash
+# LLM summarization (Anthropic + OpenAI)
+pip install "sift-triage[llm]"
+
+# Future: IOC enrichment via barb/vex
+pip install "sift-triage[enrich]"
+
+# Everything
+pip install "sift-triage[llm,enrich]"
+```
+
+---
+
+## Quick Start
+
+**Triage a JSON alert file:**
+```bash
+sift triage alerts.json
+```
+
+**Triage with AI summarization (Anthropic Claude):**
+```bash
+sift triage alerts.json --summarize --provider anthropic
+```
+
+**Pipe from Splunk or another tool:**
+```bash
+cat splunk_export.json | sift triage -
+```
+
+**Export triage report to JSON:**
+```bash
+sift triage alerts.json -f json -o report.json
+```
+
+**Run diagnostics:**
+```bash
+sift doctor
+```
+
+---
+
+## Workflow
+
+`sift` is the third stage of a SOC analyst trilogy. Use `barb` to score and flag suspicious URLs in incoming data, pass flagged IOCs to `vex` for VirusTotal enrichment, then feed the enriched alert data into `sift` for cluster-level triage and summarization. Each tool is useful standalone; together they cover URL analysis → IOC reputation → alert prioritization in a single scriptable pipeline. A future `--enrich` flag will automate barb and vex calls directly from within `sift triage`.
+
+---
+
+## Input Formats
+
+| Format | Description | Notes |
+|---|---|---|
+| Generic JSON | Array of alert objects or NDJSON | Any field schema; sift normalizes automatically |
+| Splunk export | JSON export from Splunk Search | Handles `results` wrapper and Splunk field names |
+| CSV | Comma-separated alert rows | First row treated as header; all fields extracted |
+
+Pass `-` as the filename to read from stdin:
+```bash
+splunk-cli export | sift triage -
+```
+
+---
+
+## LLM Providers
+
+| Provider | Extra | Environment Variable | Notes |
+|---|---|---|---|
+| `template` | *(none)* | — | Default; no LLM required |
+| `anthropic` | `[llm]` | `ANTHROPIC_API_KEY` | Claude via Anthropic API |
+| `openai` | `[llm]` | `OPENAI_API_KEY` | GPT via OpenAI API |
+| `ollama` | *(none)* | `SIFT_OLLAMA_URL` (optional) | Local inference; defaults to `http://localhost:11434` |
+
+Set the default provider in `~/.sift/config.yaml` or via the `SIFT_PROVIDER` environment variable.
+
+---
+
+## Output Formats
+
+| Flag | Output |
+|---|---|
+| `rich` (default) | Color-coded cluster table in the terminal |
+| `console` | Plain-text output, safe for logging |
+| `json` | Structured JSON with all cluster and IOC data |
+| `csv` | Flat CSV suitable for SIEM import or spreadsheets |
+
+Use `-f` / `--format` to select output format, and `-o` / `--output` to write to a file.
+
+---
+
+## Exit Codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Triage complete — no HIGH or CRITICAL clusters found |
+| `1` | Triage complete — one or more HIGH or CRITICAL clusters found |
+| `2` | Error — invalid input, configuration failure, or LLM error |
+
+Exit code `1` is designed for use in CI pipelines and automated response playbooks.
+
+---
+
+## Configuration
+
+```bash
+sift config --show    # display current configuration
+sift doctor           # verify config, LLM connectivity, and dependencies
+```
+
+Configuration is resolved in priority order: CLI flags > environment variables > `~/.sift/config.yaml` > defaults.
+
+---
+
+## Part of the SOC Trilogy
+
+| Tool | Role | PyPI |
+|---|---|---|
+| [barb](https://github.com/duathron/barb) | Heuristic phishing URL analyzer | `barb-phish` |
+| [vex](https://github.com/duathron/vex) | VirusTotal IOC enrichment | `vex-ioc` |
+| **sift** | Alert triage summarizer | `sift-triage` |
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE) for details.
+
+Author: Christian Huhn

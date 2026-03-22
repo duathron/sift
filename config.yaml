@@ -1,0 +1,45 @@
+# sift configuration
+# Priority: CLI flags > env vars > ~/.sift/config.yaml > defaults
+
+clustering:
+  # Time window for grouping alerts by timestamp (minutes)
+  time_window_minutes: 30
+  # Maximum alerts per cluster before splitting
+  max_cluster_size: 50
+
+scoring:
+  # Base severity weights
+  weights:
+    INFO: 1
+    LOW: 2
+    MEDIUM: 5
+    HIGH: 10
+    CRITICAL: 20
+  # Cluster priority thresholds (sum of alert severity scores)
+  thresholds:
+    low: 5
+    medium: 20
+    high: 50
+    critical: 100
+
+summarize:
+  provider: "template"        # template | anthropic | openai | ollama
+  model: null                 # null = auto-select per provider
+  api_key: null               # or set SIFT_LLM_KEY env var
+  max_tokens: 1000
+  temperature: 0.1
+  # Fields to redact from LLM prompts (privacy protection)
+  redact_fields: []           # e.g. [username, hostname, internal_ip]
+
+output:
+  default_format: "rich"      # rich | console | json | csv
+  quiet: false
+
+enrich:
+  # Consent for external API calls (--enrich flag)
+  # Set to true to skip the consent prompt (or use --yes flag)
+  consent_given: false
+
+update_check:
+  enabled: true
+  check_interval_hours: 24

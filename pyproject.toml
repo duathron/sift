@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sift-triage"
+version = "0.1.0"
+description = "AI-powered alert triage summarizer for SOC teams"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+authors = [
+    { name = "Christian Huhn", email = "duathron@gmail.com" },
+]
+keywords = ["siem", "alert-triage", "soc", "dfir", "mitre-attack", "ai", "cli"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Information Technology",
+    "Topic :: Security",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    "typer>=0.12.0",
+    "rich>=13.7.0",
+    "pydantic>=2.7.0",
+    "pyyaml>=6.0.1",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+llm = ["anthropic>=0.30.0", "openai>=1.30.0"]
+enrich = ["barb-phish>=1.0.0", "vex-ioc>=1.2.0"]
+dev = ["pytest>=8.0.0", "ruff>=0.4.0", "mypy>=1.10.0"]
+
+[project.scripts]
+sift = "sift.main:main"
+
+[project.urls]
+Homepage = "https://github.com/duathron/sift"
+Repository = "https://github.com/duathron/sift"
+"Bug Tracker" = "https://github.com/duathron/sift/issues"
+
+[tool.setuptools.packages.find]
+include = ["sift*"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = false
+ignore_missing_imports = true
