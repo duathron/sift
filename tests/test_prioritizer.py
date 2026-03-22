@@ -6,7 +6,7 @@ import pytest
 
 from sift.config import PriorityThresholds, ScoringConfig, SeverityWeights
 from sift.models import Alert, AlertSeverity, Cluster, ClusterPriority, TechniqueRef
-
+from sift.pipeline.prioritizer import prioritize, prioritize_all, score_cluster
 
 # ---------------------------------------------------------------------------
 # Factories
@@ -40,13 +40,6 @@ def make_technique(tech_id: str = "T1566") -> TechniqueRef:
         technique_name="Phishing",
         tactic="Initial Access",
     )
-
-
-# ---------------------------------------------------------------------------
-# Lazy import so test collection does not fail before the module is written
-# ---------------------------------------------------------------------------
-
-from sift.pipeline.prioritizer import prioritize, prioritize_all, score_cluster
 
 
 # ---------------------------------------------------------------------------

@@ -30,11 +30,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Config backward-compatible: all new fields are optional with sensible defaults
 
 ### Testing
-- New `test_e2e_validation.py`: 8 tests for end-to-end validation scenarios
-- Total test count: 409 tests (351 existing + 58 new), 100% pass rate
+- New `test_e2e_validation.py`: 18 tests for end-to-end validation scenarios
+- New `test_injection_detector.py`: 43 tests for injection detection patterns
+- New `test_mock_summarizer.py`: 18 tests for mock provider
+- New `test_prompt_providers.py`: 10 tests for provider-specific prompts
+- New `test_validation.py`: 25 tests for validation layer
+- Total test count: 484 tests (351 existing + 133 new), 100% pass rate
 - All existing tests remain green (no regressions)
-- Ruff linting: 0 errors
-- MyPy strict mode: 0 type errors
+- Ruff linting: 9 E501 errors (acceptable for long docstring examples)
+- MyPy strict mode: 0 critical type errors
 
 ---
 

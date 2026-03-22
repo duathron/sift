@@ -14,12 +14,11 @@ prioritizer.py is responsible for the final assignment.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Optional
 
 from sift.config import ClusteringConfig
 from sift.models import Alert, Cluster, ClusterPriority, TechniqueRef
-
 
 # ---------------------------------------------------------------------------
 # Union-Find (Disjoint Set Union)
@@ -203,8 +202,6 @@ def cluster_alerts(
     n = len(alerts)
     uf = _UnionFind(n)
 
-    # Index alerts by position for fast lookup
-    idx: dict[str, int] = {a.id: i for i, a in enumerate(alerts)}
 
     # -----------------------------------------------------------------------
     # Pass 1: IOC overlap

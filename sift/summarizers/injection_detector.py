@@ -79,9 +79,11 @@ class PromptInjectionDetector:
             flags,
         )
 
-        # Pattern 4: Base64 or hex encoded payloads (base64 with multiple chunks of 4+ chars)
+        # Pattern 4: Base64 or hex encoded payloads
+        # Base64: 12+ chars without padding, OR 4+ chars with 2-char padding, OR 8+ chars with 1-char padding
+        # Hex: 20+ hex digits (10+ bytes)
         self.pattern_base64_hex = re.compile(
-            r'\b(?:[A-Za-z0-9+/]{20,}={0,2}|(?:[0-9a-fA-F]{2}){10,})\b',
+            r'(?:[A-Za-z0-9+/]{12,}|[A-Za-z0-9+/]{4,}==|[A-Za-z0-9+/]{8,}=|(?:[0-9a-fA-F]{2}){10,})',
             flags,
         )
 
@@ -122,7 +124,7 @@ class PromptInjectionDetector:
             if field_value is None or not isinstance(field_value, str):
                 continue
 
-            # Check each pattern
+            # Check each pattern (use if, not elif, to detect all patterns in a field)
             if self.pattern_ignore_instructions.search(field_value):
                 findings.append(
                     InjectionFinding(
@@ -134,7 +136,7 @@ class PromptInjectionDetector:
                     )
                 )
 
-            elif self.pattern_instead_output.search(field_value):
+            if self.pattern_instead_output.search(field_value):
                 findings.append(
                     InjectionFinding(
                         field=field_name,
@@ -145,7 +147,7 @@ class PromptInjectionDetector:
                     )
                 )
 
-            elif self.pattern_json_escapes.search(field_value):
+            if self.pattern_json_escapes.search(field_value):
                 findings.append(
                     InjectionFinding(
                         field=field_name,
@@ -156,7 +158,7 @@ class PromptInjectionDetector:
                     )
                 )
 
-            elif self.pattern_base64_hex.search(field_value):
+            if self.pattern_base64_hex.search(field_value):
                 findings.append(
                     InjectionFinding(
                         field=field_name,
@@ -167,7 +169,7 @@ class PromptInjectionDetector:
                     )
                 )
 
-            elif self.pattern_shell_commands.search(field_value):
+            if self.pattern_shell_commands.search(field_value):
                 findings.append(
                     InjectionFinding(
                         field=field_name,

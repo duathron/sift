@@ -11,14 +11,11 @@ Also covers Cluster properties and sort order.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
-import pytest
-
-from sift.pipeline.clusterer import cluster_alerts
 from sift.config import ClusteringConfig
 from sift.models import Alert, AlertSeverity, ClusterPriority
-
+from sift.pipeline.clusterer import cluster_alerts
 
 # ---------------------------------------------------------------------------
 # Alert factory

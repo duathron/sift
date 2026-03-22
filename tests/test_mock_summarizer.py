@@ -5,8 +5,6 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-import pytest
-
 from sift.models import (
     Alert,
     AlertSeverity,
@@ -16,9 +14,8 @@ from sift.models import (
     TechniqueRef,
     TriageReport,
 )
-from sift.summarizers.protocol import SummarizerProtocol
 from sift.summarizers.mock import MockSummarizer
-
+from sift.summarizers.protocol import SummarizerProtocol
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -6,8 +6,6 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-import pytest
-
 from sift.models import Alert, AlertSeverity
 from sift.summarizers.injection_detector import (
     InjectionFinding,
@@ -16,7 +14,6 @@ from sift.summarizers.injection_detector import (
     redact_alerts,
     scan_alert,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

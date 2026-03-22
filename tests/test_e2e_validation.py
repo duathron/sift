@@ -14,7 +14,6 @@ All tests use realistic TriageReport fixtures and verify schema compliance.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pytest
 
@@ -30,13 +29,10 @@ from sift.models import (
     TriageReport,
 )
 from sift.summarizers.injection_detector import (
-    InjectionFinding,
     PromptInjectionDetector,
-    scan_alert,
 )
 from sift.summarizers.mock import MockSummarizer
-from sift.summarizers.validation import SummaryValidator, SummaryResultSchema
-
+from sift.summarizers.validation import SummaryResultSchema, SummaryValidator
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -371,16 +367,18 @@ class TestE2EValidateOnlyFlag:
 
     def test_validate_only_flag_exists(self):
         """The --validate-only flag is defined in the triage command."""
-        from sift.main import triage
         import inspect
+
+        from sift.main import triage
 
         sig = inspect.signature(triage)
         assert "validate_only" in sig.parameters
 
     def test_validate_only_flag_default_is_false(self):
         """The --validate-only flag defaults to False."""
-        from sift.main import triage
         import inspect
+
+        from sift.main import triage
 
         sig = inspect.signature(triage)
         assert sig.parameters["validate_only"].default is False

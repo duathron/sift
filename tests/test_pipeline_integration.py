@@ -7,18 +7,17 @@ constructed from the resulting data.
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
+from sift.models import ClusterPriority, TriageReport
 from sift.normalizers.generic import GenericNormalizer
+from sift.pipeline.clusterer import cluster_alerts
 from sift.pipeline.dedup import deduplicate
 from sift.pipeline.ioc_extractor import enrich_alerts_iocs
-from sift.pipeline.clusterer import cluster_alerts
 from sift.pipeline.prioritizer import prioritize_all
-from sift.models import ClusterPriority, TriageReport
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

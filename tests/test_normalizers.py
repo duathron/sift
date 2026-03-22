@@ -11,7 +11,6 @@ from sift.normalizers.csv_normalizer import CSVNormalizer
 from sift.normalizers.generic import GenericNormalizer
 from sift.normalizers.splunk import SplunkNormalizer
 
-
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------

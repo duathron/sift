@@ -24,7 +24,6 @@ from pydantic import BaseModel, computed_field
 
 from sift.models import Alert
 
-
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------

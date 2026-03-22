@@ -7,7 +7,6 @@ suitable for submission to any chat-completion API (Anthropic, OpenAI, Ollama).
 
 from __future__ import annotations
 
-import json
 import logging
 
 from pydantic import BaseModel

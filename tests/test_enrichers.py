@@ -8,8 +8,6 @@ import uuid
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from sift.enrichers.barb_bridge import BarbBridge
 from sift.enrichers.protocol import EnricherProtocol
 from sift.enrichers.runner import EnrichmentMode, EnrichmentRunner
@@ -22,7 +20,6 @@ from sift.models import (
     EnrichmentContext,
     TriageReport,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

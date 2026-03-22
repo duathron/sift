@@ -5,15 +5,12 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-import pytest
-
+from sift.config import ClusteringConfig
 from sift.models import Alert, AlertSeverity, Cluster, ClusterPriority
+from sift.pipeline.clusterer import cluster_alerts
 from sift.pipeline.dedup import DeduplicatorConfig, deduplicate
 from sift.pipeline.ioc_extractor import detect_ioc_type, enrich_alert_iocs, extract_iocs
-from sift.pipeline.clusterer import cluster_alerts
 from sift.pipeline.prioritizer import prioritize, prioritize_all
-from sift.config import ScoringConfig, ClusteringConfig
-
 
 # ---------------------------------------------------------------------------
 # Helpers

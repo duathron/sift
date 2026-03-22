@@ -45,9 +45,9 @@ class OutputFormat(str):
 
 def _normalize(raw: str) -> tuple[list, str]:
     """Auto-detect format and return (alerts, format_name)."""
-    from .normalizers.splunk import SplunkNormalizer
-    from .normalizers.generic import GenericNormalizer
     from .normalizers.csv_normalizer import CSVNormalizer
+    from .normalizers.generic import GenericNormalizer
+    from .normalizers.splunk import SplunkNormalizer
 
     for normalizer in [SplunkNormalizer(), GenericNormalizer(), CSVNormalizer()]:
         if normalizer.can_handle(raw):
@@ -218,7 +218,7 @@ def triage(
         alerts_after_dedup = alerts
         dedup_count = alerts_ingested
     else:
-        from .pipeline.dedup import deduplicate, DeduplicatorConfig
+        from .pipeline.dedup import DeduplicatorConfig, deduplicate
         alerts_after_dedup, dedup_stats = deduplicate(
             alerts,
             DeduplicatorConfig(time_window_minutes=cfg.clustering.time_window_minutes),
@@ -246,7 +246,7 @@ def triage(
     enrichment = None
     if enrich:
         if _check_enrich_consent(yes, cfg):
-            from .enrichers.runner import EnrichmentRunner, EnrichmentMode
+            from .enrichers.runner import EnrichmentMode, EnrichmentRunner
             mode_map = {"barb": EnrichmentMode.BARB, "vex": EnrichmentMode.VEX, "all": EnrichmentMode.ALL}
             eff_mode = mode_map.get((enrich_mode or "all").lower(), EnrichmentMode.ALL)
             runner = EnrichmentRunner(mode=eff_mode)
@@ -258,7 +258,8 @@ def triage(
                 if not (quiet or cfg.output.quiet):
                     console.print(f"  [dim]Enriching {len(all_iocs)} IOC(s) via {eff_mode.value}...[/dim]")
                 try:
-                    enrichment = runner.enrich(all_iocs, max_iocs=cfg.enrich.max_iocs if hasattr(cfg.enrich, 'max_iocs') else 20)
+                    max_ioc_limit = getattr(cfg.enrich, 'max_iocs', 20)
+                    enrichment = runner.enrich(all_iocs, max_iocs=max_ioc_limit)
                 except Exception as e:
                     console.print(f"[yellow]Warning:[/yellow] Enrichment failed: {e}")
         else:
@@ -306,8 +307,8 @@ def triage(
 # ---------------------------------------------------------------------------
 
 def _render_output(report: TriageReport, *, format: str, output_path: Optional[Path], cfg, quiet: bool) -> None:
-    from .output.formatter import format_report_rich, format_report_console
-    from .output.export import export_json, export_csv
+    from .output.export import export_csv, export_json
+    from .output.formatter import format_report_console, format_report_rich
 
     fmt = format.lower()
 
@@ -322,7 +323,8 @@ def _render_output(report: TriageReport, *, format: str, output_path: Optional[P
     elif fmt == "console":
         format_report_console(report)
         if output_path:
-            import io, contextlib
+            import contextlib
+            import io
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
                 format_report_console(report)
@@ -350,7 +352,7 @@ def _render_output(report: TriageReport, *, format: str, output_path: Optional[P
 @app.command()
 def doctor() -> None:
     """Run diagnostics — check dependencies, config, and LLM connectivity."""
-    from .doctor import run_checks, print_doctor_report
+    from .doctor import print_doctor_report, run_checks
 
     results = run_checks()
     ok = print_doctor_report(results)
@@ -367,8 +369,8 @@ def config_cmd(
     config_path: Annotated[Optional[Path], typer.Option("--config", show_default=False)] = None,
 ) -> None:
     """Show or manage sift configuration."""
-    from rich.syntax import Syntax
     import yaml
+    from rich.syntax import Syntax
 
     cfg = load_config(config_path)
 

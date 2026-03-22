@@ -14,8 +14,6 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
-
 from sift.models import Alert, AlertSeverity
 from sift.pipeline.ioc_extractor import (
     detect_ioc_type,
@@ -23,7 +21,6 @@ from sift.pipeline.ioc_extractor import (
     enrich_alerts_iocs,
     extract_iocs,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
-import pytest
-
-from sift.pipeline.dedup import deduplicate, DeduplicatorConfig, DedupStats
-from sift.models import Alert, AlertSeverity
-
+from sift.models import Alert
+from sift.pipeline.dedup import DeduplicatorConfig, deduplicate
 
 # ---------------------------------------------------------------------------
 # Alert factory

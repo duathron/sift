@@ -24,14 +24,11 @@ from sift.models import (
     AlertSeverity,
     Cluster,
     ClusterPriority,
-    ClusterSummary,
     Recommendation,
     SummaryResult,
     TriageReport,
 )
-from sift.summarizers.template import TemplateSummarizer
 from sift.summarizers.validation import SummaryResultSchema, SummaryValidator
-
 
 # ---------------------------------------------------------------------------
 # Helpers

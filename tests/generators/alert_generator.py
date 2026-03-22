@@ -7,7 +7,6 @@ from typing import Any
 
 from sift.models import Alert, AlertSeverity
 
-
 # ---------------------------------------------------------------------------
 # AlertBuilder — fluent interface
 # ---------------------------------------------------------------------------

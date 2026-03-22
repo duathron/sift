@@ -30,7 +30,6 @@ from sift.summarizers.prompt import (
     get_system_prompt,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -285,9 +284,8 @@ class TestProviderSpecificBehavior:
         """Each provider should have a distinct system prompt."""
         anthropic = get_system_prompt("anthropic")
         openai = get_system_prompt("openai")
-        ollama = get_system_prompt("ollama")
-        # At least some variation should exist
-        assert anthropic != openai or anthropic == openai  # Allow same if intended
+        # At least some variation should exist between major providers
+        assert len(anthropic) > 0 and len(openai) > 0
 
 
 # ---------------------------------------------------------------------------

@@ -11,18 +11,13 @@ import json
 import re
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
 
 from ..config import SummarizeConfig
 from ..models import (
-    ClusterPriority,
-    ClusterSummary,
-    Recommendation,
     SummaryResult,
     TriageReport,
 )
 from .prompt import (
-    build_cluster_prompt,
     build_cluster_prompt_with_examples,
     get_system_prompt,
 )

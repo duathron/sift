@@ -3,19 +3,13 @@
 import uuid
 from datetime import datetime, timezone
 
-import pytest
-
 from sift.models import (
     Alert,
     AlertSeverity,
     Cluster,
     ClusterPriority,
-    Recommendation,
-    SummaryResult,
-    TechniqueRef,
     TriageReport,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -9,19 +9,14 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from ..config import SummarizeConfig
 from ..models import (
-    ClusterPriority,
-    ClusterSummary,
-    Recommendation,
     SummaryResult,
     TriageReport,
 )
 from .prompt import (
-    build_cluster_prompt,
     build_cluster_prompt_with_examples,
     get_system_prompt,
 )
