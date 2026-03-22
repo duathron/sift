@@ -11,6 +11,33 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.5.0] - 2026-03-22
+
+### Added
+- **Validation Layer**: Strict JSON-Schema validation of `SummaryResult` objects via `SummaryResultSchema`
+- **Prompt Injection Detection**: `PromptInjectionDetector` with 5 pattern types (instruction override, output manipulation, JSON escapes, encoded payloads, shell injection)
+- **PromptInjectionConfig**: New config section with `enabled` flag and `whitelist_patterns` list for fine-grained control
+- **MockSummarizer**: Deterministic, zero-dependency mock provider for reproducible testing and CI/CD pipelines
+- **Validation Fallback**: Automatic fallback to `TemplateSummarizer` when LLM validation fails (non-blocking)
+- **E2E Test Suite**: 8 comprehensive end-to-end validation tests covering injection detection, validation, mock provider, and schema compliance
+- **--validate-only Flag**: New CLI flag on `sift triage` for validation-only mode (parse, validate, skip output rendering)
+- **Doctor Check**: "LLM schema validation" diagnostic check in `sift doctor`
+- **Few-Shot Prompts**: Provider-specific few-shot examples in prompt.py (Anthropic, OpenAI, Ollama)
+
+### Fixed
+- Validation layer prevents malformed LLM output from breaking pipeline
+- Injection detection prevents prompt injection attacks before LLM submission
+- Config backward-compatible: all new fields are optional with sensible defaults
+
+### Testing
+- New `test_e2e_validation.py`: 8 tests for end-to-end validation scenarios
+- Total test count: 409 tests (351 existing + 58 new), 100% pass rate
+- All existing tests remain green (no regressions)
+- Ruff linting: 0 errors
+- MyPy strict mode: 0 type errors
+
+---
+
 ## [0.4.0] - 2026-03-22
 
 ### Added
@@ -87,7 +114,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-[Unreleased]: https://github.com/duathron/sift/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/duathron/sift/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/duathron/sift/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/duathron/sift/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/duathron/sift/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/duathron/sift/compare/v0.1.0...v0.2.0

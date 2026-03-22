@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime, timezone
 
+from sift.config import SummarizeConfig
 from sift.models import (
     Cluster,
     ClusterPriority,
@@ -17,6 +18,7 @@ from sift.models import (
     SummaryResult,
     TriageReport,
 )
+from sift.summarizers.prompt import get_system_prompt
 
 
 # ---------------------------------------------------------------------------

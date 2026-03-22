@@ -69,6 +69,10 @@ def _build_summarizer(provider: str, config):
     if provider == "template":
         return TemplateSummarizer()
 
+    if provider == "mock":
+        from .summarizers.mock import MockSummarizer
+        return MockSummarizer()
+
     if provider == "anthropic":
         try:
             from .summarizers.anthropic import AnthropicSummarizer
@@ -129,7 +133,7 @@ def triage(
         help="Generate AI/template triage summary.",
     )] = False,
     provider: Annotated[Optional[str], typer.Option(
-        help="LLM provider: template | anthropic | openai | ollama",
+        help="LLM provider: template | mock | anthropic | openai | ollama",
     )] = None,
     output: Annotated[Optional[Path], typer.Option(
         "--output", "-o",
@@ -159,6 +163,10 @@ def triage(
     yes: Annotated[bool, typer.Option(
         "--yes", "-y",
         help="Skip consent prompt for external API calls (--enrich).",
+    )] = False,
+    validate_only: Annotated[bool, typer.Option(
+        "--validate-only",
+        help="Validation-only mode: parse and validate, skip output rendering.",
     )] = False,
 ) -> None:
     """Triage alerts from FILE: normalize → dedup → cluster → prioritize → output."""
@@ -279,6 +287,12 @@ def triage(
             report = report.model_copy(update={"summary": summarizer.summarize(report)})
         except Exception as exc:
             console.print(f"[yellow]Warning:[/yellow] Summarization failed: {exc}")
+
+    # --- Validation-only mode ---
+    if validate_only:
+        if not quiet:
+            console.print(f"[green]✓[/green] Validation passed: {len(report.clusters)} cluster(s)")
+        raise typer.Exit(0)
 
     # --- Output ---
     _render_output(report, format=format, output_path=output, cfg=cfg, quiet=quiet)

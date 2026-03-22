@@ -196,6 +196,21 @@ def _check_output_directory() -> CheckResult:
     )
 
 
+def _check_llm_schema_validation() -> CheckResult:
+    """Check that LLM schema validation module is available."""
+    if _check_importable("sift.summarizers.validation"):
+        return CheckResult(
+            name="LLM schema validation",
+            status=CheckStatus.PASS,
+            message="Validation module available",
+        )
+    return CheckResult(
+        name="LLM schema validation",
+        status=CheckStatus.WARN,
+        message="Validation module not found",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -217,6 +232,7 @@ def run_checks() -> list[CheckResult]:
         _check_enrich_vex(),
         _check_llm_key(),
         _check_output_directory(),
+        _check_llm_schema_validation(),
     ]
 
 

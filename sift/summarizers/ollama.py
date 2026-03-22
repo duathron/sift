@@ -21,75 +21,15 @@ from ..models import (
     SummaryResult,
     TriageReport,
 )
-from .prompt import SYSTEM_PROMPT, build_cluster_prompt
+from .prompt import (
+    build_cluster_prompt,
+    build_cluster_prompt_with_examples,
+    get_system_prompt,
+)
+from .validation import SummaryValidator
 
 _DEFAULT_MODEL = "llama3.2"
 _DEFAULT_BASE_URL = "http://localhost:11434"
-
-# Priority string → ClusterPriority fallback map
-_PRIORITY_MAP: dict[str, ClusterPriority] = {p.value: p for p in ClusterPriority}
-
-
-# ---------------------------------------------------------------------------
-# Shared JSON parsing helper
-# ---------------------------------------------------------------------------
-
-def _parse_summary_json(json_text: str, provider: str, report: TriageReport) -> SummaryResult:
-    """Parse LLM JSON output into a :class:`SummaryResult`.
-
-    Handles responses wrapped in markdown fenced code blocks (```json ... ```).
-    Falls back to ``MEDIUM`` priority when the returned string is unrecognised.
-
-    Args:
-        json_text: Raw text returned by the LLM, possibly with Markdown fencing.
-        provider: Short provider identifier (e.g. ``"ollama"``).
-        report: The triage report that was summarised (used for fallback context).
-
-    Returns:
-        A fully-populated :class:`SummaryResult`.
-
-    Raises:
-        json.JSONDecodeError: If the text cannot be parsed as JSON after stripping
-            any Markdown fencing.
-    """
-    # Strip markdown code fences if present: ```json ... ``` or ``` ... ```
-    stripped = json_text.strip()
-    fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", stripped)
-    if fence_match:
-        stripped = fence_match.group(1).strip()
-
-    data = json.loads(stripped)
-
-    # Build per-cluster summaries
-    cluster_summaries: list[ClusterSummary] = []
-    for cs in data.get("cluster_summaries", []):
-        recommendations: list[Recommendation] = [
-            Recommendation(
-                action=r.get("action", ""),
-                priority=r.get("priority", "MONITOR"),
-                rationale=r.get("rationale", ""),
-            )
-            for r in cs.get("recommendations", [])
-        ]
-        cluster_summaries.append(
-            ClusterSummary(
-                cluster_id=cs.get("cluster_id", ""),
-                narrative=cs.get("narrative", ""),
-                recommendations=recommendations,
-            )
-        )
-
-    # Map overall_priority string → enum, fall back to MEDIUM
-    raw_priority = str(data.get("overall_priority", "")).upper()
-    overall_priority = _PRIORITY_MAP.get(raw_priority, ClusterPriority.MEDIUM)
-
-    return SummaryResult(
-        executive_summary=data.get("executive_summary", ""),
-        cluster_summaries=cluster_summaries,
-        overall_priority=overall_priority,
-        provider=provider,
-        generated_at=datetime.now(timezone.utc),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -169,10 +109,11 @@ class OllamaSummarizer:
                 LLM output cannot be parsed as JSON.
             KeyError: If the Ollama response is missing the ``"response"`` field.
         """
-        user_prompt = build_cluster_prompt(report, self._config)
+        system_prompt = get_system_prompt(self.name)
+        user_prompt = build_cluster_prompt_with_examples(report, self._config, self.name)
 
         # Prepend system prompt inline — works across all Ollama versions.
-        combined_prompt = f"{SYSTEM_PROMPT}\n\n{user_prompt}"
+        combined_prompt = f"{system_prompt}\n\n{user_prompt}"
 
         payload = json.dumps(
             {
@@ -195,4 +136,40 @@ class OllamaSummarizer:
         outer = json.loads(body)
         llm_text: str = outer["response"]
 
-        return _parse_summary_json(llm_text, self.name, report)
+        return self._parse_and_validate_response(llm_text, report)
+
+    def _parse_and_validate_response(
+        self, response_text: str, report: TriageReport
+    ) -> SummaryResult:
+        """Parse and validate LLM response with fallback to template on failure.
+
+        Args:
+            response_text: Raw text response from Ollama.
+            report: The triage report being summarized.
+
+        Returns:
+            A validated :class:`SummaryResult`, or a template-generated fallback.
+        """
+        try:
+            # Strip markdown code fences if present: ```json ... ``` or ``` ... ```
+            stripped = response_text.strip()
+            fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", stripped)
+            if fence_match:
+                stripped = fence_match.group(1).strip()
+
+            data = json.loads(stripped)
+
+            # Validate the parsed JSON against schema
+            return SummaryValidator.validate(data, self.name, report)
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            # Graceful degradation: fall back to rule-based template summarizer
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Failed to parse/validate Ollama response: {exc}. "
+                f"Falling back to template summarizer."
+            )
+            from .template import TemplateSummarizer  # noqa: PLC0415
+
+            return TemplateSummarizer().summarize(report)

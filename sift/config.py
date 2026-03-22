@@ -79,6 +79,13 @@ class UpdateCheckConfig(BaseModel):
     check_interval_hours: int = 24
 
 
+class PromptInjectionConfig(BaseModel):
+    """Configuration for prompt injection detection and prevention."""
+
+    enabled: bool = True              # Enable/disable injection detection
+    whitelist_patterns: list[str] = []  # Optional regex patterns for safe content
+
+
 class AppConfig(BaseModel):
     """Top-level application configuration."""
 
@@ -88,6 +95,7 @@ class AppConfig(BaseModel):
     output: OutputConfig = OutputConfig()
     enrich: EnrichConfig = EnrichConfig()
     update_check: UpdateCheckConfig = UpdateCheckConfig()
+    injection: PromptInjectionConfig = PromptInjectionConfig()
 
 
 # ---------------------------------------------------------------------------
