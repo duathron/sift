@@ -7,10 +7,11 @@ import sys
 from . import __version__
 
 _BANNER = r"""
-  ___ _  __ _
- / __(_)/ _| |_
- \__ \ |  _|  _|
- |___/_|_|  \__|
+  ____ ___ _____ _____
+ / ___|_ _|  ___|_   _|
+ \___ \| || |_    | |
+  ___) | ||  _|   | |
+ |____/___|_|     |_|
 """
 
 _INFO = " v{version} | by Christian Huhn | Alert Triage Summarizer"
