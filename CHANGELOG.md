@@ -11,6 +11,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.4.0] - 2026-03-22
+
+### Added
+- `--enrich` flag on `sift triage`: enriches extracted IOCs via barb (phishing URLs) and vex (VirusTotal)
+- `sift/enrichers/` module: protocol, BarbBridge, VexBridge, EnrichmentRunner
+- Subprocess-based bridge (CLI-agnostic, no internal API coupling)
+- `--enrich-mode` flag: `all` | `barb` | `vex` (default: all)
+- `--yes` / `-y` flag: skip enrichment consent prompt
+- Consent prompt for external API calls (GDPR-aware)
+- `EnrichmentContext` included in `TriageReport` JSON export
+- `EnrichConfig.consent_given` config option to pre-approve enrichment
+- Kali Linux installation docs (pipx recommended)
+- Python 3.11+ compatibility (was 3.12+)
+
+---
+
 ## [0.1.0] - 2026-03-22
 
 ### Added
@@ -40,5 +56,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-[Unreleased]: https://github.com/duathron/sift/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/duathron/sift/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/duathron/sift/compare/v0.3.0...v0.4.0
 [0.1.0]: https://github.com/duathron/sift/releases/tag/v0.1.0

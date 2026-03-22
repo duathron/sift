@@ -48,6 +48,23 @@ pip install "sift-triage[enrich]"
 pip install "sift-triage[llm,enrich]"
 ```
 
+### Kali Linux / Debian
+
+```bash
+# Recommended: use pipx for isolated CLI tool installation
+sudo apt install pipx   # or: pip install pipx
+pipx install sift-triage
+
+# With LLM support
+pipx install "sift-triage[llm]"
+
+# With barb + vex enrichment
+pipx install "sift-triage[enrich]"
+```
+
+> **Note:** Python 3.11+ required. Kali Linux 2024+ includes Python 3.12 by default.
+> On older systems: `sudo apt install python3.12 python3.12-venv`
+
 ---
 
 ## Quick Start
@@ -75,6 +92,16 @@ sift triage alerts.json -f json -o report.json
 **Run diagnostics:**
 ```bash
 sift doctor
+```
+
+**Enrich IOCs via barb (phishing URLs) + vex (VirusTotal):**
+```bash
+sift triage alerts.json --enrich --summarize
+```
+
+**Enrich only via barb (no VirusTotal API key needed):**
+```bash
+sift triage alerts.json --enrich --enrich-mode barb
 ```
 
 ---
@@ -110,6 +137,33 @@ splunk-cli export | sift triage -
 | `ollama` | *(none)* | `SIFT_OLLAMA_URL` (optional) | Local inference; defaults to `http://localhost:11434` |
 
 Set the default provider in `~/.sift/config.yaml` or via the `SIFT_PROVIDER` environment variable.
+
+---
+
+## Enrichment (barb + vex)
+
+The `--enrich` flag enriches extracted IOCs using the sister tools:
+
+| Tool | PyPI | What it does | Required |
+|------|------|-------------|----------|
+| barb | `barb-phish` | Heuristic phishing URL analysis | No (local) |
+| vex  | `vex-ioc`    | VirusTotal IOC reputation lookup | API key via `VT_API_KEY` |
+
+```bash
+# Install enrichment extras
+pip install "sift-triage[enrich]"
+
+# Run with enrichment
+sift triage alerts.json --enrich
+
+# Barb only (no API key needed)
+sift triage alerts.json --enrich --enrich-mode barb
+
+# Skip consent prompt
+sift triage alerts.json --enrich --yes
+```
+
+sift limits enrichment to 20 IOCs per run to avoid API rate limits.
 
 ---
 

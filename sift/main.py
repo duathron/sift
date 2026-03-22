@@ -96,6 +96,21 @@ def _build_summarizer(provider: str, config):
 
 
 # ---------------------------------------------------------------------------
+# Helper: enrichment consent
+# ---------------------------------------------------------------------------
+
+def _check_enrich_consent(yes: bool, cfg) -> bool:
+    """Returns True if consent is given for external API calls."""
+    if yes or cfg.enrich.consent_given:
+        return True
+    console.print(
+        "\n[yellow]--enrich[/yellow] will call external APIs (barb, vex).\n"
+        "This sends IOC data to VirusTotal (via vex) and runs local barb analysis.\n"
+    )
+    return typer.confirm("Proceed with enrichment?", default=False)
+
+
+# ---------------------------------------------------------------------------
 # triage command
 # ---------------------------------------------------------------------------
 
@@ -133,6 +148,18 @@ def triage(
         help="Path to config.yaml",
         show_default=False,
     )] = None,
+    enrich: Annotated[bool, typer.Option(
+        "--enrich",
+        help="Enrich IOCs via barb (URLs) and vex (all IOCs). Requires consent or --yes.",
+    )] = False,
+    enrich_mode: Annotated[Optional[str], typer.Option(
+        "--enrich-mode",
+        help="Enrichment scope: all | barb | vex  [default: all]",
+    )] = None,
+    yes: Annotated[bool, typer.Option(
+        "--yes", "-y",
+        help="Skip consent prompt for external API calls (--enrich).",
+    )] = False,
 ) -> None:
     """Triage alerts from FILE: normalize → dedup → cluster → prioritize → output."""
 
@@ -207,15 +234,39 @@ def triage(
     from .pipeline.prioritizer import prioritize_all
     clusters = prioritize_all(clusters, cfg.scoring)
 
+    # --- Enrichment (optional) ---
+    enrichment = None
+    if enrich:
+        if _check_enrich_consent(yes, cfg):
+            from .enrichers.runner import EnrichmentRunner, EnrichmentMode
+            mode_map = {"barb": EnrichmentMode.BARB, "vex": EnrichmentMode.VEX, "all": EnrichmentMode.ALL}
+            eff_mode = mode_map.get((enrich_mode or "all").lower(), EnrichmentMode.ALL)
+            runner = EnrichmentRunner(mode=eff_mode)
+            # Collect all unique IOCs from clusters
+            all_iocs = runner.collect_iocs_from_report(
+                type("R", (), {"clusters": clusters})()
+            )
+            if all_iocs:
+                if not (quiet or cfg.output.quiet):
+                    console.print(f"  [dim]Enriching {len(all_iocs)} IOC(s) via {eff_mode.value}...[/dim]")
+                try:
+                    enrichment = runner.enrich(all_iocs, max_iocs=cfg.enrich.max_iocs if hasattr(cfg.enrich, 'max_iocs') else 20)
+                except Exception as e:
+                    console.print(f"[yellow]Warning:[/yellow] Enrichment failed: {e}")
+        else:
+            console.print("[dim]Enrichment skipped.[/dim]")
+
     # --- Build report ---
     report = TriageReport(
         input_file=input_file_str,
         alerts_ingested=alerts_ingested,
         alerts_after_dedup=dedup_count if not no_dedup else alerts_ingested,
         clusters=clusters,
+        enrichment=enrichment,
         manifest=PipelineManifest(
             sift_version=__version__,
             input_format=detected_format,
+            enrich_mode=(enrich_mode or "all") if enrich and enrichment else None,
         ),
         analyzed_at=datetime.now(tz=timezone.utc),
     )
