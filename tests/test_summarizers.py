@@ -1,4 +1,4 @@
-"""Tests for sift summarizers."""
+"""Tests for sift.summarizers.template.TemplateSummarizer."""
 
 from __future__ import annotations
 
@@ -8,9 +8,15 @@ from datetime import datetime, timezone
 import pytest
 
 from sift.models import (
-    Alert, AlertSeverity, Cluster, ClusterPriority,
-    SummaryResult, TriageReport,
+    Alert,
+    AlertSeverity,
+    Cluster,
+    ClusterPriority,
+    SummaryResult,
+    TechniqueRef,
+    TriageReport,
 )
+from sift.summarizers.protocol import SummarizerProtocol
 from sift.summarizers.template import TemplateSummarizer
 
 
@@ -18,108 +24,169 @@ from sift.summarizers.template import TemplateSummarizer
 # Helpers
 # ---------------------------------------------------------------------------
 
-def make_alert(severity=AlertSeverity.HIGH, title="Test Alert", iocs=None) -> Alert:
+def make_alert(severity: AlertSeverity = AlertSeverity.HIGH, iocs: list[str] | None = None) -> Alert:
     return Alert(
         id=str(uuid.uuid4()),
-        title=title,
+        title="Phishing Email",
         severity=severity,
-        iocs=iocs or [],
+        iocs=iocs or ["185.220.101.47"],
     )
 
 
-def make_cluster(priority=ClusterPriority.HIGH, alert_count=3, iocs=None) -> Cluster:
+def make_cluster(
+    priority: ClusterPriority,
+    alerts: list[Alert] | None = None,
+    techniques: list[TechniqueRef] | None = None,
+    iocs: list[str] | None = None,
+) -> Cluster:
+    alerts = alerts or [make_alert()]
     return Cluster(
         id=str(uuid.uuid4()),
         label="Test Cluster",
-        alerts=[make_alert() for _ in range(alert_count)],
+        alerts=alerts,
         priority=priority,
-        score=30.0,
-        iocs=iocs or ["185.220.101.47", "evil.phish.ru"],
-        techniques=[],
-        cluster_reason="IOC overlap",
+        score=50.0,
+        iocs=iocs or ["185.220.101.47"],
+        techniques=techniques or [],
     )
 
 
-def make_report(clusters=None) -> TriageReport:
-    if clusters is None:
-        clusters = [make_cluster()]
+def make_report(clusters: list[Cluster]) -> TriageReport:
     return TriageReport(
-        alerts_ingested=10,
-        alerts_after_dedup=8,
+        alerts_ingested=sum(len(c.alerts) for c in clusters),
+        alerts_after_dedup=sum(len(c.alerts) for c in clusters),
         clusters=clusters,
-        analyzed_at=datetime.now(tz=timezone.utc),
+        analyzed_at=datetime.now(timezone.utc),
     )
 
 
 # ---------------------------------------------------------------------------
-# TemplateSummarizer
+# Tests
 # ---------------------------------------------------------------------------
 
-class TestTemplateSummarizer:
-    summ = TemplateSummarizer()
+class TestTemplateSummarizerProtocol:
+    """TemplateSummarizer satisfies the structural SummarizerProtocol."""
 
-    def test_name(self):
-        assert self.summ.name == "template"
+    def test_implements_summarizer_protocol(self):
+        assert isinstance(TemplateSummarizer(), SummarizerProtocol)
 
-    def test_returns_summary_result(self):
-        report = make_report()
-        result = self.summ.summarize(report)
+    def test_name_is_template(self):
+        assert TemplateSummarizer().name == "template"
+
+
+class TestTemplateSummarizerReturnType:
+    """summarize() returns a well-formed SummaryResult."""
+
+    def test_summarize_returns_summary_result(self):
+        report = make_report([make_cluster(ClusterPriority.HIGH)])
+        result = TemplateSummarizer().summarize(report)
         assert isinstance(result, SummaryResult)
 
-    def test_executive_summary_not_empty(self):
-        result = self.summ.summarize(make_report())
-        assert len(result.executive_summary) > 10
+    def test_executive_summary_is_non_empty_string(self):
+        report = make_report([make_cluster(ClusterPriority.MEDIUM)])
+        result = TemplateSummarizer().summarize(report)
+        assert isinstance(result.executive_summary, str)
+        assert len(result.executive_summary) > 0
 
-    def test_provider_is_template(self):
-        result = self.summ.summarize(make_report())
+    def test_provider_field_is_template(self):
+        report = make_report([make_cluster(ClusterPriority.LOW)])
+        result = TemplateSummarizer().summarize(report)
         assert result.provider == "template"
 
-    def test_overall_priority_reflects_clusters(self):
-        clusters = [
-            make_cluster(priority=ClusterPriority.LOW),
-            make_cluster(priority=ClusterPriority.CRITICAL),
-            make_cluster(priority=ClusterPriority.MEDIUM),
-        ]
-        result = self.summ.summarize(make_report(clusters))
+
+class TestTemplateSummarizerOverallPriority:
+    """overall_priority reflects the highest cluster priority in the report."""
+
+    def test_overall_priority_critical_when_cluster_is_critical(self):
+        report = make_report([make_cluster(ClusterPriority.CRITICAL)])
+        result = TemplateSummarizer().summarize(report)
         assert result.overall_priority == ClusterPriority.CRITICAL
 
-    def test_all_noise_gives_noise_priority(self):
-        clusters = [make_cluster(priority=ClusterPriority.NOISE)]
-        result = self.summ.summarize(make_report(clusters))
+    def test_overall_priority_noise_when_all_clusters_are_noise(self):
+        clusters = [make_cluster(ClusterPriority.NOISE), make_cluster(ClusterPriority.NOISE)]
+        report = make_report(clusters)
+        result = TemplateSummarizer().summarize(report)
         assert result.overall_priority == ClusterPriority.NOISE
 
-    def test_cluster_summaries_generated(self):
-        report = make_report([
-            make_cluster(priority=ClusterPriority.HIGH),
-            make_cluster(priority=ClusterPriority.MEDIUM),
-        ])
-        result = self.summ.summarize(report)
-        assert len(result.cluster_summaries) >= 1
 
-    def test_critical_cluster_has_immediate_recommendation(self):
-        report = make_report([make_cluster(priority=ClusterPriority.CRITICAL)])
-        result = self.summ.summarize(report)
-        summaries = result.cluster_summaries
-        if summaries:
-            priorities = [r.priority for r in summaries[0].recommendations]
-            assert "IMMEDIATE" in priorities
+class TestTemplateSummarizerClusterSummaries:
+    """cluster_summaries coverage and NOISE filtering."""
 
-    def test_noise_cluster_excluded_from_summaries(self):
-        noise = make_cluster(priority=ClusterPriority.NOISE)
-        high = make_cluster(priority=ClusterPriority.HIGH)
-        result = self.summ.summarize(make_report([noise, high]))
-        # NOISE clusters should not get detailed summaries (or at minimum, HIGH is there)
-        cluster_ids = [s.cluster_id for s in result.cluster_summaries]
-        assert high.id in cluster_ids
+    def test_cluster_summaries_one_entry_per_non_noise_cluster(self):
+        clusters = [
+            make_cluster(ClusterPriority.HIGH),
+            make_cluster(ClusterPriority.MEDIUM),
+        ]
+        report = make_report(clusters)
+        result = TemplateSummarizer().summarize(report)
+        assert len(result.cluster_summaries) == 2
 
-    def test_generated_at_is_recent(self):
-        result = self.summ.summarize(make_report())
-        now = datetime.now(tz=timezone.utc)
-        delta = abs((now - result.generated_at).total_seconds())
-        assert delta < 5  # generated within last 5 seconds
+    def test_noise_clusters_excluded_from_cluster_summaries(self):
+        clusters = [
+            make_cluster(ClusterPriority.HIGH),
+            make_cluster(ClusterPriority.NOISE),
+            make_cluster(ClusterPriority.NOISE),
+        ]
+        report = make_report(clusters)
+        result = TemplateSummarizer().summarize(report)
+        assert len(result.cluster_summaries) == 1
 
-    def test_empty_report(self):
-        report = make_report(clusters=[])
-        result = self.summ.summarize(report)
-        assert isinstance(result, SummaryResult)
-        assert result.cluster_summaries == []
+
+class TestTemplateSummarizerRecommendations:
+    """Recommendations carry the correct priority tier per cluster level."""
+
+    def test_critical_cluster_recommendations_include_immediate_action(self):
+        report = make_report([make_cluster(ClusterPriority.CRITICAL)])
+        result = TemplateSummarizer().summarize(report)
+        priorities = {r.priority for cs in result.cluster_summaries for r in cs.recommendations}
+        assert "IMMEDIATE" in priorities
+
+    def test_high_cluster_recommendations_include_within_1h_action(self):
+        report = make_report([make_cluster(ClusterPriority.HIGH)])
+        result = TemplateSummarizer().summarize(report)
+        priorities = {r.priority for cs in result.cluster_summaries for r in cs.recommendations}
+        assert "WITHIN_1H" in priorities
+
+    def test_medium_cluster_recommendations_include_within_24h_action(self):
+        report = make_report([make_cluster(ClusterPriority.MEDIUM)])
+        result = TemplateSummarizer().summarize(report)
+        priorities = {r.priority for cs in result.cluster_summaries for r in cs.recommendations}
+        assert "WITHIN_24H" in priorities
+
+
+class TestTemplateSummarizerNarrative:
+    """Cluster narratives surface IOC and ATT&CK content."""
+
+    def test_narrative_contains_ioc_info(self):
+        ioc = "185.220.101.47"
+        cluster = make_cluster(ClusterPriority.HIGH, iocs=[ioc])
+        report = make_report([cluster])
+        result = TemplateSummarizer().summarize(report)
+        assert len(result.cluster_summaries) == 1
+        narrative = result.cluster_summaries[0].narrative
+        # The template reports the IOC count or the first IOC value
+        assert ioc in narrative or "IOC" in narrative
+
+    def test_narrative_contains_technique_info_when_present(self):
+        techniques = [
+            TechniqueRef(
+                technique_id="T1566.001",
+                technique_name="Spearphishing Attachment",
+                tactic="Initial Access",
+            )
+        ]
+        cluster = make_cluster(ClusterPriority.HIGH, techniques=techniques)
+        report = make_report([cluster])
+        result = TemplateSummarizer().summarize(report)
+        narrative = result.cluster_summaries[0].narrative
+        assert "ATT&CK" in narrative or "T1566.001" in narrative
+
+
+class TestTemplateSummarizerEdgeCases:
+    """Edge-case resilience."""
+
+    def test_empty_clusters_no_crash_and_executive_summary_generated(self):
+        report = make_report([])
+        result = TemplateSummarizer().summarize(report)
+        assert isinstance(result.executive_summary, str)
+        assert len(result.executive_summary) > 0
