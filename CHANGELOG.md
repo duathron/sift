@@ -27,6 +27,37 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.0] - 2026-03-22
+
+### Added
+- Complete test suite: 309 tests across 9 modules, 100% pass rate
+- `test_normalizers.py`: 56 tests covering Splunk, generic JSON, and CSV normalizer edge cases
+- `test_dedup.py`: 19 tests for SHA-256 fingerprinting and time-window deduplication
+- `test_ioc_extractor.py`: 50 tests for IPv4/IPv6, domains, URLs, hashes, and email extraction
+- `test_clusterer.py`: 19 tests for Union-Find clustering with 4-pass strategy (IOC overlap, category+time, IP-pair, residual)
+- `test_prioritizer.py`: 15 tests for score calculation and 5-tier priority assignment
+- `test_models.py`: 24 tests for Pydantic model validation
+- `test_summarizers.py`: 15 tests for template and LLM-based summarization
+- `test_export.py`: 12 tests for JSON and CSV export
+- `test_pipeline_integration.py`: 22 tests for end-to-end pipeline with fixture data
+- Pytest configuration with testpaths and collection markers
+
+---
+
+## [0.2.0] - 2026-03-22
+
+### Added
+- `sift/main.py`: Typer CLI entry point with commands: `triage` | `doctor` | `config` | `version`
+- Fixed SIFT ASCII banner in `sift/banner.py` (clearer figlet rendering)
+- Updated README.md with corrected ASCII art banner
+- `sift/doctor.py`: 9 diagnostic checks (Python version, config, LLM packages, enrichment, env vars, PATH)
+- Live smoke tests against 4 fixture files: phishing_campaign, lateral_movement, mixed, fp_cluster
+- Exit code behavior verified: 1 for HIGH/CRITICAL clusters, 0 for NOISE/LOW/MEDIUM, 2 for errors
+- Python 3.14 virtual environment setup with pip install -e .
+- Config loading with priority: CLI flags > env vars > ~/.sift/config.yaml > defaults
+
+---
+
 ## [0.1.0] - 2026-03-22
 
 ### Added
@@ -58,4 +89,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 [Unreleased]: https://github.com/duathron/sift/compare/v0.4.0...HEAD
 [0.4.0]: https://github.com/duathron/sift/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/duathron/sift/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/duathron/sift/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/duathron/sift/releases/tag/v0.1.0
