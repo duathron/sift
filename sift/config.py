@@ -96,6 +96,7 @@ class AppConfig(BaseModel):
     enrich: EnrichConfig = EnrichConfig()
     update_check: UpdateCheckConfig = UpdateCheckConfig()
     injection: PromptInjectionConfig = PromptInjectionConfig()
+    cache_enabled: bool = False  # Opt-in result caching (--cache flag)
 
 
 # ---------------------------------------------------------------------------

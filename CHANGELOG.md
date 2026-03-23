@@ -11,6 +11,28 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.7.0] - 2026-03-23
+
+### Added
+- **Result Caching**: `--cache` flag on `sift triage` enables SQLite-backed result caching by input fingerprint (TTL 1h, LRU eviction, opt-in)
+- **CacheConfig**: New config model with `enabled`, `ttl_seconds`, `max_entries`, `cache_dir` fields; disabled by default
+- **AlertCache**: `sift/cache.py` — SQLite WAL-mode cache with lazy TTL expiry, LRU eviction, hit/miss stats
+- **Clustering Optimization**: Sliding-window time bucketing (O(n log n) instead of O(n²)) for category/IP-pair passes
+- **Early Termination**: `max_clusters` parameter on `cluster_alerts()` for preview mode and streaming pipelines
+- **IOC Index Confirmation**: Verified inverted IOC index in clustering (O(n×ioc_count), not O(n²) pair loop)
+- `cache_enabled` field in `AppConfig` for config-file opt-in to caching
+
+### Fixed
+- Clustering time-window passes now use sorted sliding deque — no more naive/aware datetime comparison errors in mixed timestamp datasets
+
+### Testing
+- New `tests/test_cache.py`: 20 tests for cache operations, eviction, stats, persistence, config
+- New `tests/test_clusterer_performance.py`: 15 tests for clustering performance (timing at 1k/5k alerts), IOC index, window bucketing, early termination
+- Total test count: 623 tests (588 + 35), 100% pass rate
+- All existing tests remain green (no regressions)
+
+---
+
 ## [0.6.0] - 2026-03-23
 
 ### Added

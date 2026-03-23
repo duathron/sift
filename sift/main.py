@@ -173,6 +173,10 @@ def triage(
         "--validate-only",
         help="Validation-only mode: parse and validate, skip output rendering.",
     )] = False,
+    cache: Annotated[bool, typer.Option(
+        "--cache",
+        help="Cache triage results by input fingerprint (opt-in, TTL 1h).",
+    )] = False,
 ) -> None:
     """Triage alerts from FILE: normalize → dedup → cluster → prioritize → output."""
 
@@ -200,6 +204,22 @@ def triage(
     except Exception as exc:
         console.print(f"[red]Error reading input:[/red] {exc}")
         raise typer.Exit(2)
+
+
+    # --- Cache lookup (opt-in) ---
+    _alert_cache = None
+    _cache_key: str | None = None
+    if cache:
+        import hashlib
+        from .cache import AlertCache, CacheConfig
+        _cache_key = hashlib.sha256(raw.encode()).hexdigest()
+        _alert_cache = AlertCache(CacheConfig(enabled=True))
+        _cached = _alert_cache.get(_cache_key)
+        if _cached is not None:
+            if not quiet:
+                console.print("[dim]Cache hit — returning cached triage result.[/dim]")
+            _render_output(_cached, format=format, output_path=output, cfg=cfg, quiet=quiet)
+            raise typer.Exit(0)
 
     if not raw.strip():
         console.print("[red]Error:[/red] Input is empty.")
@@ -310,6 +330,13 @@ def triage(
             )
         except Exception as e:
             console.print(f"[yellow]Warning:[/yellow] Filter parsing failed: {e}")
+
+    # --- Cache write (opt-in) ---
+    if _alert_cache is not None and _cache_key is not None:
+        try:
+            _alert_cache.put(_cache_key, report.model_dump())
+        except Exception:
+            pass  # Cache write failure is non-blocking
 
     # --- Output ---
     _render_output(report, format=format, output_path=output, cfg=cfg, quiet=quiet)
