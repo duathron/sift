@@ -29,6 +29,7 @@ from rich.table import Table
 
 CONFIG_PATH = Path.home() / ".sift" / "config.yaml"
 OUTPUT_DIR = Path.home() / ".sift"
+CACHE_DIR = Path.home() / ".sift" / "cache"
 OLLAMA_TAGS_URL = "http://localhost:11434/api/tags"
 OLLAMA_TIMEOUT_S = 2
 
@@ -211,6 +212,45 @@ def _check_llm_schema_validation() -> CheckResult:
     )
 
 
+def _check_cache_directory() -> CheckResult:
+    """Check whether ~/.sift/cache/ is accessible and writable."""
+    if not CACHE_DIR.exists():
+        return CheckResult(
+            name="Result cache",
+            status=CheckStatus.WARN,
+            message="Result cache: not initialized (use --cache to enable)",
+        )
+    if os.access(CACHE_DIR, os.W_OK):
+        return CheckResult(
+            name="Result cache",
+            status=CheckStatus.PASS,
+            message="Result cache: ready",
+        )
+    return CheckResult(
+        name="Result cache",
+        status=CheckStatus.WARN,
+        message=f"Result cache: permission error at {CACHE_DIR}",
+    )
+
+
+def _check_stix_export() -> CheckResult:
+    """Check that the STIX 2.1 export module imports cleanly."""
+    try:
+        from sift.output.stix import STIXExporter  # noqa: F401
+
+        return CheckResult(
+            name="STIX 2.1 export",
+            status=CheckStatus.PASS,
+            message="STIX 2.1 export: available",
+        )
+    except Exception:
+        return CheckResult(
+            name="STIX 2.1 export",
+            status=CheckStatus.WARN,
+            message="STIX 2.1 export: module import failed",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -233,6 +273,8 @@ def run_checks() -> list[CheckResult]:
         _check_llm_key(),
         _check_output_directory(),
         _check_llm_schema_validation(),
+        _check_cache_directory(),
+        _check_stix_export(),
     ]
 
 

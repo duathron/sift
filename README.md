@@ -21,10 +21,15 @@
 - Extract IOCs (IPs, domains, hashes, URLs) from alert fields automatically
 - Cluster related alerts by IOC overlap, category + time window, or IP-pair correlation
 - Score clusters across five priority tiers: NOISE / LOW / MEDIUM / HIGH / CRITICAL
-- AI summarization via Anthropic Claude, OpenAI, or Ollama (local) — or template-based with no LLM required
+- AI summarization via Anthropic Claude, OpenAI, Ollama (local), or template-based with no LLM required
 - Rich terminal output with priority-colored cluster table
-- Export to JSON or CSV for downstream tooling
-- `sift doctor` diagnostics to verify configuration and LLM connectivity
+- Export to JSON, CSV, or STIX 2.1 for downstream tooling
+- Filter clusters using a boolean DSL (`--filter 'priority >= HIGH AND ...'`)
+- Enrich IOCs via barb (phishing URL analysis) and vex (VirusTotal reputation) with `--enrich`
+- Cache triage results by input fingerprint with `--cache` (opt-in, 1h TTL)
+- Validate LLM output schema and detect prompt injection attacks
+- `sift metrics <file>` command for cluster and IOC distribution statistics
+- `sift doctor` diagnostics to verify configuration, LLM connectivity, and dependencies
 - PyPI version check on startup
 
 ---
@@ -41,7 +46,7 @@ pip install sift-triage
 # LLM summarization (Anthropic + OpenAI)
 pip install "sift-triage[llm]"
 
-# Future: IOC enrichment via barb/vex
+# IOC enrichment via barb/vex
 pip install "sift-triage[enrich]"
 
 # Everything
@@ -89,6 +94,26 @@ cat splunk_export.json | sift triage -
 sift triage alerts.json -f json -o report.json
 ```
 
+**Export triage report as STIX 2.1 bundle:**
+```bash
+sift triage alerts.json -f stix -o bundle.json
+```
+
+**Filter to HIGH and CRITICAL clusters only:**
+```bash
+sift triage alerts.json --filter 'priority >= HIGH'
+```
+
+**Enable result caching (skip reprocessing on repeated runs):**
+```bash
+sift triage alerts.json --cache
+```
+
+**Show metrics for an alert file:**
+```bash
+sift metrics alerts.json
+```
+
 **Run diagnostics:**
 ```bash
 sift doctor
@@ -108,7 +133,7 @@ sift triage alerts.json --enrich --enrich-mode barb
 
 ## Workflow
 
-`sift` is the third stage of a SOC analyst trilogy. Use `barb` to score and flag suspicious URLs in incoming data, pass flagged IOCs to `vex` for VirusTotal enrichment, then feed the enriched alert data into `sift` for cluster-level triage and summarization. Each tool is useful standalone; together they cover URL analysis → IOC reputation → alert prioritization in a single scriptable pipeline. A future `--enrich` flag will automate barb and vex calls directly from within `sift triage`.
+`sift` is the third stage of a SOC analyst trilogy. Use `barb` to score and flag suspicious URLs in incoming data, pass flagged IOCs to `vex` for VirusTotal enrichment, then feed the enriched alert data into `sift` for cluster-level triage and summarization. Each tool is useful standalone; together they cover URL analysis → IOC reputation → alert prioritization in a single scriptable pipeline. The `--enrich` flag automates barb and vex calls directly from within `sift triage`.
 
 ---
 
@@ -132,6 +157,7 @@ splunk-cli export | sift triage -
 | Provider | Extra | Environment Variable | Notes |
 |---|---|---|---|
 | `template` | *(none)* | — | Default; no LLM required |
+| `mock` | *(none)* | — | Deterministic mock output for testing and CI |
 | `anthropic` | `[llm]` | `ANTHROPIC_API_KEY` | Claude via Anthropic API |
 | `openai` | `[llm]` | `OPENAI_API_KEY` | GPT via OpenAI API |
 | `ollama` | *(none)* | `SIFT_OLLAMA_URL` (optional) | Local inference; defaults to `http://localhost:11434` |
@@ -175,8 +201,111 @@ sift limits enrichment to 20 IOCs per run to avoid API rate limits.
 | `console` | Plain-text output, safe for logging |
 | `json` | Structured JSON with all cluster and IOC data |
 | `csv` | Flat CSV suitable for SIEM import or spreadsheets |
+| `stix` | STIX 2.1 bundle JSON for threat intelligence platforms |
 
 Use `-f` / `--format` to select output format, and `-o` / `--output` to write to a file.
+
+---
+
+## Advanced Usage
+
+### Alert Filtering
+
+Use `--filter` to apply a boolean DSL to the cluster list after triage. Only matching clusters are included in the output.
+
+```bash
+# Only HIGH and CRITICAL clusters
+sift triage alerts.json --filter 'priority >= HIGH'
+
+# Malware or phishing clusters with more than 3 IOCs
+sift triage alerts.json --filter 'category IN (malware, phishing) AND ioc_count > 3'
+
+# Exclude low-signal categories
+sift triage alerts.json --filter 'NOT category IN (false_positive)'
+
+# Combine priority and alert count conditions
+sift triage alerts.json --filter 'priority >= MEDIUM AND alert_count >= 5'
+```
+
+Supported fields: `priority`, `category`, `ioc_count`, `alert_count`.
+Supported operators: `>=`, `<=`, `>`, `<`, `=`, `IN (...)`, `NOT`, `AND`, `OR`.
+
+### Result Caching
+
+Use `--cache` to cache triage results by SHA-256 fingerprint of the input. Repeated runs over the same input return instantly from the cache (1-hour TTL, stored in `~/.sift/cache/`).
+
+```bash
+# First run: processes and caches the result
+sift triage alerts.json --cache
+
+# Subsequent runs with the same file: returns from cache
+sift triage alerts.json --cache
+
+# Combine with other flags; cache stores the full triage output
+sift triage alerts.json --cache --summarize --provider anthropic
+```
+
+### STIX 2.1 Export Pipeline
+
+Export triage results as a STIX 2.1 threat intelligence bundle for ingestion into SIEM or TIP platforms.
+
+```bash
+# Export to STIX bundle file
+sift triage alerts.json -f stix -o bundle.json
+
+# Combined enrichment and STIX export
+sift triage alerts.json --enrich -f stix -o enriched_bundle.json
+
+# Pipe STIX output to another tool
+sift triage alerts.json -f stix | jq '.objects | length'
+```
+
+### Max Clusters
+
+Limit the number of clusters returned by the pipeline using `max_clusters` in `~/.sift/config.yaml`. When the cluster count exceeds the limit, only the highest-priority clusters are retained. This is useful for large alert volumes where downstream tooling has per-report limits.
+
+```yaml
+clustering:
+  max_clusters: 50
+```
+
+---
+
+## Metrics
+
+The `sift metrics` command runs the full normalization, dedup, and clustering pipeline over an alert file and displays summary statistics without generating a triage report.
+
+```bash
+sift metrics alerts.json
+```
+
+Output includes:
+- Total cluster count and alert count
+- Average cluster size
+- Top alert categories by frequency
+- IOC type distribution (IPs, domains, hashes, URLs)
+- AI summary success rate (if summaries were previously generated)
+
+```bash
+# Skip deduplication for raw counts
+sift metrics alerts.json --no-dedup
+
+# Use a custom config file
+sift metrics alerts.json --config /path/to/config.yaml
+```
+
+---
+
+## Validation and Security
+
+sift validates all LLM outputs against a strict JSON schema (`--validate-only` runs parse and validate only, then exits):
+
+```bash
+# Validate parsed structure without rendering output
+sift triage alerts.json --validate-only
+```
+
+A built-in prompt injection detector scans LLM inputs for five pattern categories: instruction overrides, output manipulation, JSON escapes, encoded payloads, and shell injection. Suspicious content is flagged and summarization falls back to the template provider automatically.
 
 ---
 

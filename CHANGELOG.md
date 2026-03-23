@@ -11,6 +11,31 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.8.0] - 2026-03-23
+
+### Added
+- **Edge Case Tests**: `test_edge_cases.py` — 32 tests for normalizers, IOC extractor, prioritizer, cache, and filter DSL boundary conditions
+- **Pipeline Integration Tests**: `test_pipeline_edge_cases.py` — 15 end-to-end tests combining v0.5–v0.7 features (cache+filter, STIX+filter, 500-alert perf, unicode CSV, injection-laden input)
+- **Doctor: Cache Check** — `_check_cache_directory()` verifies `~/.sift/cache/` is accessible and writable (12 total checks)
+- **Doctor: STIX Export Check** — `_check_stix_export()` verifies STIXExporter imports cleanly
+- **README: Advanced Usage** — filter DSL reference, cache usage, STIX pipeline examples, max_clusters YAML config
+- **README: Metrics Section** — `sift metrics` command with output description
+- **README: Validation & Security** — `--validate-only` and prompt injection detection documented
+- **README: Output Formats** — added `stix` row to output formats table
+- **README: LLM Providers** — added `mock` provider row
+
+### Fixed
+- README Workflow section: removed stale "future --enrich flag" language (enrichment live since v0.4.0)
+- Filter DSL: documented that `IN` operator is category-only (numeric fields use `> / >=` comparisons)
+
+### Testing
+- New `test_edge_cases.py`: 32 tests
+- New `test_pipeline_edge_cases.py`: 15 tests
+- Total: 670 tests (623 + 47), 100% pass rate, 3 pre-existing skips
+- Noteworthy: 500-alert batch clusters in < 5s (O(n log n) sliding window from v0.7.0 confirmed)
+
+---
+
 ## [0.7.0] - 2026-03-23
 
 ### Added
