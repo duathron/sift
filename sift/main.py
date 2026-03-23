@@ -37,6 +37,7 @@ class OutputFormat(str):
     CONSOLE = "console"
     JSON = "json"
     CSV = "csv"
+    STIX = "stix"
 
 
 # ---------------------------------------------------------------------------
@@ -126,8 +127,12 @@ def triage(
     )],
     format: Annotated[str, typer.Option(
         "--format", "-f",
-        help="Output format: rich | console | json | csv",
+        help="Output format: rich | console | json | csv | stix",
     )] = "rich",
+    filter: Annotated[Optional[str], typer.Option(
+        "--filter",
+        help="Filter clusters using boolean DSL (e.g., 'priority >= HIGH')",
+    )] = None,
     summarize: Annotated[bool, typer.Option(
         "--summarize", "-s",
         help="Generate AI/template triage summary.",
@@ -295,6 +300,17 @@ def triage(
             console.print(f"[green]✓[/green] Validation passed: {len(report.clusters)} cluster(s)")
         raise typer.Exit(0)
 
+    # --- Apply filter (if provided) ---
+    if filter:
+        try:
+            from .filtering import FilterParser
+            filter_obj = FilterParser.parse(filter)
+            report = report.model_copy(
+                update={"clusters": [c for c in report.clusters if filter_obj.matches(c)]}
+            )
+        except Exception as e:
+            console.print(f"[yellow]Warning:[/yellow] Filter parsing failed: {e}")
+
     # --- Output ---
     _render_output(report, format=format, output_path=output, cfg=cfg, quiet=quiet)
 
@@ -307,6 +323,8 @@ def triage(
 # ---------------------------------------------------------------------------
 
 def _render_output(report: TriageReport, *, format: str, output_path: Optional[Path], cfg, quiet: bool) -> None:
+    import json
+
     from .output.export import export_csv, export_json
     from .output.formatter import format_report_console, format_report_rich
 
@@ -340,6 +358,25 @@ def _render_output(report: TriageReport, *, format: str, output_path: Optional[P
         if not output_path:
             print(data)
 
+    elif fmt == "stix":
+        try:
+            from .output.stix import STIXExporter
+            exporter = STIXExporter(report)
+            stix_bundle = exporter.to_stix_bundle()
+            stix_json = json.dumps(stix_bundle, indent=2, default=str)
+            if output_path:
+                output_path.write_text(stix_json, encoding="utf-8")
+                if not quiet:
+                    console.print(f"[dim]STIX bundle saved → {output_path}[/dim]")
+            else:
+                print(stix_json)
+        except ImportError:
+            console.print("[red]Error:[/red] STIX export requires sift to be installed with stix support.")
+            raise typer.Exit(2)
+        except Exception as e:
+            console.print(f"[red]Error:[/red] STIX export failed: {e}")
+            raise typer.Exit(2)
+
     else:
         console.print(f"[yellow]Unknown format '{format}', using rich.[/yellow]")
         format_report_rich(report)
@@ -357,6 +394,117 @@ def doctor() -> None:
     results = run_checks()
     ok = print_doctor_report(results)
     raise typer.Exit(0 if ok else 1)
+
+
+# ---------------------------------------------------------------------------
+# metrics command
+# ---------------------------------------------------------------------------
+
+@app.command()
+def metrics(
+    file: Annotated[Path, typer.Argument(
+        help="Alert file to analyze (JSON, Splunk JSON, CSV). Use '-' for stdin.",
+        show_default=False,
+    )],
+    quiet: Annotated[bool, typer.Option(
+        "--quiet", "-q",
+        help="Suppress banner.",
+    )] = False,
+    no_dedup: Annotated[bool, typer.Option(
+        "--no-dedup",
+        help="Skip alert deduplication.",
+    )] = False,
+    config_path: Annotated[Optional[Path], typer.Option(
+        "--config",
+        help="Path to config.yaml",
+        show_default=False,
+    )] = None,
+) -> None:
+    """Show metrics for alerts: cluster count, IOC distribution, etc."""
+    from .metrics import MetricsCollector
+
+    # --- Load config ---
+    cfg = load_config(config_path)
+
+    # --- Banner ---
+    show_banner(
+        quiet=quiet or cfg.output.quiet,
+        update_check_enabled=cfg.update_check.enabled,
+        check_interval_hours=cfg.update_check.check_interval_hours,
+    )
+
+    # --- Read input ---
+    try:
+        if str(file) == "-":
+            raw = sys.stdin.read()
+            input_file_str = "<stdin>"
+        else:
+            if not file.exists():
+                console.print(f"[red]Error:[/red] File not found: {file}")
+                raise typer.Exit(2)
+            raw = file.read_text(encoding="utf-8")
+            input_file_str = str(file)
+    except Exception as exc:
+        console.print(f"[red]Error reading input:[/red] {exc}")
+        raise typer.Exit(2)
+
+    if not raw.strip():
+        console.print("[red]Error:[/red] Input is empty.")
+        raise typer.Exit(2)
+
+    # --- Normalize ---
+    try:
+        alerts, detected_format = _normalize(raw)
+    except Exception as exc:
+        console.print(f"[red]Error during normalization:[/red] {exc}")
+        raise typer.Exit(2)
+
+    if not alerts:
+        console.print("[yellow]Warning:[/yellow] No alerts could be parsed from input.")
+        raise typer.Exit(0)
+
+    alerts_ingested = len(alerts)
+
+    # --- Dedup ---
+    if no_dedup:
+        alerts_after_dedup = alerts
+        dedup_count = alerts_ingested
+    else:
+        from .pipeline.dedup import DeduplicatorConfig, deduplicate
+        alerts_after_dedup, dedup_stats = deduplicate(
+            alerts,
+            DeduplicatorConfig(time_window_minutes=cfg.clustering.time_window_minutes),
+        )
+        dedup_count = dedup_stats.deduplicated_count
+
+    # --- IOC extraction ---
+    from .pipeline.ioc_extractor import enrich_alerts_iocs
+    alerts_after_dedup = enrich_alerts_iocs(alerts_after_dedup)
+
+    # --- Cluster ---
+    from .pipeline.clusterer import cluster_alerts
+    clusters = cluster_alerts(alerts_after_dedup, cfg.clustering)
+
+    # --- Prioritize ---
+    from .pipeline.prioritizer import prioritize_all
+    clusters = prioritize_all(clusters, cfg.scoring)
+
+    # --- Build minimal report ---
+    report = TriageReport(
+        input_file=input_file_str,
+        alerts_ingested=alerts_ingested,
+        alerts_after_dedup=dedup_count if not no_dedup else alerts_ingested,
+        clusters=clusters,
+        analyzed_at=datetime.now(tz=timezone.utc),
+    )
+
+    # --- Collect and display metrics ---
+    metrics_obj = MetricsCollector.collect(report)
+    metrics_table = MetricsCollector.format_table(metrics_obj)
+
+    console.print()
+    console.print(metrics_table)
+    console.print()
 
 
 # ---------------------------------------------------------------------------

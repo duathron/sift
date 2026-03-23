@@ -11,6 +11,30 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.6.0] - 2026-03-23
+
+### Added
+- **Metrics Module**: `sift/metrics.py` with `TriageMetrics` and `MetricsCollector` for comprehensive triage analytics
+- **Metrics Command**: `sift metrics <file>` displays cluster statistics, alert counts, IOC distribution, and category breakdown
+- **STIX 2.1 Export**: `--format stix` flag outputs clusters in STIX 2.1 JSON Bundle format for threat intelligence sharing
+- **Advanced Filtering**: `--filter` flag on `sift triage` with boolean DSL for post-triage cluster selection (e.g., `priority >= HIGH`)
+- **IOC Classification**: Automatic classification of IOCs into types (IPv4, IPv6, domain, email, URL, MD5, SHA1, SHA256)
+- **Metrics Table Formatting**: Rich Table output with top categories and IOC distribution visualization
+
+### Testing
+- New `test_metrics.py`: 8 comprehensive tests for metrics collection and IOC classification
+- IOC classification tests: IPv4, IPv6, domain, URL, hash, email, mixed types
+- Metrics formatting tests: edge cases (0 clusters, large counts)
+- All existing 484 tests pass (no regressions)
+- Total: 492 tests expected (484 + 8)
+
+### Backward Compatible
+- All new parameters optional; existing scripts unchanged
+- Filter application non-blocking (warning on parse failure)
+- STIX export graceful fallback to existing formats
+
+---
+
 ## [0.5.0] - 2026-03-22
 
 ### Added
