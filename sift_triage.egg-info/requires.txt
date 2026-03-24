@@ -4,6 +4,11 @@ pydantic>=2.7.0
 pyyaml>=6.0.1
 python-dotenv>=1.0.0
 
+[all]
+anthropic>=0.30.0
+openai>=1.30.0
+barb-phish>=1.0.0
+
 [dev]
 pytest>=8.0.0
 ruff>=0.4.0
@@ -11,7 +16,6 @@ mypy>=1.10.0
 
 [enrich]
 barb-phish>=1.0.0
-vex-ioc>=1.2.0
 
 [llm]
 anthropic>=0.30.0

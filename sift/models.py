@@ -50,6 +50,32 @@ class Alert(BaseModel):
     raw: dict = Field(default_factory=dict)                # original untouched record
     _duplicate_of: Optional[str] = None  # set during deduplication
 
+    _REDACTABLE_FIELDS: frozenset[str] = frozenset(
+        {"title", "description", "source_ip", "dest_ip", "user", "host", "iocs", "raw"}
+    )
+
+    def redact(self, fields: list[str]) -> "Alert":
+        """Return a copy with the specified fields redacted.
+
+        String fields → ``"[REDACTED]"``, ``iocs`` → ``[]``, ``raw`` → ``{}``.
+        Unknown field names raise ``ValueError``.
+        """
+        unknown = [f for f in fields if f not in self._REDACTABLE_FIELDS]
+        if unknown:
+            valid = sorted(self._REDACTABLE_FIELDS)
+            raise ValueError(
+                f"Unknown redaction field(s): {unknown!r}. Valid fields: {valid}"
+            )
+        updates: dict = {}
+        for field in fields:
+            if field == "iocs":
+                updates[field] = []
+            elif field == "raw":
+                updates[field] = {}
+            else:
+                updates[field] = "[REDACTED]"
+        return self.model_copy(update=updates)
+
 
 # ---------------------------------------------------------------------------
 # Cluster priority / verdict

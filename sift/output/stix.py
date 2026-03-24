@@ -44,7 +44,9 @@ def _pattern_from_ioc(ioc: str, ioc_type: str | None = None) -> str:
     - Email addresses
     - MD5/SHA1/SHA256 hashes
     """
-    safe = ioc.replace("\\", "\\\\").replace("'", "\\'")
+    # Escape chars that have special meaning in STIX pattern syntax.
+    # Order matters: backslash first, then others.
+    safe = ioc.replace("\\", "\\\\").replace("'", "\\'").replace("]", "\\]")
     ioc_type_lower = (ioc_type or "").lower()
 
     # Explicit type mapping

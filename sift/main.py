@@ -67,6 +67,11 @@ def _normalize(raw: str) -> tuple[list, str]:
 def _build_summarizer(provider: str, config):
     from .summarizers.template import TemplateSummarizer
 
+    # Attach injection whitelist patterns so build_cluster_prompt() can use them.
+    # This bridges PromptInjectionConfig → SummarizeConfig without changing the schema.
+    summarize_cfg = config.summarize
+    summarize_cfg._injection_whitelist = config.injection.whitelist_patterns
+
     if provider == "template":
         return TemplateSummarizer()
 
@@ -163,7 +168,7 @@ def triage(
     )] = False,
     enrich_mode: Annotated[Optional[str], typer.Option(
         "--enrich-mode",
-        help="Enrichment scope: all | barb | vex  [default: all]",
+        help="Enrichment scope: all | barb | vex | local  [default: all]. 'local' = heuristic-only, no external API calls.",
     )] = None,
     yes: Annotated[bool, typer.Option(
         "--yes", "-y",
@@ -177,6 +182,14 @@ def triage(
         "--cache",
         help="Cache triage results by input fingerprint (opt-in, TTL 1h).",
     )] = False,
+    redact_fields: Annotated[Optional[str], typer.Option(
+        "--redact-fields",
+        help="Comma-separated alert fields to redact before processing (e.g. 'user,host,source_ip').",
+    )] = None,
+    chunk_size: Annotated[int, typer.Option(
+        "--chunk-size",
+        help="Process alerts in chunks of N (0 = no chunking, default). Reduces memory for large files.",
+    )] = 0,
 ) -> None:
     """Triage alerts from FILE: normalize → dedup → cluster → prioritize → output."""
 
@@ -255,25 +268,48 @@ def triage(
                 f"({dedup_stats.removed_count} duplicates removed)[/dim]"
             )
 
+    # --- Field-level redaction (optional) ---
+    if redact_fields:
+        fields_to_redact = [f.strip() for f in redact_fields.split(",") if f.strip()]
+        alerts_after_dedup = [a.redact(fields_to_redact) for a in alerts_after_dedup]
+
     # --- IOC extraction ---
     from .pipeline.ioc_extractor import enrich_alerts_iocs
     alerts_after_dedup = enrich_alerts_iocs(alerts_after_dedup)
 
-    # --- Cluster ---
+    # --- Cluster + Prioritize (with optional chunking) ---
+    from .pipeline.chunker import chunk_alerts, merge_triage_reports
     from .pipeline.clusterer import cluster_alerts
-    clusters = cluster_alerts(alerts_after_dedup, cfg.clustering)
-
-    # --- Prioritize ---
     from .pipeline.prioritizer import prioritize_all
-    clusters = prioritize_all(clusters, cfg.scoring)
+
+    effective_chunk_size = chunk_size if chunk_size > 0 else cfg.clustering.chunk_size
+    if effective_chunk_size > 0:
+        chunks = chunk_alerts(alerts_after_dedup, effective_chunk_size)
+        _chunk_reports = []
+        for _chunk in chunks:
+            _cls = cluster_alerts(_chunk, cfg.clustering)
+            _cls = prioritize_all(_cls, cfg.scoring)
+            _chunk_reports.append(TriageReport(
+                input_file=input_file_str,
+                alerts_ingested=len(_chunk),
+                alerts_after_dedup=len(_chunk),
+                clusters=_cls,
+                analyzed_at=datetime.now(tz=timezone.utc),
+            ))
+        clusters = merge_triage_reports(_chunk_reports).clusters
+    else:
+        clusters = cluster_alerts(alerts_after_dedup, cfg.clustering)
+        clusters = prioritize_all(clusters, cfg.scoring)
 
     # --- Enrichment (optional) ---
     enrichment = None
     if enrich:
-        if _check_enrich_consent(yes, cfg):
-            from .enrichers.runner import EnrichmentMode, EnrichmentRunner
-            mode_map = {"barb": EnrichmentMode.BARB, "vex": EnrichmentMode.VEX, "all": EnrichmentMode.ALL}
-            eff_mode = mode_map.get((enrich_mode or "all").lower(), EnrichmentMode.ALL)
+        from .enrichers.runner import EnrichmentMode, EnrichmentRunner
+        mode_map = {"barb": EnrichmentMode.BARB, "vex": EnrichmentMode.VEX, "all": EnrichmentMode.ALL, "local": EnrichmentMode.LOCAL}
+        eff_mode = mode_map.get((enrich_mode or "all").lower(), EnrichmentMode.ALL)
+        # LOCAL mode skips consent prompt — no data leaves the system
+        consent = (eff_mode is EnrichmentMode.LOCAL) or _check_enrich_consent(yes, cfg)
+        if consent:
             runner = EnrichmentRunner(mode=eff_mode)
             # Collect all unique IOCs from clusters
             all_iocs = runner.collect_iocs_from_report(

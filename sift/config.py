@@ -50,6 +50,7 @@ class ClusteringConfig(BaseModel):
 
     time_window_minutes: int = 30
     max_cluster_size: int = 50
+    chunk_size: int = 0  # 0 = no chunking; >0 = process in batches of this size
 
 
 class SummarizeConfig(BaseModel):
@@ -86,6 +87,13 @@ class PromptInjectionConfig(BaseModel):
     whitelist_patterns: list[str] = []  # Optional regex patterns for safe content
 
 
+class AlertRedactionConfig(BaseModel):
+    """Configuration for alert-model-level field redaction."""
+
+    fields: list[str] = []      # field names to redact on the Alert object
+    redact_raw: bool = False     # if True, always redact the `raw` dict
+
+
 class AppConfig(BaseModel):
     """Top-level application configuration."""
 
@@ -96,6 +104,7 @@ class AppConfig(BaseModel):
     enrich: EnrichConfig = EnrichConfig()
     update_check: UpdateCheckConfig = UpdateCheckConfig()
     injection: PromptInjectionConfig = PromptInjectionConfig()
+    redaction: AlertRedactionConfig = AlertRedactionConfig()
     cache_enabled: bool = False  # Opt-in result caching (--cache flag)
 
 
@@ -131,6 +140,8 @@ def save_config(config: AppConfig, path: Optional[Path] = None) -> Path:
     """Persist config to YAML file."""
     target = path or (_ensure_app_dir() / "config.yaml")
     with open(target, "w") as f:
-        yaml.dump(config.model_dump(), f, default_flow_style=False)
+        # Exclude api_key from persisted config — secrets must not be written to disk.
+        data = config.model_dump(exclude={"summarize": {"api_key"}})
+        yaml.dump(data, f, default_flow_style=False)
     target.chmod(_FILE_MODE)
     return target

@@ -62,3 +62,8 @@ testpaths = ["tests"]
 python_version = "3.11"
 strict = false
 ignore_missing_imports = true
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

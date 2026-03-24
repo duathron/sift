@@ -311,9 +311,42 @@ class AlertCache:
         )
         conn.commit()
 
+    # Sensitive directories that must never be used as cache locations.
+    _BLOCKED_DIR_PREFIXES: tuple[Path, ...] = (
+        Path.home() / ".ssh",
+        Path.home() / ".gnupg",
+        Path("/etc"),
+        Path("/usr"),
+        Path("/bin"),
+        Path("/sbin"),
+        Path("/boot"),
+        Path("/sys"),
+        Path("/proc"),
+    )
+
+    @classmethod
+    def _validate_cache_dir(cls, cache_dir: Path) -> None:
+        """Reject cache_dir paths that point at sensitive system directories.
+
+        Prevents path traversal attacks where a crafted CacheConfig writes
+        SQLite WAL files into sensitive directories (e.g. ~/.ssh/, /etc/).
+        """
+        resolved = cache_dir.resolve()
+        for blocked in cls._BLOCKED_DIR_PREFIXES:
+            try:
+                resolved.relative_to(blocked.resolve())
+                raise ValueError(
+                    f"cache_dir {cache_dir!r} resolves to a sensitive system directory "
+                    f"({blocked}) — refusing to create SQLite files there."
+                )
+            except ValueError as exc:
+                if "resolves to a sensitive" in str(exc):
+                    raise
+
     def _ensure_db(self) -> None:
         """Create the cache directory and initialise the SQLite schema."""
         cache_dir = self._config.cache_dir
+        self._validate_cache_dir(cache_dir)
         cache_dir.mkdir(mode=_DIR_MODE, parents=True, exist_ok=True)
         # Ensure permissions even if directory already existed.
         cache_dir.chmod(_DIR_MODE)

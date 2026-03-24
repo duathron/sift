@@ -48,13 +48,24 @@ class InjectionFinding(BaseModel):
 class PromptInjectionDetector:
     """Detects prompt injection patterns in alert fields."""
 
-    def __init__(self, case_insensitive: bool = True):
+    def __init__(
+        self,
+        case_insensitive: bool = True,
+        whitelist_patterns: list[str] | None = None,
+    ):
         """Initialize detector with injection patterns.
 
         Args:
             case_insensitive: If True, perform case-insensitive matching.
+            whitelist_patterns: Optional list of regex patterns.  Any field
+                value matching one of these patterns is exempted from all
+                injection checks (e.g. known-safe alert templates).
         """
         self.case_insensitive = case_insensitive
+        flags = re.IGNORECASE if case_insensitive else 0
+        self._whitelist: list[re.Pattern] = [
+            re.compile(p, flags) for p in (whitelist_patterns or [])
+        ]
         self._compile_patterns()
 
     def _compile_patterns(self) -> None:
@@ -62,14 +73,25 @@ class PromptInjectionDetector:
         flags = re.IGNORECASE if self.case_insensitive else 0
 
         # Pattern 1: "ignore previous instructions" variants
+        # re.DOTALL so . matches \n; NFKC normalisation applied before matching
+        # to defeat zero-width space and Unicode lookalike bypasses.
         self.pattern_ignore_instructions = re.compile(
-            r"(ignore|disregard|forget|dismiss|bypass|override).{0,20}?(previous|prior|earlier|above|preceding).{0,20}?(instruction|directive|prompt|command)",
-            flags,
+            r"(ignore|disregard|forget|dismiss|bypass|override)[\s\S]{0,40}?"
+            r"(previous|prior|earlier|above|preceding)[\s\S]{0,40}?"
+            r"(instruction|directive|prompt|command|context|system)",
+            flags | re.DOTALL,
         )
 
-        # Pattern 2: "instead, output" or "output instead" variants
+        # Pattern 2: LLM-redirection via "instead" keyword (narrowed vs. original).
+        # Matches "verb instead" OR "instead verb" to catch injection while
+        # avoiding FP on normal log lines like "Generate report: failed".
+        # Optional punctuation (,;.) after "instead" handles "Instead, output ..."
         self.pattern_instead_output = re.compile(
-            r"(instead|rather|output|respond|return|generate|create).{0,20}?(instead|output|respond|return|generate|create|:)",
+            r"(?:"
+            r"(output|respond|return|generate|create|print|write)\s+instead"
+            r"|instead[\s,;.]+(?:of\s+)?(output|respond|return|generate|create|print|write)"
+            r"|rather\s+than\s+(?:summariz|analyz|triag|the\s+above)"
+            r")",
             flags,
         )
 
@@ -122,6 +144,10 @@ class PromptInjectionDetector:
 
         for field_name, field_value in fields_to_scan.items():
             if field_value is None or not isinstance(field_value, str):
+                continue
+
+            # Skip fields that match an operator-defined whitelist pattern
+            if self._whitelist and any(p.search(field_value) for p in self._whitelist):
                 continue
 
             # Check each pattern (use if, not elif, to detect all patterns in a field)

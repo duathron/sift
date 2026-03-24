@@ -233,6 +233,27 @@ def _check_cache_directory() -> CheckResult:
     )
 
 
+def _check_attck_module() -> CheckResult:
+    """Check that the ATT&CK technique validation module works correctly."""
+    try:
+        from sift.pipeline.attck import TECHNIQUE_PATTERN, is_valid_technique_id  # noqa: F401
+
+        assert is_valid_technique_id("T1566")
+        assert is_valid_technique_id("T1566.001")
+        assert not is_valid_technique_id("invalid")
+        return CheckResult(
+            name="ATT&CK validation",
+            status=CheckStatus.PASS,
+            message="ATT&CK validation: technique ID module loaded",
+        )
+    except Exception as exc:
+        return CheckResult(
+            name="ATT&CK validation",
+            status=CheckStatus.WARN,
+            message=f"ATT&CK validation: module unavailable ({exc})",
+        )
+
+
 def _check_stix_export() -> CheckResult:
     """Check that the STIX 2.1 export module imports cleanly."""
     try:
@@ -275,6 +296,7 @@ def run_checks() -> list[CheckResult]:
         _check_llm_schema_validation(),
         _check_cache_directory(),
         _check_stix_export(),
+        _check_attck_module(),
     ]
 
 

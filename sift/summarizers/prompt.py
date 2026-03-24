@@ -239,17 +239,27 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
         A multi-section plain-text prompt string ready to be sent as the
         ``user`` message to any chat-completion API.
     """
-    # Scan alerts for injection patterns (non-blocking)
-    detector = PromptInjectionDetector()
+    # Scan alerts for injection patterns and redact suspicious fields.
+    # Honour operator-defined whitelist_patterns from PromptInjectionConfig
+    # (passed via the parent AppConfig → injected into SummarizeConfig callers).
+    whitelist = getattr(config, "_injection_whitelist", None) or []
+    detector = PromptInjectionDetector(whitelist_patterns=whitelist)
+    safe_clusters = []
     for cluster in report.clusters:
+        safe_alerts = []
         for alert in cluster.alerts:
             findings = detector.detect(alert)
             if findings:
                 logger.warning(
                     f"Injection pattern(s) detected in alert {alert.id}: "
                     f"{', '.join(f.pattern_type for f in findings)} (severity: "
-                    f"{', '.join(str(f.severity.value) for f in findings)})"
+                    f"{', '.join(str(f.severity.value) for f in findings)}) — redacting"
                 )
+                alert = detector.redact_alert(alert, findings)
+            safe_alerts.append(alert)
+        safe_cluster = cluster.model_copy(update={"alerts": safe_alerts})
+        safe_clusters.append(safe_cluster)
+    report = report.model_copy(update={"clusters": safe_clusters})
 
     redact: set[str] = set(config.redact_fields)
 

@@ -108,13 +108,16 @@ def _aggregate_techniques(alerts: list[Alert]) -> list[TechniqueRef]:
     TechniqueRef objects with the ID and leave name/tactic empty so that
     downstream enrichment (e.g. a MITRE lookup) can fill them in later.
     """
-    seen_ids: set[str] = set()
-    refs: list[TechniqueRef] = []
+    from sift.pipeline.attck import validate_technique_ids
+
+    all_ids: list[str] = []
     for alert in alerts:
-        for tid in alert.technique_ids:
-            if tid not in seen_ids:
-                seen_ids.add(tid)
-                refs.append(TechniqueRef(technique_id=tid, technique_name="", tactic=""))
+        all_ids.extend(alert.technique_ids)
+    valid_ids = validate_technique_ids(list(dict.fromkeys(all_ids)))  # dedup then validate
+
+    refs: list[TechniqueRef] = []
+    for tid in valid_ids:
+        refs.append(TechniqueRef(technique_id=tid, technique_name="", tactic=""))
     return refs
 
 

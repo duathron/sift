@@ -66,7 +66,7 @@ def _call_vex_cli(ioc: str) -> dict:
         return {"ioc": ioc, "error": "vex not found in PATH"}
     try:
         result = subprocess.run(
-            [vex_bin, "triage", ioc, "-o", "json", "-q"],
+            [vex_bin, "triage", "--", ioc, "-o", "json", "-q"],
             capture_output=True,
             text=True,
             timeout=30,

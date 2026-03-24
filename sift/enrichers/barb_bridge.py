@@ -62,7 +62,7 @@ def _call_barb_cli(ioc: str) -> dict:
         return {"ioc": ioc, "error": "barb not found in PATH"}
     try:
         result = subprocess.run(
-            [barb_bin, "analyze", ioc, "--format", "json", "-q"],
+            [barb_bin, "analyze", "--", ioc, "--format", "json", "-q"],
             capture_output=True,
             text=True,
             timeout=15,

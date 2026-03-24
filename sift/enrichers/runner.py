@@ -16,6 +16,7 @@ class EnrichmentMode(str, Enum):
     BARB = "barb"
     VEX = "vex"
     ALL = "all"
+    LOCAL = "local"  # heuristic-only, no external API calls
 
 
 class EnrichmentRunner:
@@ -53,6 +54,12 @@ class EnrichmentRunner:
 
         barb_results: list[dict] = []
         vex_results: list[dict] = []
+
+        if self.mode is EnrichmentMode.LOCAL:
+            from sift.enrichers.local_heuristics import analyze
+            local_results = [analyze(ioc) for ioc in unique_iocs]
+            # Surface local results as barb_results so downstream rendering works
+            return EnrichmentContext(barb_results=local_results, vex_results=[])
 
         if self.mode in (EnrichmentMode.BARB, EnrichmentMode.ALL):
             url_iocs = [i for i in unique_iocs if self.barb.can_enrich(i)]
