@@ -20,6 +20,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Changed
 - Version classifier updated: `3 - Alpha` → `5 - Production/Stable`
 
+### Fixed (Beta Test — post-adversarial-review)
+- **F-01 (security)**: `Alert.redact()` now also clears matching keys in `alert.raw`; previously, redacting `user` left `raw["user"]` intact and IOC extraction would re-surface the email as a cluster IOC
+- **F-03 (consistency)**: `--format <unknown>` now exits with code 2 and an explicit error message (was: silent warning + fallback to rich)
+- **F-04 (ux)**: invalid `--redact-fields` names now show a user-friendly error message with exit 2 (was: raw Python traceback)
+- **F-05 (ux)**: `--enrich-mode` without `--enrich` now prints a warning instead of silently having no effect
+- **F-08 (validation)**: `--chunk-size -1` now exits with code 2 (was: silently treated as 0)
+- **F-09 (spec)**: STIX Bundle now includes `"spec_version": "2.1"` at the bundle level (STIX 2.1 compliance)
+- **F-11 (ux)**: `sift doctor` now shows `(N warning(s) — optional features unavailable)` instead of the misleading "passed or warned"
+
+### Known Limitations (v1.0.1 backlog)
+- **F-02**: `--chunk-size` splits alerts physically; IOC-overlap clustering across chunk boundaries is not reconstructed by `merge_triage_reports`. Use `--chunk-size >= 500` or leave chunking disabled for best cluster quality. Fix planned for v1.0.1.
+- **F-06**: Minor score display difference between Rich table (1 decimal) and JSON export (2 decimals). No functional impact.
+- **F-07**: `--cache` provides no HIT/MISS feedback on stderr. Use `sift metrics` to verify cache is in use.
+- **F-10**: An empty JSON object `{}` is accepted as a single "Unknown Alert" instead of returning an error. Known limitation.
+- **F-12**: No feedback on how many clusters were removed by `--filter`. Backlog v1.1.0.
+
 ---
 
 ## [0.8.0] - 2026-03-24
