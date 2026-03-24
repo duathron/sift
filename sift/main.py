@@ -271,7 +271,11 @@ def triage(
     # --- Field-level redaction (optional) ---
     if redact_fields:
         fields_to_redact = [f.strip() for f in redact_fields.split(",") if f.strip()]
-        alerts_after_dedup = [a.redact(fields_to_redact) for a in alerts_after_dedup]
+        try:
+            alerts_after_dedup = [a.redact(fields_to_redact) for a in alerts_after_dedup]
+        except ValueError as exc:
+            console.print(f"[red]Error:[/red] {exc}")
+            raise typer.Exit(2)
 
     # --- IOC extraction ---
     from .pipeline.ioc_extractor import enrich_alerts_iocs
@@ -281,6 +285,18 @@ def triage(
     from .pipeline.chunker import chunk_alerts, merge_triage_reports
     from .pipeline.clusterer import cluster_alerts
     from .pipeline.prioritizer import prioritize_all
+
+    # --- Validate chunk-size ---
+    if chunk_size < 0:
+        console.print("[red]Error:[/red] --chunk-size must be 0 (disabled) or a positive integer.")
+        raise typer.Exit(2)
+
+    # --- Warn if --enrich-mode given without --enrich ---
+    if enrich_mode and not enrich:
+        console.print(
+            f"[yellow]Warning:[/yellow] --enrich-mode '{enrich_mode}' has no effect without --enrich. "
+            "Add --enrich to activate enrichment."
+        )
 
     effective_chunk_size = chunk_size if chunk_size > 0 else cfg.clustering.chunk_size
     if effective_chunk_size > 0:
@@ -441,8 +457,11 @@ def _render_output(report: TriageReport, *, format: str, output_path: Optional[P
             raise typer.Exit(2)
 
     else:
-        console.print(f"[yellow]Unknown format '{format}', using rich.[/yellow]")
-        format_report_rich(report)
+        console.print(
+            f"[red]Error:[/red] Unknown output format '{format}'. "
+            "Valid formats: rich | console | json | csv | stix"
+        )
+        raise typer.Exit(2)
 
 
 # ---------------------------------------------------------------------------

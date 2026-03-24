@@ -341,6 +341,7 @@ def print_doctor_report(
     table.add_column("Details", min_width=40)
 
     has_fail = False
+    warn_count = 0
     for result in results:
         style = _STATUS_STYLE[result.status]
         table.add_row(
@@ -350,6 +351,8 @@ def print_doctor_report(
         )
         if result.status is CheckStatus.FAIL:
             has_fail = True
+        elif result.status is CheckStatus.WARN:
+            warn_count += 1
 
     console.print()
     console.print(table)
@@ -360,7 +363,12 @@ def print_doctor_report(
             "[bold red]One or more checks FAILED.[/bold red] "
             "Resolve the issues above before running sift.\n"
         )
+    elif warn_count > 0:
+        console.print(
+            f"[bold green]All checks passed[/bold green] "
+            f"[yellow]({warn_count} warning(s) — optional features unavailable).[/yellow]\n"
+        )
     else:
-        console.print("[bold green]All checks passed or warned.[/bold green]\n")
+        console.print("[bold green]All checks passed.[/bold green]\n")
 
     return not has_fail

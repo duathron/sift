@@ -138,6 +138,7 @@ class STIXExporter:
         self._create_objects()
         bundle = {
             "type": "bundle",
+            "spec_version": "2.1",
             "id": f"bundle--{uuid.uuid4()}",
             "objects": self.objects,
         }

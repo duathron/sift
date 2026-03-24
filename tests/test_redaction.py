@@ -162,3 +162,39 @@ class TestAlertRedactionConfig:
         assert isinstance(app_cfg.redaction, AlertRedactionConfig)
         assert app_cfg.redaction.fields == []
         assert app_cfg.redaction.redact_raw is False
+
+
+# ---------------------------------------------------------------------------
+# Regression tests — beta findings
+# ---------------------------------------------------------------------------
+
+class TestRedactionRegressions:
+    """Regression tests for beta findings (F-01, F-03, F-04)."""
+
+    def test_f01_raw_dict_also_redacted(self):
+        """F-01: Redacting 'user' must also clear raw['user'] to prevent IOC leak."""
+        alert = _make_alert(user="jsmith@corp.local", raw={"user": "jsmith@corp.local", "other": "keep"})
+        redacted = alert.redact(["user"])
+        assert redacted.user == "[REDACTED]"
+        assert redacted.raw.get("user") == "[REDACTED]", "raw['user'] must be redacted too"
+        assert redacted.raw.get("other") == "keep", "unrelated raw keys must be preserved"
+
+    def test_f01_raw_not_touched_when_field_absent(self):
+        """F-01: Raw keys not matching the redaction fields are left intact."""
+        alert = _make_alert(user="alice", raw={"unrelated_key": "alice"})
+        redacted = alert.redact(["user"])
+        # 'unrelated_key' != 'user' so it should not be touched
+        assert redacted.raw.get("unrelated_key") == "alice"
+
+    def test_f01_redacting_raw_explicitly_clears_entire_raw(self):
+        """F-01: --redact-fields raw clears the entire raw dict."""
+        alert = _make_alert(raw={"user": "jsmith@corp.local", "secret": "token123"})
+        redacted = alert.redact(["raw"])
+        assert redacted.raw == {}
+
+    def test_f01_combined_field_and_raw_redaction(self):
+        """F-01: Redacting both 'user' and 'raw' results in empty raw dict."""
+        alert = _make_alert(user="alice", raw={"user": "alice", "other": "data"})
+        redacted = alert.redact(["user", "raw"])
+        assert redacted.user == "[REDACTED]"
+        assert redacted.raw == {}  # explicit 'raw' overrides per-key redaction

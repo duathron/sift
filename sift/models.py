@@ -74,6 +74,18 @@ class Alert(BaseModel):
                 updates[field] = {}
             else:
                 updates[field] = "[REDACTED]"
+
+        # Also redact matching key names inside alert.raw so that IOC extraction
+        # cannot re-surface values from the original untouched record.
+        # (e.g. redacting "user" clears raw["user"] if it exists)
+        named_fields = [f for f in fields if f not in ("raw", "iocs")]
+        if named_fields and self.raw and "raw" not in updates:
+            raw_copy = dict(self.raw)
+            for f in named_fields:
+                if f in raw_copy:
+                    raw_copy[f] = "[REDACTED]"
+            updates["raw"] = raw_copy
+
         return self.model_copy(update=updates)
 
 
