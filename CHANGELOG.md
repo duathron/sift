@@ -11,7 +11,49 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [0.8.0] - 2026-03-23
+## [1.0.0] - 2026-03-24
+
+### Added
+- **Production release**: sift graduates from Alpha to Production/Stable (`Development Status :: 5`)
+- All v0.8.0 features and adversarial security fixes included (see below)
+
+### Changed
+- Version classifier updated: `3 - Alpha` → `5 - Production/Stable`
+
+---
+
+## [0.8.0] - 2026-03-24
+
+### Added (v0.8.0 rest — completed alongside adversarial review)
+- **Field-level Alert Redaction**: `Alert.redact(fields)` method — creates a copy with specified fields replaced by `[REDACTED]`; supports `title`, `description`, `source_ip`, `dest_ip`, `user`, `host`, `iocs`, `raw`
+- **AlertRedactionConfig**: New `AppConfig.redaction` section with `fields: list[str]` and `redact_raw: bool`
+- **`--redact-fields` CLI flag**: Comma-separated field list on `sift triage`; applied before summarization
+- **ATT&CK Technique Validation**: `sift/pipeline/attck.py` — `TechniqueValidator` rejects malformed IDs (enforces `^T\d{4}(?:\.\d{3})?$` regex); invalid IDs logged as WARNING and dropped
+- **Alert Chunking**: `sift/pipeline/chunker.py` — `chunk_alerts()` + `merge_triage_reports()`; processes large batches sequentially and merges TriageReports; `--chunk-size` CLI flag
+- **`ClusteringConfig.chunk_size`**: Config-file support for default chunk size (0 = disabled)
+- **`--enrich-mode local`**: `EnrichmentMode.LOCAL` — pure heuristic IOC analysis (Shannon entropy, suspicious TLDs/keywords, private IP, IP-in-URL detection); no external API calls, no consent prompt
+- **`sift/enrichers/local_heuristics.py`**: Shannon entropy > 3.8, 17 suspicious TLDs, 14 suspicious keywords
+- **Doctor Check #13**: ATT&CK module import check in `sift doctor`
+
+### Security Fixes (Adversarial Code Review)
+- **CRITICAL — Injection non-blocking**: `prompt.py` now builds `safe_clusters` with redacted alerts before LLM submission (previously only logged warning, sent raw data)
+- **CRITICAL — Newline bypass in Pattern 1**: Injection detector Pattern 1 now uses `re.DOTALL`; adversary could split "ignore\nprevious instructions" across newlines to bypass
+- **CRITICAL — Pattern 2 false negative**: "Instead, output …" (comma between "instead" and verb) was not matched; pattern extended to `instead[\s,;.]+(?:of\s+)?verb`
+- **HIGH — Argument injection via IOCs**: `barb_bridge.py` and `vex_bridge.py` now pass `--` before IOC argument to prevent IOC strings like `--flag=value` from being interpreted as CLI flags
+- **HIGH — Cache path traversal**: `AlertCache._validate_cache_dir()` rejects `cache_dir` paths resolving to `~/.ssh/`, `~/.gnupg/`, `/etc/`, `/usr/`, `/bin/`, `/sbin/`, `/boot/`, `/sys/`, `/proc/`
+- **MEDIUM — STIX pattern injection**: `stix.py` `_pattern_from_ioc()` now escapes `]` characters (in addition to `\` and `'`) to prevent STIX pattern breakout
+- **LOW — Whitelist dead code**: `PromptInjectionConfig.whitelist_patterns` was never passed to `PromptInjectionDetector`; now wired through `_injection_whitelist` attribute in `_build_summarizer()`
+
+### Testing
+- New `tests/test_redaction.py`: 16 tests
+- New `tests/test_attck_validation.py`: 19 tests
+- New `tests/test_chunking.py`: 15 tests
+- New `tests/test_enrich_local.py`: 19 tests
+- Total: 670 → **740 tests**, 100% pass rate, 3 pre-existing skips
+
+---
+
+## [0.8.0-beta] - 2026-03-23
 
 ### Added
 - **Edge Case Tests**: `test_edge_cases.py` — 32 tests for normalizers, IOC extractor, prioritizer, cache, and filter DSL boundary conditions
@@ -189,7 +231,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-[Unreleased]: https://github.com/duathron/sift/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/duathron/sift/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/duathron/sift/compare/v0.8.0...v1.0.0
+[0.8.0]: https://github.com/duathron/sift/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/duathron/sift/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/duathron/sift/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/duathron/sift/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/duathron/sift/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/duathron/sift/compare/v0.2.0...v0.3.0
