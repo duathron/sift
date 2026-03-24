@@ -209,7 +209,7 @@ def _render_clusters_table(report: TriageReport, con: Console) -> None:
 
         table.add_row(
             _priority_label(cluster.priority),
-            f"{cluster.score:.1f}",
+            f"{cluster.score:.2f}",
             label,
             str(len(cluster.alerts)),
             ioc_count,

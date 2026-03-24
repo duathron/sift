@@ -230,9 +230,11 @@ def triage(
         _cached = _alert_cache.get(_cache_key)
         if _cached is not None:
             if not quiet:
-                console.print("[dim]Cache hit — returning cached triage result.[/dim]")
+                console.print(f"[dim]Cache hit ({_cache_key[:12]}…) — skipping pipeline.[/dim]")
             _render_output(_cached, format=format, output_path=output, cfg=cfg, quiet=quiet)
             raise typer.Exit(0)
+        if not quiet:
+            console.print(f"[dim]Cache miss ({_cache_key[:12]}…) — running pipeline.[/dim]")
 
     if not raw.strip():
         console.print("[red]Error:[/red] Input is empty.")
@@ -248,6 +250,22 @@ def triage(
     if not alerts:
         console.print("[yellow]Warning:[/yellow] No alerts could be parsed from input.")
         raise typer.Exit(0)
+
+    # F-10: filter out phantom alerts (e.g. from bare {} input) with no meaningful content.
+    alerts = [
+        a for a in alerts
+        if a.title not in ("Unknown Alert", "Unknown", "")
+        or a.description
+        or a.source_ip
+        or a.dest_ip
+        or a.user
+        or a.host
+        or a.iocs
+        or a.raw
+    ]
+    if not alerts:
+        console.print("[red]Error:[/red] No parseable alerts in input (all records were empty).")
+        raise typer.Exit(2)
 
     alerts_ingested = len(alerts)
 
@@ -377,9 +395,12 @@ def triage(
         try:
             from .filtering import FilterParser
             filter_obj = FilterParser.parse(filter)
-            report = report.model_copy(
-                update={"clusters": [c for c in report.clusters if filter_obj.matches(c)]}
-            )
+            before = len(report.clusters)
+            filtered = [c for c in report.clusters if filter_obj.matches(c)]
+            after = len(filtered)
+            if not (quiet or cfg.output.quiet):
+                console.print(f"[dim]Filter '{filter}': {after}/{before} cluster(s) matched.[/dim]")
+            report = report.model_copy(update={"clusters": filtered})
         except Exception as e:
             console.print(f"[yellow]Warning:[/yellow] Filter parsing failed: {e}")
 

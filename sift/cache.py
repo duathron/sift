@@ -185,7 +185,7 @@ class AlertCache:
 
         conn = self._get_conn()
         now_iso = datetime.now(tz=timezone.utc).isoformat()
-        result_json = json.dumps(result)
+        result_json = json.dumps(result, default=str)
 
         # Evict before inserting so we never breach max_entries.
         count: int = conn.execute(
