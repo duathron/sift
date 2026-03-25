@@ -29,12 +29,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **F-09 (spec)**: STIX Bundle now includes `"spec_version": "2.1"` at the bundle level (STIX 2.1 compliance)
 - **F-11 (ux)**: `sift doctor` now shows `(N warning(s) — optional features unavailable)` instead of the misleading "passed or warned"
 
-### Known Limitations (v1.0.1 backlog)
-- **F-02**: `--chunk-size` splits alerts physically; IOC-overlap clustering across chunk boundaries is not reconstructed by `merge_triage_reports`. Use `--chunk-size >= 500` or leave chunking disabled for best cluster quality. Fix planned for v1.0.1.
-- **F-06**: Minor score display difference between Rich table (1 decimal) and JSON export (2 decimals). No functional impact.
-- **F-07**: `--cache` provides no HIT/MISS feedback on stderr. Use `sift metrics` to verify cache is in use.
-- **F-10**: An empty JSON object `{}` is accepted as a single "Unknown Alert" instead of returning an error. Known limitation.
-- **F-12**: No feedback on how many clusters were removed by `--filter`. Backlog v1.1.0.
+### Fixed (post-beta backlog — included in v1.0.0)
+- **F-02 (chunking)**: `merge_triage_reports()` now runs a second-pass Union-Find merge (`_merge_ioc_overlapping_clusters`) to restore IOC-overlap clustering across chunk boundaries; cross-chunk phishing campaigns cluster correctly
+- **F-06 (display)**: Score display unified to 2 decimal places (`:.2f`) in Rich table, detail view, and console output — matches JSON export values exactly
+- **F-07 (cache)**: `AlertCache.put()` now serializes datetime objects correctly (`json.dumps(..., default=str)`); cache was silently failing to write on every run; stderr now shows explicit `Cache hit/miss (fingerprint…)` message
+- **F-10 (validation)**: Phantom alerts generated from empty records (e.g. `{}`) are filtered after normalization; exits with code 2 and a clear error message instead of triaging an empty cluster
+- **F-12 (ux)**: `--filter` now reports match count to stderr: `Filter 'priority >= HIGH': 1/5 cluster(s) matched.`
 
 ---
 
