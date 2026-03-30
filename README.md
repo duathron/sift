@@ -129,6 +129,18 @@ sift triage alerts.json --enrich --summarize
 sift triage alerts.json --enrich --enrich-mode barb
 ```
 
+**Correlate alerts across multiple sources:**
+```bash
+# Two files — merged before clustering
+sift triage firewall.json edr_alerts.json
+
+# Mix of files and a directory (scanned recursively)
+sift triage baseline.json new_alerts/ --filter 'priority >= HIGH'
+
+# All .json/.csv files in a folder
+sift triage /var/log/siem/ --summarize --provider anthropic
+```
+
 ---
 
 ## Configuration
@@ -202,7 +214,15 @@ Run `sift config --help` for the full option reference.
 | Splunk export | JSON export from Splunk Search | Handles `results` wrapper and Splunk field names |
 | CSV | Comma-separated alert rows | First row treated as header; all fields extracted |
 
-Pass `-` as the filename to read from stdin:
+**Multiple sources:** Pass any number of files and/or directories. sift merges all alerts before dedup and clustering, enabling cross-source correlation:
+
+```bash
+sift triage firewall.json edr.json ids.csv
+sift triage /var/log/siem/           # all .json/.csv/.ndjson/.log files, recursively
+sift triage baseline.json new_alerts/
+```
+
+**stdin:** Pass `-` as the filename to read from stdin:
 ```bash
 splunk-cli export | sift triage -
 ```

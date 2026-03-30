@@ -11,6 +11,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.0.11] - 2026-03-30
+
+### Added
+- **Multi-file and directory input**: `sift triage` now accepts multiple files and/or directories as arguments. All sources are merged into a single alert pool before deduplication and clustering, enabling cross-source IOC correlation out of the box.
+  - `sift triage firewall.json edr.json siem/` — correlate across sources in one run
+  - Directories are scanned recursively for `.json`, `.csv`, `.ndjson`, `.log` files
+  - Cross-source deduplication removes duplicates spanning all input sources
+  - IOC-overlap clustering works across all merged alerts regardless of origin
+  - Source count and alert merge count reported on stderr (suppressible with `--quiet`)
+  - Backward compatible: single-file usage unchanged
+
+---
+
 ## [1.0.1] - 2026-03-30
 
 ### Added
