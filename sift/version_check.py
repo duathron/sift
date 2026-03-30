@@ -13,6 +13,19 @@ _CACHE_FILE = Path.home() / ".sift" / "version_check.json"
 _PYPI_URL = "https://pypi.org/pypi/sift-triage/json"
 
 
+def _parse_ver(v: str) -> tuple[int, ...]:
+    """Parse a version string into a comparable tuple of ints."""
+    try:
+        return tuple(int(x) for x in v.strip().split("."))
+    except Exception:
+        return (0,)
+
+
+def _is_newer(latest: str, current: str) -> bool:
+    """Return True only if latest is strictly newer than current."""
+    return _parse_ver(latest) > _parse_ver(current)
+
+
 def check_for_update(check_interval_hours: int = 24) -> Optional[str]:
     """Return the latest PyPI version string if newer than installed, else None.
 
@@ -34,7 +47,7 @@ def check_for_update(check_interval_hours: int = 24) -> Optional[str]:
             latest = data["info"]["version"]
             _save_cache({"checked_at": now, "latest": latest})
 
-        if latest and latest != __version__:
+        if latest and _is_newer(latest, __version__):
             return latest
     except Exception:
         pass

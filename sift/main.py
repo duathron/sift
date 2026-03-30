@@ -236,35 +236,33 @@ def triage(
                 raise typer.Exit(2)
         return resolved
 
-    def _stream_alerts(path: Path, hasher) -> tuple[list, str]:
-        """Read a large file line-by-line in batches.
+    def _stream_alerts(path: Path, hasher, show_progress: bool) -> tuple[list, str]:
+        """Read a large file line-by-line in batches with optional progress bar.
 
         Avoids loading the entire file into RAM — critical for multi-GB logs.
-        Works best with NDJSON (one JSON object per line). Falls back to
-        batch-normalizing lines for other formats.
-        hasher is a hashlib sha256 object updated in-place for cache fingerprinting.
+        Tracks bytes read for accurate %, elapsed time, and ETA via rich.progress.
         """
+        from rich.progress import (
+            BarColumn,
+            FileSizeColumn,
+            Progress,
+            TaskProgressColumn,
+            TextColumn,
+            TimeElapsedColumn,
+            TimeRemainingColumn,
+            TotalFileSizeColumn,
+            TransferSpeedColumn,
+        )
+
+        file_size = path.stat().st_size
         all_source_alerts: list = []
         detected_fmt = "generic"
         buffer: list[str] = []
 
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                hasher.update(line.encode("utf-8", errors="replace"))
-                stripped = line.rstrip("\n")
-                if stripped:
-                    buffer.append(stripped)
-                if len(buffer) >= _STREAM_BATCH_LINES:
-                    try:
-                        batch_alerts, fmt = _normalize("\n".join(buffer))
-                        if batch_alerts:
-                            all_source_alerts.extend(batch_alerts)
-                            detected_fmt = fmt
-                    except Exception:
-                        pass
-                    buffer.clear()
-
-        if buffer:
+        def _flush_buffer() -> None:
+            nonlocal detected_fmt
+            if not buffer:
+                return
             try:
                 batch_alerts, fmt = _normalize("\n".join(buffer))
                 if batch_alerts:
@@ -272,6 +270,57 @@ def triage(
                     detected_fmt = fmt
             except Exception:
                 pass
+            buffer.clear()
+
+        progress_ctx = (
+            Progress(
+                TextColumn("[bold cyan]{task.description}"),
+                BarColumn(bar_width=None),
+                TaskProgressColumn(),
+                TextColumn("•"),
+                FileSizeColumn(),
+                TextColumn("/"),
+                TotalFileSizeColumn(),
+                TextColumn("•"),
+                TransferSpeedColumn(),
+                TextColumn("•"),
+                TimeElapsedColumn(),
+                TextColumn("ETA"),
+                TimeRemainingColumn(),
+                console=Console(stderr=True),
+                transient=False,
+                refresh_per_second=10,
+            )
+            if show_progress
+            else None
+        )
+
+        def _run(progress, task_id) -> None:
+            bytes_read = 0
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                for line in fh:
+                    line_bytes = line.encode("utf-8", errors="replace")
+                    bytes_read += len(line_bytes)
+                    hasher.update(line_bytes)
+                    stripped = line.rstrip("\n")
+                    if stripped:
+                        buffer.append(stripped)
+                    if len(buffer) >= _STREAM_BATCH_LINES:
+                        _flush_buffer()
+                        if progress is not None:
+                            progress.update(task_id, completed=bytes_read)
+            _flush_buffer()
+            if progress is not None:
+                progress.update(task_id, completed=file_size)
+
+        if progress_ctx is not None:
+            with progress_ctx as progress:
+                task_id = progress.add_task(
+                    f"Reading {path.name}", total=file_size
+                )
+                _run(progress, task_id)
+        else:
+            _run(None, None)
 
         return all_source_alerts, detected_fmt
 
@@ -307,13 +356,8 @@ def triage(
                     console.print(f"[yellow]Warning:[/yellow] Skipping empty file: {label}")
                     continue
                 if file_size > _LARGE_FILE_THRESHOLD_BYTES:
-                    size_mb = file_size / 1024 / 1024
-                    if not (quiet or cfg.output.quiet):
-                        console.print(
-                            f"[dim]Streaming {label} ({size_mb:.0f} MB) in batches of "
-                            f"{_STREAM_BATCH_LINES:,} lines — large-file mode.[/dim]"
-                        )
-                    source_alerts, fmt = _stream_alerts(path, _fp_hasher)
+                    _show_prog = not (quiet or cfg.output.quiet)
+                    source_alerts, fmt = _stream_alerts(path, _fp_hasher, _show_prog)
                 else:
                     raw = path.read_text(encoding="utf-8")
                     _fp_hasher.update(raw.encode("utf-8", errors="replace"))
@@ -379,20 +423,32 @@ def triage(
     alerts_ingested = len(alerts)
 
     # --- Dedup ---
+    _quiet_mode = quiet or cfg.output.quiet
+    _PROGRESS_THRESHOLD = 10_000  # show spinner/progress above this alert count
+
     if no_dedup:
         alerts_after_dedup = alerts
         dedup_count = alerts_ingested
     else:
         from .pipeline.dedup import DeduplicatorConfig, deduplicate
-        alerts_after_dedup, dedup_stats = deduplicate(
-            alerts,
-            DeduplicatorConfig(time_window_minutes=cfg.clustering.time_window_minutes),
-        )
+        from rich.status import Status as _Status
+
+        _dedup_cfg = DeduplicatorConfig(time_window_minutes=cfg.clustering.time_window_minutes)
+        if alerts_ingested >= _PROGRESS_THRESHOLD and not _quiet_mode:
+            with _Status(
+                f"[bold]Deduplicating {alerts_ingested:,} alerts…[/bold]",
+                console=Console(stderr=True),
+                spinner="dots",
+            ):
+                alerts_after_dedup, dedup_stats = deduplicate(alerts, _dedup_cfg)
+        else:
+            alerts_after_dedup, dedup_stats = deduplicate(alerts, _dedup_cfg)
+
         dedup_count = dedup_stats.deduplicated_count
-        if dedup_stats.removed_count > 0 and not quiet:
+        if not _quiet_mode:
             console.print(
-                f"[dim]Deduplication: {alerts_ingested} → {dedup_count} alerts "
-                f"({dedup_stats.removed_count} duplicates removed)[/dim]"
+                f"[dim]Deduplication: {alerts_ingested:,} → {dedup_count:,} alerts "
+                f"({dedup_stats.removed_count:,} duplicates removed)[/dim]"
             )
 
     # --- Field-level redaction (optional) ---
@@ -426,23 +482,73 @@ def triage(
         )
 
     effective_chunk_size = chunk_size if chunk_size > 0 else cfg.clustering.chunk_size
+
+    from rich.progress import (
+        BarColumn, MofNCompleteColumn, Progress as _Progress,
+        SpinnerColumn, TaskProgressColumn, TextColumn as _TextColumn,
+        TimeElapsedColumn, TimeRemainingColumn,
+    )
+    from rich.status import Status as _Status
+
     if effective_chunk_size > 0:
         chunks = chunk_alerts(alerts_after_dedup, effective_chunk_size)
+        n_chunks = len(chunks)
         _chunk_reports = []
-        for _chunk in chunks:
-            _cls = cluster_alerts(_chunk, cfg.clustering)
-            _cls = prioritize_all(_cls, cfg.scoring)
-            _chunk_reports.append(TriageReport(
-                input_file=input_file_str,
-                alerts_ingested=len(_chunk),
-                alerts_after_dedup=len(_chunk),
-                clusters=_cls,
-                analyzed_at=datetime.now(tz=timezone.utc),
-            ))
+
+        if n_chunks > 1 and not _quiet_mode:
+            with _Progress(
+                SpinnerColumn(),
+                _TextColumn("[bold]{task.description}"),
+                BarColumn(bar_width=None),
+                MofNCompleteColumn(),
+                TaskProgressColumn(),
+                TextColumn("•"),
+                TimeElapsedColumn(),
+                TextColumn("ETA"),
+                TimeRemainingColumn(),
+                console=Console(stderr=True),
+                transient=False,
+                refresh_per_second=10,
+            ) as prog:
+                task = prog.add_task(
+                    f"Clustering {dedup_count:,} alerts in {n_chunks} chunks",
+                    total=n_chunks,
+                )
+                for _chunk in chunks:
+                    _cls = cluster_alerts(_chunk, cfg.clustering)
+                    _cls = prioritize_all(_cls, cfg.scoring)
+                    _chunk_reports.append(TriageReport(
+                        input_file=input_file_str,
+                        alerts_ingested=len(_chunk),
+                        alerts_after_dedup=len(_chunk),
+                        clusters=_cls,
+                        analyzed_at=datetime.now(tz=timezone.utc),
+                    ))
+                    prog.advance(task)
+        else:
+            for _chunk in chunks:
+                _cls = cluster_alerts(_chunk, cfg.clustering)
+                _cls = prioritize_all(_cls, cfg.scoring)
+                _chunk_reports.append(TriageReport(
+                    input_file=input_file_str,
+                    alerts_ingested=len(_chunk),
+                    alerts_after_dedup=len(_chunk),
+                    clusters=_cls,
+                    analyzed_at=datetime.now(tz=timezone.utc),
+                ))
         clusters = merge_triage_reports(_chunk_reports).clusters
     else:
-        clusters = cluster_alerts(alerts_after_dedup, cfg.clustering)
-        clusters = prioritize_all(clusters, cfg.scoring)
+        if dedup_count >= _PROGRESS_THRESHOLD and not _quiet_mode:
+            with _Status(
+                f"[bold]Clustering {dedup_count:,} alerts…[/bold]",
+                console=Console(stderr=True),
+                spinner="dots",
+            ):
+                clusters = cluster_alerts(alerts_after_dedup, cfg.clustering)
+                clusters = prioritize_all(clusters, cfg.scoring)
+        else:
+            clusters = cluster_alerts(alerts_after_dedup, cfg.clustering)
+            clusters = prioritize_all(clusters, cfg.scoring)
 
     # --- Enrichment (optional) ---
     enrichment = None
