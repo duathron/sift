@@ -11,6 +11,56 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.0.15] - 2026-03-30
+
+### Changed (UX Simplification — MeetUp SIFT-2026-009)
+- **Auto-Tuning Engine** (`sift/tuning.py`): sift now automatically selects
+  optimal `chunk_size`, `drop_raw`, and sub-file chunking based on input size.
+  No user flags needed — the tool adapts silently. Large-data warnings removed.
+- **Cache on by default**: result caching is now enabled by default. Use
+  `--no-cache` to disable for live investigations. `--cache` flag removed
+  (now a no-op with deprecation note in config_cmd).
+- **`--enrich MODE`**: `--enrich` now accepts an optional mode value
+  (`all | local | barb | vex`). `--enrich local` replaces `--enrich --enrich-mode local`.
+  `--enrich-mode` kept as hidden deprecated alias.
+- **Expert flags hidden**: `--chunk-size`, `--drop-raw`, `--no-dedup`,
+  `--redact-fields`, `--validate-only`, `--config`, `--enrich-mode` no longer
+  appear in `--help`. They remain fully functional for power users.
+- **Zero-config smoke test** (`tests/test_zero_config.py`): integration test
+  ensuring `sift triage <file>` works end-to-end without any flags.
+
+### Added
+- `sift/tuning.py`: `auto_tune()` function + `TuneResult` dataclass — 25 unit tests.
+- `tests/test_zero_config.py`: 13 zero-config integration tests.
+
+---
+
+## [1.0.14] - 2026-03-30
+
+### Added
+- **Per-file pipeline architecture**: each file is now processed independently
+  (read → dedup → IOC extract → cluster → TriageReport), then freed from RAM.
+  Only compact TriageReport objects accumulate across files. Peak RAM is bounded
+  to the largest single file, not the sum of all files.
+- **Sub-file chunking for multi-GB files**: files larger than 500 MB (configurable
+  via `clustering.sub_chunk_threshold_mb`) are automatically processed in batches
+  of 100,000 alerts (configurable via `clustering.sub_chunk_size`). Each batch
+  runs through the full pipeline independently; cross-batch IOC correlation is
+  restored by the existing Union-Find merge. Peak RAM per batch: ~200–300 MB.
+- **`--drop-raw` flag**: drops the raw alert data (`raw: dict`) after normalization,
+  halving per-alert RAM usage for wide CSVs (80+ columns). Essential for 10GB+ datasets.
+- **Large-data warnings**: automatic guidance when total input exceeds 1 GB or 10 GB,
+  recommending `--drop-raw` and `--chunk-size` for optimal memory usage.
+- **CSV streaming header fix**: the streaming reader now preserves the CSV header
+  from the first batch and prepends it to subsequent batches, fixing silent mis-parsing
+  of streamed CSV files after the first 5,000 lines.
+
+### Changed
+- Config: `ClusteringConfig` gains `sub_chunk_threshold_mb` (default 500) and
+  `sub_chunk_size` (default 100,000) for fine-tuning sub-file chunking behavior.
+
+---
+
 ## [1.0.11] - 2026-03-30
 
 ### Added

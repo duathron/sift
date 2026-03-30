@@ -140,7 +140,7 @@ def triage(
     )] = "rich",
     filter: Annotated[Optional[str], typer.Option(
         "--filter",
-        help="Filter clusters using boolean DSL (e.g., 'priority >= HIGH')",
+        help="Filter clusters (e.g. 'priority >= HIGH')",
     )] = None,
     summarize: Annotated[bool, typer.Option(
         "--summarize", "-s",
@@ -157,43 +157,48 @@ def triage(
         "--quiet", "-q",
         help="Suppress banner.",
     )] = False,
-    no_dedup: Annotated[bool, typer.Option(
-        "--no-dedup",
-        help="Skip alert deduplication.",
-    )] = False,
-    config_path: Annotated[Optional[Path], typer.Option(
-        "--config",
-        help="Path to config.yaml",
-        show_default=False,
-    )] = None,
-    enrich: Annotated[bool, typer.Option(
+    enrich: Annotated[Optional[str], typer.Option(
         "--enrich",
-        help="Enrich IOCs via barb (URLs) and vex (all IOCs). Requires consent or --yes.",
-    )] = False,
-    enrich_mode: Annotated[Optional[str], typer.Option(
-        "--enrich-mode",
-        help="Enrichment scope: all | barb | vex | local  [default: all]. 'local' = heuristic-only, no external API calls.",
+        help="Enrich IOCs: all | local | barb | vex  (default: all when flag is used).",
     )] = None,
     yes: Annotated[bool, typer.Option(
         "--yes", "-y",
-        help="Skip consent prompt for external API calls (--enrich).",
+        help="Skip consent prompt for external enrichment API calls.",
+    )] = False,
+    no_cache: Annotated[bool, typer.Option(
+        "--no-cache",
+        help="Disable result caching for this run.",
+    )] = False,
+    # --- Advanced / hidden flags (use sift triage --help-all to see) ---
+    config_path: Annotated[Optional[Path], typer.Option(
+        "--config", help="Path to config.yaml", show_default=False, hidden=True,
+    )] = None,
+    no_dedup: Annotated[bool, typer.Option(
+        "--no-dedup", help="Skip alert deduplication.", hidden=True,
     )] = False,
     validate_only: Annotated[bool, typer.Option(
-        "--validate-only",
-        help="Validation-only mode: parse and validate, skip output rendering.",
-    )] = False,
-    cache: Annotated[bool, typer.Option(
-        "--cache",
-        help="Cache triage results by input fingerprint (opt-in, TTL 1h).",
+        "--validate-only", help="Parse and validate only, skip output.", hidden=True,
     )] = False,
     redact_fields: Annotated[Optional[str], typer.Option(
         "--redact-fields",
-        help="Comma-separated alert fields to redact before processing (e.g. 'user,host,source_ip').",
+        help="Comma-separated fields to redact (e.g. 'user,host,source_ip').",
+        hidden=True,
     )] = None,
     chunk_size: Annotated[int, typer.Option(
         "--chunk-size",
-        help="Process alerts in chunks of N (0 = no chunking, default). Reduces memory for large files.",
+        help="Override auto-tuned chunk size (0 = auto).",
+        hidden=True,
     )] = 0,
+    drop_raw: Annotated[bool, typer.Option(
+        "--drop-raw",
+        help="Force drop raw alert data (auto-enabled for large files).",
+        hidden=True,
+    )] = False,
+    enrich_mode: Annotated[Optional[str], typer.Option(
+        "--enrich-mode",
+        help="[Deprecated] Use --enrich MODE instead.",
+        hidden=True,
+    )] = None,
 ) -> None:
     """Triage alerts from one or more FILES or directories.
 
@@ -202,6 +207,18 @@ def triage(
 
     # --- Load config ---
     cfg = load_config(config_path)
+
+    # --- Backward compat: --enrich-mode (deprecated) merged into --enrich ---
+    if enrich_mode and enrich is None:
+        console.print(
+            "[yellow]Note:[/yellow] --enrich-mode is deprecated. Use --enrich MODE instead "
+            "(e.g. --enrich local)."
+        )
+        enrich = enrich_mode
+
+    # --- Resolve effective enrich mode ---
+    _enrich_active = enrich is not None
+    _enrich_mode_str = (enrich or "all").lower()
 
     # --- Banner ---
     show_banner(
@@ -236,11 +253,17 @@ def triage(
                 raise typer.Exit(2)
         return resolved
 
-    def _stream_alerts(path: Path, hasher, show_progress: bool) -> tuple[list, str]:
+    def _stream_alerts(path: Path, hasher, show_progress: bool, *, sub_chunk: bool = False) -> tuple[list, str]:
         """Read a large file line-by-line in batches with optional progress bar.
 
         Avoids loading the entire file into RAM — critical for multi-GB logs.
         Tracks bytes read for accurate %, elapsed time, and ETA via rich.progress.
+
+        When *sub_chunk* is True, processes alerts in batches of ``sub_chunk_size``
+        through the full mini-pipeline (dedup → IOC → cluster → prioritize) and
+        returns a list of :class:`TriageReport` objects (stored in ``all_source_alerts``).
+        This bounds peak RAM to ~200MB per batch even for multi-GB files.
+        When *sub_chunk* is False, returns the raw Alert list as before.
         """
         from rich.progress import (
             BarColumn,
@@ -254,19 +277,64 @@ def triage(
             TransferSpeedColumn,
         )
 
+        _sub_chunk_size = cfg.clustering.sub_chunk_size  # default 100_000
+
         file_size = path.stat().st_size
-        all_source_alerts: list = []
+        all_source_alerts: list = []   # Alert list (sub_chunk=False) or TriageReport list (sub_chunk=True)
+        _pending_alerts: list = []     # buffer for sub-chunk accumulation
         detected_fmt = "generic"
         buffer: list[str] = []
+        _csv_header: str | None = None  # preserved CSV header for subsequent batches
+
+        def _process_sub_chunk() -> None:
+            """Run mini-pipeline on accumulated alerts, emit TriageReport, free Alert objects."""
+            nonlocal _pending_alerts
+            if not _pending_alerts:
+                return
+            from .pipeline.dedup import DeduplicatorConfig, deduplicate
+            from .pipeline.ioc_extractor import enrich_alerts_iocs
+            _dedup_cfg = DeduplicatorConfig(time_window_minutes=cfg.clustering.time_window_minutes)
+            _deduped, _ = deduplicate(_pending_alerts, _dedup_cfg)
+            if redact_fields:
+                _fields = [f.strip() for f in redact_fields.split(",") if f.strip()]
+                _deduped = [a.redact(_fields) for a in _deduped]
+            if drop_raw:
+                _deduped = [a.model_copy(update={"raw": {}}) for a in _deduped]
+            _deduped = enrich_alerts_iocs(_deduped)
+            _cls = cluster_alerts(_deduped, cfg.clustering)
+            _cls = prioritize_all(_cls, cfg.scoring)
+            all_source_alerts.append(TriageReport(
+                input_file=str(path),
+                alerts_ingested=len(_pending_alerts),
+                alerts_after_dedup=len(_deduped),
+                clusters=_cls,
+                analyzed_at=datetime.now(tz=timezone.utc),
+            ))
+            _pending_alerts = []
 
         def _flush_buffer() -> None:
-            nonlocal detected_fmt
+            nonlocal detected_fmt, _csv_header
             if not buffer:
                 return
             try:
-                batch_alerts, fmt = _normalize("\n".join(buffer))
+                raw_batch = "\n".join(buffer)
+                # CSV header fix: after the first batch, prepend the saved header
+                # so that csv.DictReader can map columns correctly in every batch.
+                if _csv_header is not None and detected_fmt == "csv":
+                    raw_batch = _csv_header + "\n" + raw_batch
+                batch_alerts, fmt = _normalize(raw_batch)
                 if batch_alerts:
-                    all_source_alerts.extend(batch_alerts)
+                    # Save CSV header from first successful parse for subsequent batches
+                    if _csv_header is None and fmt == "csv" and buffer:
+                        _csv_header = buffer[0]
+                    if drop_raw and not sub_chunk:
+                        batch_alerts = [a.model_copy(update={"raw": {}}) for a in batch_alerts]
+                    if sub_chunk:
+                        _pending_alerts.extend(batch_alerts)
+                        if len(_pending_alerts) >= _sub_chunk_size:
+                            _process_sub_chunk()
+                    else:
+                        all_source_alerts.extend(batch_alerts)
                     detected_fmt = fmt
             except Exception:
                 pass
@@ -310,14 +378,15 @@ def triage(
                         if progress is not None:
                             progress.update(task_id, completed=bytes_read)
             _flush_buffer()
+            if sub_chunk:
+                _process_sub_chunk()  # flush remaining alerts
             if progress is not None:
                 progress.update(task_id, completed=file_size)
 
         if progress_ctx is not None:
             with progress_ctx as progress:
-                task_id = progress.add_task(
-                    f"Reading {path.name}", total=file_size
-                )
+                desc = f"Reading {path.name}" + (" (sub-chunked)" if sub_chunk else "")
+                task_id = progress.add_task(desc, total=file_size)
                 _run(progress, task_id)
         else:
             _run(None, None)
@@ -329,40 +398,170 @@ def triage(
         console.print("[red]Error:[/red] No input files to process.")
         raise typer.Exit(2)
 
-    # --- Read and normalize all sources, merge alerts ---
-    # Fingerprint is computed incrementally — raw strings are never accumulated.
-    import hashlib as _hashlib
-    _fp_hasher = _hashlib.sha256()
+    # --- Early validation ---
+    if chunk_size < 0:
+        console.print("[red]Error:[/red] --chunk-size must be 0 (auto) or a positive integer.")
+        raise typer.Exit(2)
 
-    all_alerts: list = []
+    _quiet_mode = quiet or cfg.output.quiet
+    _PROGRESS_THRESHOLD = 10_000
+
+    import hashlib as _hashlib
+
+    from .pipeline.chunker import chunk_alerts, merge_triage_reports
+    from .pipeline.clusterer import cluster_alerts
+    from .pipeline.prioritizer import prioritize_all
+    from rich.progress import (
+        BarColumn, MofNCompleteColumn, Progress as _Progress,
+        SpinnerColumn, TaskProgressColumn, TextColumn as _TextColumn,
+        TimeElapsedColumn, TimeRemainingColumn,
+    )
+    from rich.status import Status as _Status
+
+    # --- Auto-tuning: compute total + largest file sizes for tuning engine ---
+    from .tuning import auto_tune
+    _total_bytes_estimate = sum(
+        p.stat().st_size for p in resolved_paths if str(p) != "-" and p.exists()
+    )
+    _largest_file_estimate = max(
+        (p.stat().st_size for p in resolved_paths if str(p) != "-" and p.exists()),
+        default=0,
+    )
+    _tune = auto_tune(
+        total_bytes=_total_bytes_estimate,
+        file_count=len(resolved_paths),
+        largest_file_bytes=_largest_file_estimate,
+        cfg=cfg.clustering,
+        user_chunk_size=chunk_size if chunk_size > 0 else None,
+        user_drop_raw=True if drop_raw else None,
+    )
+
+    # Effective values: auto-tune wins unless user explicitly set the flag
+    effective_chunk_size = _tune.chunk_size
+    drop_raw = _tune.drop_raw  # may be upgraded by auto-tune for large files
+
+    if not _quiet_mode and _tune.reason != "no tuning needed (small input)":
+        console.print(f"[dim]Auto-tuned: {_tune.reason}[/dim]")
+
+    # --- Cache (default on, --no-cache to disable) ---
+    _cache_enabled = not no_cache and cfg.cache_enabled
+
+    # --- Cache: fingerprint pre-pass (streams bytes only, no Alert objects) ---
+    # When cache is active we fingerprint all files first for a cache lookup
+    # before kicking off the expensive per-file pipeline.
+    _alert_cache = None
+    _cache_key: str | None = None
+    _stdin_raw: str | None = None  # stdin content captured during fingerprint pass
+
+    if _cache_enabled:
+        _fp_hasher = _hashlib.sha256()
+        for _fp_path in resolved_paths:
+            if str(_fp_path) == "-":
+                _stdin_raw = sys.stdin.read()
+                _fp_hasher.update(_stdin_raw.encode("utf-8", errors="replace"))
+            else:
+                _fp_size = _fp_path.stat().st_size
+                if _fp_size > 0:
+                    try:
+                        with open(_fp_path, "rb") as _fh:
+                            for _blk in iter(lambda: _fh.read(65536), b""):
+                                _fp_hasher.update(_blk)
+                    except Exception as _exc:
+                        console.print(f"[red]Error fingerprinting {_fp_path}:[/red] {_exc}")
+                        raise typer.Exit(2)
+
+        from .cache import AlertCache, CacheConfig
+        _cache_key = _fp_hasher.hexdigest()
+        _alert_cache = AlertCache(CacheConfig(enabled=True))
+        _cached = _alert_cache.get(_cache_key)
+        if _cached is not None:
+            if not _quiet_mode:
+                console.print(f"[dim]Cache hit ({_cache_key[:12]}…) — skipping pipeline.[/dim]")
+            _render_output(_cached, format=format, output_path=output, cfg=cfg, quiet=quiet)
+            raise typer.Exit(0)
+        if not _quiet_mode:
+            console.print(f"[dim]Cache miss ({_cache_key[:12]}…) — running pipeline.[/dim]")
+
+    # --- Per-file pipeline ---
+    # Architecture: each file is processed independently to bound peak RAM.
+    #
+    # Small files (< 50MB): read_text → normalize → full Alert list.
+    # Medium files (50MB – sub_chunk_threshold): streaming read → full Alert list.
+    # Large files (> sub_chunk_threshold): streaming read with sub-file chunking —
+    #   processes N alerts at a time (dedup → IOC → cluster → TriageReport), then
+    #   frees Alert objects before the next batch. Peak RAM ≈ 200–300 MB per batch.
+    #
+    # After each file: Alert objects are freed. Only compact TriageReport objects
+    # (containing Cluster objects, not raw Alert data) accumulate across files.
+    #
+    # Cross-source IOC correlation is restored by merge_triage_reports() at the end,
+    # which uses Union-Find IOC-overlap re-merge across all chunks and files.
+
+    _sub_chunk_threshold = cfg.clustering.sub_chunk_threshold_mb * 1024 * 1024
+
+    file_reports: list[TriageReport] = []
+    total_ingested = 0
+    total_after_dedup = 0
     source_labels: list[str] = []
     detected_formats: list[str] = []
+    _total_bytes = 0  # track total input size for large-data warning
 
     for path in resolved_paths:
         label = str(path)
+        _is_sub_chunked = False  # did _stream_alerts handle the full pipeline internally?
         try:
             if str(path) == "-":
-                raw = sys.stdin.read()
+                raw = _stdin_raw if _stdin_raw is not None else sys.stdin.read()
+                _stdin_raw = None
                 label = "<stdin>"
-                _fp_hasher.update(raw.encode("utf-8", errors="replace"))
                 if not raw.strip():
-                    console.print(f"[yellow]Warning:[/yellow] Skipping empty stdin.")
+                    console.print("[yellow]Warning:[/yellow] Skipping empty stdin.")
                     continue
                 source_alerts, fmt = _normalize(raw)
-                del raw  # free immediately
+                if drop_raw:
+                    source_alerts = [a.model_copy(update={"raw": {}}) for a in source_alerts]
+                del raw
             else:
                 file_size = path.stat().st_size
+                _total_bytes += file_size
                 if file_size == 0:
                     console.print(f"[yellow]Warning:[/yellow] Skipping empty file: {label}")
                     continue
-                if file_size > _LARGE_FILE_THRESHOLD_BYTES:
-                    _show_prog = not (quiet or cfg.output.quiet)
-                    source_alerts, fmt = _stream_alerts(path, _fp_hasher, _show_prog)
+                _no_op_hasher = _hashlib.sha256()
+                _hash_target = _no_op_hasher if _cache_enabled else _hashlib.sha256()
+
+                if file_size > _sub_chunk_threshold:
+                    # Large file: sub-file chunking — _stream_alerts runs the full
+                    # mini-pipeline (dedup → IOC → cluster) per batch internally.
+                    # Returns a list of TriageReport objects, NOT Alert objects.
+                    if not _quiet_mode:
+                        _size_gb = file_size / (1024 ** 3)
+                        console.print(
+                            f"[dim]  {path.name} ({_size_gb:.1f} GB) — sub-file chunking "
+                            f"(batches of {cfg.clustering.sub_chunk_size:,} alerts)[/dim]"
+                        )
+                    sub_reports, fmt = _stream_alerts(path, _hash_target, not _quiet_mode, sub_chunk=True)
+                    if sub_reports:
+                        source_labels.append(label)
+                        detected_formats.append(fmt)
+                        file_report = merge_triage_reports(sub_reports)
+                        total_ingested += file_report.alerts_ingested
+                        total_after_dedup += file_report.alerts_after_dedup
+                        file_reports.append(file_report)
+                        del sub_reports
+                    else:
+                        console.print(f"[yellow]Warning:[/yellow] No alerts parsed from: {label}")
+                    continue  # skip the normal pipeline below — already handled
+                elif file_size > _LARGE_FILE_THRESHOLD_BYTES:
+                    source_alerts, fmt = _stream_alerts(path, _hash_target, not _quiet_mode)
+                    if drop_raw:
+                        source_alerts = [a.model_copy(update={"raw": {}}) for a in source_alerts]
                 else:
                     raw = path.read_text(encoding="utf-8")
-                    _fp_hasher.update(raw.encode("utf-8", errors="replace"))
                     source_alerts, fmt = _normalize(raw)
-                    del raw  # free immediately
+                    if drop_raw:
+                        source_alerts = [a.model_copy(update={"raw": {}}) for a in source_alerts]
+                    del raw
         except typer.Exit:
             raise
         except Exception as exc:
@@ -373,199 +572,169 @@ def triage(
             console.print(f"[yellow]Warning:[/yellow] No alerts parsed from: {label}")
             continue
 
-        all_alerts.extend(source_alerts)
         source_labels.append(label)
         detected_formats.append(fmt)
 
-    if not all_alerts:
+        # F-10: filter phantom alerts
+        source_alerts = [
+            a for a in source_alerts
+            if a.title not in ("Unknown Alert", "Unknown", "")
+            or a.description or a.source_ip or a.dest_ip
+            or a.user or a.host or a.iocs or a.raw
+        ]
+        if not source_alerts:
+            console.print(f"[yellow]Warning:[/yellow] All alerts from {label} were empty/phantom.")
+            source_labels.pop()
+            detected_formats.pop()
+            continue
+
+        file_ingested = len(source_alerts)
+        total_ingested += file_ingested
+
+        # --- Dedup (per file) ---
+        if no_dedup:
+            alerts_for_clustering = source_alerts
+            file_dedup_count = file_ingested
+        else:
+            from .pipeline.dedup import DeduplicatorConfig, deduplicate
+            _dedup_cfg = DeduplicatorConfig(time_window_minutes=cfg.clustering.time_window_minutes)
+            if file_ingested >= _PROGRESS_THRESHOLD and not _quiet_mode:
+                with _Status(
+                    f"[bold]Deduplicating {file_ingested:,} alerts from {path.name}…[/bold]",
+                    console=Console(stderr=True),
+                    spinner="dots",
+                ):
+                    alerts_for_clustering, dedup_stats = deduplicate(source_alerts, _dedup_cfg)
+            else:
+                alerts_for_clustering, dedup_stats = deduplicate(source_alerts, _dedup_cfg)
+            file_dedup_count = dedup_stats.deduplicated_count
+            if not _quiet_mode:
+                console.print(
+                    f"[dim]  {path.name}: {file_ingested:,} → {file_dedup_count:,} alerts "
+                    f"({dedup_stats.removed_count:,} duplicates removed)[/dim]"
+                )
+
+        del source_alerts
+        total_after_dedup += file_dedup_count
+
+        # --- Field-level redaction (optional) ---
+        if redact_fields:
+            fields_to_redact = [f.strip() for f in redact_fields.split(",") if f.strip()]
+            try:
+                alerts_for_clustering = [a.redact(fields_to_redact) for a in alerts_for_clustering]
+            except ValueError as exc:
+                console.print(f"[red]Error:[/red] {exc}")
+                raise typer.Exit(2)
+
+        # --- IOC extraction ---
+        from .pipeline.ioc_extractor import enrich_alerts_iocs
+        alerts_for_clustering = enrich_alerts_iocs(alerts_for_clustering)
+
+        # --- Cluster + Prioritize ---
+        if effective_chunk_size > 0:
+            chunks = chunk_alerts(alerts_for_clustering, effective_chunk_size)
+            n_chunks = len(chunks)
+            _chunk_reports: list[TriageReport] = []
+
+            if n_chunks > 1 and not _quiet_mode:
+                with _Progress(
+                    SpinnerColumn(),
+                    _TextColumn("[bold]{task.description}"),
+                    BarColumn(bar_width=None),
+                    MofNCompleteColumn(),
+                    TaskProgressColumn(),
+                    _TextColumn("•"),
+                    TimeElapsedColumn(),
+                    _TextColumn("ETA"),
+                    TimeRemainingColumn(),
+                    console=Console(stderr=True),
+                    transient=False,
+                    refresh_per_second=10,
+                ) as prog:
+                    task = prog.add_task(
+                        f"Clustering {file_dedup_count:,} alerts [{path.name}] in {n_chunks} chunks",
+                        total=n_chunks,
+                    )
+                    for _chk in chunks:
+                        _cls = cluster_alerts(_chk, cfg.clustering)
+                        _cls = prioritize_all(_cls, cfg.scoring)
+                        _chunk_reports.append(TriageReport(
+                            input_file=label,
+                            alerts_ingested=len(_chk),
+                            alerts_after_dedup=len(_chk),
+                            clusters=_cls,
+                            analyzed_at=datetime.now(tz=timezone.utc),
+                        ))
+                        prog.advance(task)
+            else:
+                for _chk in chunks:
+                    _cls = cluster_alerts(_chk, cfg.clustering)
+                    _cls = prioritize_all(_cls, cfg.scoring)
+                    _chunk_reports.append(TriageReport(
+                        input_file=label,
+                        alerts_ingested=len(_chk),
+                        alerts_after_dedup=len(_chk),
+                        clusters=_cls,
+                        analyzed_at=datetime.now(tz=timezone.utc),
+                    ))
+            file_report = merge_triage_reports(_chunk_reports)
+        else:
+            if file_dedup_count >= _PROGRESS_THRESHOLD and not _quiet_mode:
+                with _Status(
+                    f"[bold]Clustering {file_dedup_count:,} alerts from {path.name}…[/bold]",
+                    console=Console(stderr=True),
+                    spinner="dots",
+                ):
+                    _cls = cluster_alerts(alerts_for_clustering, cfg.clustering)
+                    _cls = prioritize_all(_cls, cfg.scoring)
+            else:
+                _cls = cluster_alerts(alerts_for_clustering, cfg.clustering)
+                _cls = prioritize_all(_cls, cfg.scoring)
+
+            file_report = TriageReport(
+                input_file=label,
+                alerts_ingested=file_ingested,
+                alerts_after_dedup=file_dedup_count,
+                clusters=_cls,
+                analyzed_at=datetime.now(tz=timezone.utc),
+            )
+
+        del alerts_for_clustering
+        file_reports.append(file_report)
+
+    if not file_reports:
         console.print("[yellow]Warning:[/yellow] No alerts could be parsed from any input source.")
         raise typer.Exit(0)
 
     input_file_str = ", ".join(source_labels) if len(source_labels) > 1 else (source_labels[0] if source_labels else "<unknown>")
 
-    if len(source_labels) > 1 and not (quiet or cfg.output.quiet):
-        console.print(f"[dim]Sources: {len(source_labels)} files — merging {len(all_alerts)} alerts for cross-source correlation.[/dim]")
-
-    # --- Cache lookup (opt-in) ---
-    _alert_cache = None
-    _cache_key: str | None = None
-    if cache:
-        from .cache import AlertCache, CacheConfig
-        _cache_key = _fp_hasher.hexdigest()  # built incrementally during file reads
-        _alert_cache = AlertCache(CacheConfig(enabled=True))
-        _cached = _alert_cache.get(_cache_key)
-        if _cached is not None:
-            if not quiet:
-                console.print(f"[dim]Cache hit ({_cache_key[:12]}…) — skipping pipeline.[/dim]")
-            _render_output(_cached, format=format, output_path=output, cfg=cfg, quiet=quiet)
-            raise typer.Exit(0)
-        if not quiet:
-            console.print(f"[dim]Cache miss ({_cache_key[:12]}…) — running pipeline.[/dim]")
-
-    alerts = all_alerts
-
-    # F-10: filter out phantom alerts (e.g. from bare {} input) with no meaningful content.
-    alerts = [
-        a for a in alerts
-        if a.title not in ("Unknown Alert", "Unknown", "")
-        or a.description
-        or a.source_ip
-        or a.dest_ip
-        or a.user
-        or a.host
-        or a.iocs
-        or a.raw
-    ]
-    if not alerts:
-        console.print("[red]Error:[/red] No parseable alerts in input (all records were empty).")
-        raise typer.Exit(2)
-
-    alerts_ingested = len(alerts)
-
-    # --- Dedup ---
-    _quiet_mode = quiet or cfg.output.quiet
-    _PROGRESS_THRESHOLD = 10_000  # show spinner/progress above this alert count
-
-    if no_dedup:
-        alerts_after_dedup = alerts
-        dedup_count = alerts_ingested
-    else:
-        from .pipeline.dedup import DeduplicatorConfig, deduplicate
-        from rich.status import Status as _Status
-
-        _dedup_cfg = DeduplicatorConfig(time_window_minutes=cfg.clustering.time_window_minutes)
-        if alerts_ingested >= _PROGRESS_THRESHOLD and not _quiet_mode:
-            with _Status(
-                f"[bold]Deduplicating {alerts_ingested:,} alerts…[/bold]",
-                console=Console(stderr=True),
-                spinner="dots",
-            ):
-                alerts_after_dedup, dedup_stats = deduplicate(alerts, _dedup_cfg)
-        else:
-            alerts_after_dedup, dedup_stats = deduplicate(alerts, _dedup_cfg)
-
-        dedup_count = dedup_stats.deduplicated_count
-        if not _quiet_mode:
-            console.print(
-                f"[dim]Deduplication: {alerts_ingested:,} → {dedup_count:,} alerts "
-                f"({dedup_stats.removed_count:,} duplicates removed)[/dim]"
-            )
-
-    # --- Field-level redaction (optional) ---
-    if redact_fields:
-        fields_to_redact = [f.strip() for f in redact_fields.split(",") if f.strip()]
-        try:
-            alerts_after_dedup = [a.redact(fields_to_redact) for a in alerts_after_dedup]
-        except ValueError as exc:
-            console.print(f"[red]Error:[/red] {exc}")
-            raise typer.Exit(2)
-
-    # --- IOC extraction ---
-    from .pipeline.ioc_extractor import enrich_alerts_iocs
-    alerts_after_dedup = enrich_alerts_iocs(alerts_after_dedup)
-
-    # --- Cluster + Prioritize (with optional chunking) ---
-    from .pipeline.chunker import chunk_alerts, merge_triage_reports
-    from .pipeline.clusterer import cluster_alerts
-    from .pipeline.prioritizer import prioritize_all
-
-    # --- Validate chunk-size ---
-    if chunk_size < 0:
-        console.print("[red]Error:[/red] --chunk-size must be 0 (disabled) or a positive integer.")
-        raise typer.Exit(2)
-
-    # --- Warn if --enrich-mode given without --enrich ---
-    if enrich_mode and not enrich:
+    if len(source_labels) > 1 and not _quiet_mode:
         console.print(
-            f"[yellow]Warning:[/yellow] --enrich-mode '{enrich_mode}' has no effect without --enrich. "
-            "Add --enrich to activate enrichment."
+            f"[dim]Sources: {len(source_labels)} files — "
+            f"{total_ingested:,} alerts ingested, {total_after_dedup:,} after dedup — "
+            f"merging for cross-source IOC correlation.[/dim]"
         )
 
-    effective_chunk_size = chunk_size if chunk_size > 0 else cfg.clustering.chunk_size
-
-    from rich.progress import (
-        BarColumn, MofNCompleteColumn, Progress as _Progress,
-        SpinnerColumn, TaskProgressColumn, TextColumn as _TextColumn,
-        TimeElapsedColumn, TimeRemainingColumn,
-    )
-    from rich.status import Status as _Status
-
-    if effective_chunk_size > 0:
-        chunks = chunk_alerts(alerts_after_dedup, effective_chunk_size)
-        n_chunks = len(chunks)
-        _chunk_reports = []
-
-        if n_chunks > 1 and not _quiet_mode:
-            with _Progress(
-                SpinnerColumn(),
-                _TextColumn("[bold]{task.description}"),
-                BarColumn(bar_width=None),
-                MofNCompleteColumn(),
-                TaskProgressColumn(),
-                TextColumn("•"),
-                TimeElapsedColumn(),
-                TextColumn("ETA"),
-                TimeRemainingColumn(),
-                console=Console(stderr=True),
-                transient=False,
-                refresh_per_second=10,
-            ) as prog:
-                task = prog.add_task(
-                    f"Clustering {dedup_count:,} alerts in {n_chunks} chunks",
-                    total=n_chunks,
-                )
-                for _chunk in chunks:
-                    _cls = cluster_alerts(_chunk, cfg.clustering)
-                    _cls = prioritize_all(_cls, cfg.scoring)
-                    _chunk_reports.append(TriageReport(
-                        input_file=input_file_str,
-                        alerts_ingested=len(_chunk),
-                        alerts_after_dedup=len(_chunk),
-                        clusters=_cls,
-                        analyzed_at=datetime.now(tz=timezone.utc),
-                    ))
-                    prog.advance(task)
-        else:
-            for _chunk in chunks:
-                _cls = cluster_alerts(_chunk, cfg.clustering)
-                _cls = prioritize_all(_cls, cfg.scoring)
-                _chunk_reports.append(TriageReport(
-                    input_file=input_file_str,
-                    alerts_ingested=len(_chunk),
-                    alerts_after_dedup=len(_chunk),
-                    clusters=_cls,
-                    analyzed_at=datetime.now(tz=timezone.utc),
-                ))
-        clusters = merge_triage_reports(_chunk_reports).clusters
-    else:
-        if dedup_count >= _PROGRESS_THRESHOLD and not _quiet_mode:
-            with _Status(
-                f"[bold]Clustering {dedup_count:,} alerts…[/bold]",
-                console=Console(stderr=True),
-                spinner="dots",
-            ):
-                clusters = cluster_alerts(alerts_after_dedup, cfg.clustering)
-                clusters = prioritize_all(clusters, cfg.scoring)
-        else:
-            clusters = cluster_alerts(alerts_after_dedup, cfg.clustering)
-            clusters = prioritize_all(clusters, cfg.scoring)
+    # --- Merge per-file reports (IOC-overlap Union-Find restores cross-source clustering) ---
+    merged = merge_triage_reports(file_reports)
+    del file_reports
+    clusters = merged.clusters
 
     # --- Enrichment (optional) ---
     enrichment = None
-    if enrich:
+    if _enrich_active:
         from .enrichers.runner import EnrichmentMode, EnrichmentRunner
         mode_map = {"barb": EnrichmentMode.BARB, "vex": EnrichmentMode.VEX, "all": EnrichmentMode.ALL, "local": EnrichmentMode.LOCAL}
-        eff_mode = mode_map.get((enrich_mode or "all").lower(), EnrichmentMode.ALL)
+        eff_mode = mode_map.get(_enrich_mode_str, EnrichmentMode.ALL)
         # LOCAL mode skips consent prompt — no data leaves the system
         consent = (eff_mode is EnrichmentMode.LOCAL) or _check_enrich_consent(yes, cfg)
         if consent:
             runner = EnrichmentRunner(mode=eff_mode)
-            # Collect all unique IOCs from clusters
             all_iocs = runner.collect_iocs_from_report(
                 type("R", (), {"clusters": clusters})()
             )
             if all_iocs:
-                if not (quiet or cfg.output.quiet):
+                if not _quiet_mode:
                     console.print(f"  [dim]Enriching {len(all_iocs)} IOC(s) via {eff_mode.value}...[/dim]")
                 try:
                     max_ioc_limit = getattr(cfg.enrich, 'max_iocs', 20)
@@ -578,14 +747,14 @@ def triage(
     # --- Build report ---
     report = TriageReport(
         input_file=input_file_str,
-        alerts_ingested=alerts_ingested,
-        alerts_after_dedup=dedup_count if not no_dedup else alerts_ingested,
+        alerts_ingested=total_ingested,
+        alerts_after_dedup=total_after_dedup,
         clusters=clusters,
         enrichment=enrichment,
         manifest=PipelineManifest(
             sift_version=__version__,
             input_format=detected_formats[0] if detected_formats else "generic",
-            enrich_mode=(enrich_mode or "all") if enrich and enrichment else None,
+            enrich_mode=_enrich_mode_str if _enrich_active and enrichment else None,
         ),
         analyzed_at=datetime.now(tz=timezone.utc),
     )

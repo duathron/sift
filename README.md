@@ -229,6 +229,52 @@ splunk-cli export | sift triage -
 
 ---
 
+## Large Data & Memory Management
+
+sift uses a **per-file streaming pipeline** that bounds peak RAM regardless of total input size:
+
+| Input Size | Behavior |
+|---|---|
+| < 50 MB | File read entirely into memory — fastest |
+| 50 MB – 500 MB | Streaming read (5k-line batches), single clustering pass |
+| > 500 MB | **Sub-file chunking**: batches of 100k alerts each run through the full pipeline independently, then merge via IOC-overlap Union-Find |
+| Multiple files | Each file processed and freed independently; cross-source correlation restored at merge |
+
+### Recommended flags for large datasets
+
+```bash
+# 1–10 GB: use --drop-raw to halve per-alert RAM (drops 80-column raw dict)
+sift triage big_flows.csv --drop-raw
+
+# 10+ GB: combine --drop-raw with explicit chunk size
+sift triage *.csv --drop-raw --chunk-size 100000
+
+# Tuning via config (persistent)
+sift config --chunk-size 50000          # smaller chunks = less RAM per batch
+```
+
+### Scale guidelines
+
+| Scale | Recommendation |
+|---|---|
+| < 100 MB (< 200k rows) | Works as-is, no tuning needed |
+| 100 MB – 1 GB | `--chunk-size 100000` recommended |
+| 1 GB – 10 GB | `--drop-raw --chunk-size 100000` — expect 10–60 min |
+| > 10 GB | Pre-filter to specific time windows or attack types first |
+| > 50 GB | Use a SIEM (Splunk, Elastic) to aggregate, then export alerts for sift |
+
+### Config options
+
+```yaml
+# ~/.sift/config.yaml
+clustering:
+  chunk_size: 100000               # alerts per batch (0 = auto)
+  sub_chunk_threshold_mb: 500      # files above this get sub-file chunking
+  sub_chunk_size: 100000           # alerts per sub-file batch
+```
+
+---
+
 ## AI Summarization
 
 The `--summarize` flag adds an AI-generated executive summary and per-cluster recommendations on top of the standard triage output. Without `--summarize`, sift runs entirely offline with no LLM required.

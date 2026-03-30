@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sift-triage"
-version = "1.0.13"
+version = "1.0.15"
 description = "AI-powered alert triage summarizer for SOC teams"
 readme = "README.md"
 license = "MIT"

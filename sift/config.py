@@ -51,6 +51,8 @@ class ClusteringConfig(BaseModel):
     time_window_minutes: int = 30
     max_cluster_size: int = 50
     chunk_size: int = 0  # 0 = no chunking; >0 = process in batches of this size
+    sub_chunk_threshold_mb: int = 500  # files above this get automatic sub-file chunking
+    sub_chunk_size: int = 100_000      # alerts per sub-chunk batch (within a single large file)
 
 
 class SummarizeConfig(BaseModel):
@@ -105,7 +107,7 @@ class AppConfig(BaseModel):
     update_check: UpdateCheckConfig = UpdateCheckConfig()
     injection: PromptInjectionConfig = PromptInjectionConfig()
     redaction: AlertRedactionConfig = AlertRedactionConfig()
-    cache_enabled: bool = False  # Opt-in result caching (--cache flag)
+    cache_enabled: bool = True   # Result caching on by default (use --no-cache to disable)
 
 
 # ---------------------------------------------------------------------------
