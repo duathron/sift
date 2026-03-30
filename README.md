@@ -131,6 +131,63 @@ sift triage alerts.json --enrich --enrich-mode barb
 
 ---
 
+## Configuration
+
+sift stores settings in `~/.sift/config.yaml` and credentials in `~/.sift/.env` (mode 600). Both files are created automatically on first use.
+
+**Priority chain:** CLI flags > `SIFT_LLM_KEY` env var > `~/.sift/.env` > `~/.sift/config.yaml` > defaults
+
+### Show current config
+
+```bash
+sift config --show
+```
+
+### Set LLM API key
+
+The API key is stored in `~/.sift/.env` and is never written to `config.yaml`.
+
+```bash
+sift config --api-key sk-ant-...          # Anthropic Claude
+sift config --api-key sk-...              # OpenAI
+sift config --unset-api-key               # Remove key
+```
+
+Alternatively, set the `SIFT_LLM_KEY` environment variable directly.
+
+### Set default provider and model
+
+```bash
+sift config --provider anthropic
+sift config --provider openai --model gpt-4o
+sift config --provider ollama --model llama3
+sift config --provider template           # no LLM required (default)
+```
+
+### Set output defaults
+
+```bash
+sift config --quiet                       # suppress banner by default
+sift config --no-quiet                    # re-enable banner
+sift config --default-format json         # default output format
+sift config --default-format rich         # back to Rich table (default)
+```
+
+### Set pipeline defaults
+
+```bash
+sift config --chunk-size 100             # process large batches in chunks of 100
+sift config --chunk-size 0               # disable chunking (default)
+sift config --cache                      # enable result caching by default
+sift config --no-cache                   # disable caching (default)
+sift config --enrich-consent             # pre-approve IOC enrichment (no prompt)
+sift config --no-enrich-consent          # require prompt before enrichment (default)
+```
+
+Run `sift config --help` for the full option reference.
+
+---
+
 ## Workflow
 
 `sift` is the third stage of a SOC analyst trilogy. Use `barb` to score and flag suspicious URLs in incoming data, pass flagged IOCs to `vex` for VirusTotal enrichment, then feed the enriched alert data into `sift` for cluster-level triage and summarization. Each tool is useful standalone; together they cover URL analysis → IOC reputation → alert prioritization in a single scriptable pipeline. The `--enrich` flag automates barb and vex calls directly from within `sift triage`.

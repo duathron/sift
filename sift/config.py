@@ -118,9 +118,17 @@ def _ensure_app_dir() -> Path:
 
 
 def load_config(config_path: Optional[Path] = None) -> AppConfig:
-    """Load configuration from YAML with env var overrides."""
-    data: dict = {}
+    """Load configuration from YAML with env var overrides.
 
+    Priority: CLI flags > env vars > ~/.sift/.env > ~/.sift/config.yaml > defaults.
+    """
+    # Load credentials from ~/.sift/.env before reading SIFT_LLM_KEY from environment.
+    _env_file = _APP_DIR / ".env"
+    if _env_file.exists():
+        from dotenv import load_dotenv
+        load_dotenv(_env_file, override=False)
+
+    data: dict = {}
     paths = [p for p in [config_path, _APP_DIR / "config.yaml", Path("config.yaml")] if p and p.exists()]
     if paths:
         with open(paths[0]) as f:
@@ -128,7 +136,7 @@ def load_config(config_path: Optional[Path] = None) -> AppConfig:
 
     config = AppConfig(**data)
 
-    # Env var overrides
+    # Env var overrides (includes values just loaded from ~/.sift/.env)
     llm_key = os.getenv("SIFT_LLM_KEY")
     if llm_key:
         config.summarize.api_key = llm_key
@@ -137,7 +145,7 @@ def load_config(config_path: Optional[Path] = None) -> AppConfig:
 
 
 def save_config(config: AppConfig, path: Optional[Path] = None) -> Path:
-    """Persist config to YAML file."""
+    """Persist config to YAML file (never writes api_key — stored in ~/.sift/.env)."""
     target = path or (_ensure_app_dir() / "config.yaml")
     with open(target, "w") as f:
         # Exclude api_key from persisted config — secrets must not be written to disk.
@@ -145,3 +153,27 @@ def save_config(config: AppConfig, path: Optional[Path] = None) -> Path:
         yaml.dump(data, f, default_flow_style=False)
     target.chmod(_FILE_MODE)
     return target
+
+
+def save_credentials(api_key: str) -> Path:
+    """Store the LLM API key in ~/.sift/.env (mode 600, never in config.yaml)."""
+    env_path = _ensure_app_dir() / ".env"
+    lines = env_path.read_text().splitlines() if env_path.exists() else []
+    lines = [l for l in lines if not l.startswith("SIFT_LLM_KEY=")]
+    lines.append(f"SIFT_LLM_KEY={api_key}")
+    env_path.write_text("\n".join(lines) + "\n")
+    env_path.chmod(_FILE_MODE)
+    return env_path
+
+
+def clear_credentials() -> bool:
+    """Remove SIFT_LLM_KEY from ~/.sift/.env. Returns True if key was present."""
+    env_path = _APP_DIR / ".env"
+    if not env_path.exists():
+        return False
+    lines = env_path.read_text().splitlines()
+    new_lines = [l for l in lines if not l.startswith("SIFT_LLM_KEY=")]
+    if len(new_lines) == len(lines):
+        return False
+    env_path.write_text("\n".join(new_lines) + "\n")
+    return True

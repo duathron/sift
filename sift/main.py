@@ -616,22 +616,147 @@ def metrics(
 
 @app.command(name="config")
 def config_cmd(
-    show: Annotated[bool, typer.Option("--show", help="Print current configuration.")] = False,
-    config_path: Annotated[Optional[Path], typer.Option("--config", show_default=False)] = None,
+    show: Annotated[bool, typer.Option("--show", help="Print current configuration as YAML.")] = False,
+    config_path: Annotated[Optional[Path], typer.Option("--config", show_default=False, help="Path to config.yaml.")] = None,
+    # --- Credentials (stored in ~/.sift/.env, never in config.yaml) ---
+    api_key: Annotated[Optional[str], typer.Option(
+        "--api-key",
+        help="Set LLM API key (stored in ~/.sift/.env as SIFT_LLM_KEY, never in config.yaml).",
+        show_default=False,
+    )] = None,
+    unset_api_key: Annotated[bool, typer.Option(
+        "--unset-api-key",
+        help="Remove the LLM API key from ~/.sift/.env.",
+    )] = False,
+    # --- Summarization ---
+    provider: Annotated[Optional[str], typer.Option(
+        "--provider",
+        help="Default LLM provider: template | anthropic | openai | ollama.",
+        show_default=False,
+    )] = None,
+    model: Annotated[Optional[str], typer.Option(
+        "--model",
+        help="Default LLM model name (e.g. claude-opus-4-6, gpt-4o). None = auto-select.",
+        show_default=False,
+    )] = None,
+    # --- Output defaults ---
+    quiet: Annotated[Optional[bool], typer.Option(
+        "--quiet/--no-quiet",
+        help="Set quiet mode as default (suppresses banner and status lines).",
+    )] = None,
+    default_format: Annotated[Optional[str], typer.Option(
+        "--default-format",
+        help="Default output format: rich | console | json | csv | stix.",
+        show_default=False,
+    )] = None,
+    # --- Pipeline defaults ---
+    chunk_size: Annotated[Optional[int], typer.Option(
+        "--chunk-size",
+        help="Default chunk size for large alert batches (0 = no chunking).",
+        show_default=False,
+    )] = None,
+    cache: Annotated[Optional[bool], typer.Option(
+        "--cache/--no-cache",
+        help="Enable or disable result caching by default (opt-in, TTL 1h).",
+    )] = None,
+    enrich_consent: Annotated[Optional[bool], typer.Option(
+        "--enrich-consent/--no-enrich-consent",
+        help="Pre-approve enrichment consent (skips interactive prompt for --enrich).",
+    )] = None,
 ) -> None:
-    """Show or manage sift configuration."""
+    """Show or set sift configuration.
+
+    Settings are persisted to ~/.sift/config.yaml.
+    The LLM API key is stored separately in ~/.sift/.env (mode 600).
+
+    \b
+    Examples:
+      sift config --show
+      sift config --api-key sk-ant-...
+      sift config --provider anthropic --model claude-opus-4-6
+      sift config --quiet --default-format json
+      sift config --chunk-size 100 --cache
+      sift config --unset-api-key
+    """
+    from sift.config import clear_credentials, save_credentials
+
     import yaml
     from rich.syntax import Syntax
 
-    cfg = load_config(config_path)
+    _VALID_PROVIDERS = {"template", "mock", "anthropic", "openai", "ollama"}
+    _VALID_FORMATS = {"rich", "console", "json", "csv", "stix"}
 
+    cfg = load_config(config_path)
+    cfg_changed = False
+    rich_console = Console()
+
+    # --- Validate inputs early ---
+    if provider is not None and provider not in _VALID_PROVIDERS:
+        console.print(f"[red]Error:[/red] Invalid provider {provider!r}. Valid: {', '.join(sorted(_VALID_PROVIDERS))}")
+        raise typer.Exit(2)
+    if default_format is not None and default_format not in _VALID_FORMATS:
+        console.print(f"[red]Error:[/red] Invalid format {default_format!r}. Valid: {', '.join(sorted(_VALID_FORMATS))}")
+        raise typer.Exit(2)
+    if chunk_size is not None and chunk_size < 0:
+        console.print("[red]Error:[/red] --chunk-size must be >= 0.")
+        raise typer.Exit(2)
+
+    # --- Credentials (never written to config.yaml) ---
+    if api_key is not None:
+        env_path = save_credentials(api_key)
+        console.print(f"[green]✓[/green] API key saved to {env_path}")
+
+    if unset_api_key:
+        removed = clear_credentials()
+        if removed:
+            console.print("[green]✓[/green] API key removed from ~/.sift/.env")
+        else:
+            console.print("[yellow]No API key found in ~/.sift/.env[/yellow]")
+
+    # --- Config fields ---
+    if provider is not None:
+        cfg.summarize.provider = provider
+        cfg_changed = True
+    if model is not None:
+        cfg.summarize.model = model
+        cfg_changed = True
+    if quiet is not None:
+        cfg.output.quiet = quiet
+        cfg_changed = True
+    if default_format is not None:
+        cfg.output.default_format = default_format
+        cfg_changed = True
+    if chunk_size is not None:
+        cfg.clustering.chunk_size = chunk_size
+        cfg_changed = True
+    if cache is not None:
+        cfg.cache_enabled = cache
+        cfg_changed = True
+    if enrich_consent is not None:
+        cfg.enrich.consent_given = enrich_consent
+        cfg_changed = True
+
+    if cfg_changed:
+        from sift.config import save_config as _save_config
+        saved_path = _save_config(cfg, config_path)
+        console.print(f"[green]✓[/green] Config saved to {saved_path}")
+
+    # --- Show ---
     if show:
-        rich_console = Console()
         data = cfg.model_dump()
         yaml_str = yaml.dump(data, default_flow_style=False, sort_keys=False)
         rich_console.print(Syntax(yaml_str, "yaml", theme="monokai", line_numbers=False))
-    else:
-        typer.echo("Usage: sift config --show")
+        return
+
+    # If nothing was done, show usage hint
+    if not cfg_changed and not api_key and not unset_api_key:
+        typer.echo(
+            "Usage: sift config --show\n"
+            "       sift config --api-key <key>\n"
+            "       sift config --provider <template|anthropic|openai|ollama>\n"
+            "       sift config --quiet --default-format json\n"
+            "Run 'sift config --help' for all options."
+        )
 
 
 # ---------------------------------------------------------------------------

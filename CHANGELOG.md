@@ -11,6 +11,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.0.1] - 2026-03-30
+
+### Added
+- **`sift config` CLI settings**: `sift config` is now a full configuration tool with named flags for all key settings — no more manual YAML editing required
+  - `--api-key <key>` — stores the LLM API key in `~/.sift/.env` (mode 600); never written to `config.yaml`
+  - `--unset-api-key` — removes the key from `~/.sift/.env`
+  - `--provider <template|anthropic|openai|ollama>` — sets the default LLM provider
+  - `--model <name>` — sets the default model (e.g. `claude-opus-4-6`, `gpt-4o`)
+  - `--quiet / --no-quiet` — sets quiet mode as the default (banner + status lines suppressed)
+  - `--default-format <rich|console|json|csv|stix>` — sets the default output format
+  - `--chunk-size <N>` — sets the default alert chunk size (0 = no chunking)
+  - `--cache / --no-cache` — enables or disables result caching by default
+  - `--enrich-consent / --no-enrich-consent` — pre-approves IOC enrichment (skips interactive prompt)
+- **Credentials file** `~/.sift/.env`: API key is stored here and loaded automatically via `python-dotenv` on startup. Takes precedence over `config.yaml`, overridden by `SIFT_LLM_KEY` environment variable.
+- **README**: New `## Configuration` section with full `sift config` examples
+
+### Fixed
+- `load_config()` now loads `~/.sift/.env` before checking `SIFT_LLM_KEY` env var, completing the priority chain: CLI flags > env vars > `~/.sift/.env` > `config.yaml` > defaults
+
+---
+
 ## [1.0.0] - 2026-03-24
 
 ### Added
