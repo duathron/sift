@@ -212,6 +212,9 @@ def triage(
 
     # --- Resolve input paths (expand directories, validate files) ---
     _SUPPORTED_SUFFIXES = {".json", ".csv", ".ndjson", ".log"}
+    # Files larger than this threshold are read line-by-line to avoid OOM on multi-GB inputs.
+    _LARGE_FILE_THRESHOLD_BYTES = 50 * 1024 * 1024   # 50 MB
+    _STREAM_BATCH_LINES = 5_000                        # normalize this many lines at a time
 
     def _resolve_paths(raw_paths: list[Path]) -> list[Path]:
         resolved: list[Path] = []
@@ -233,37 +236,93 @@ def triage(
                 raise typer.Exit(2)
         return resolved
 
+    def _stream_alerts(path: Path, hasher) -> tuple[list, str]:
+        """Read a large file line-by-line in batches.
+
+        Avoids loading the entire file into RAM — critical for multi-GB logs.
+        Works best with NDJSON (one JSON object per line). Falls back to
+        batch-normalizing lines for other formats.
+        hasher is a hashlib sha256 object updated in-place for cache fingerprinting.
+        """
+        all_source_alerts: list = []
+        detected_fmt = "generic"
+        buffer: list[str] = []
+
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                hasher.update(line.encode("utf-8", errors="replace"))
+                stripped = line.rstrip("\n")
+                if stripped:
+                    buffer.append(stripped)
+                if len(buffer) >= _STREAM_BATCH_LINES:
+                    try:
+                        batch_alerts, fmt = _normalize("\n".join(buffer))
+                        if batch_alerts:
+                            all_source_alerts.extend(batch_alerts)
+                            detected_fmt = fmt
+                    except Exception:
+                        pass
+                    buffer.clear()
+
+        if buffer:
+            try:
+                batch_alerts, fmt = _normalize("\n".join(buffer))
+                if batch_alerts:
+                    all_source_alerts.extend(batch_alerts)
+                    detected_fmt = fmt
+            except Exception:
+                pass
+
+        return all_source_alerts, detected_fmt
+
     resolved_paths = _resolve_paths(files)
     if not resolved_paths:
         console.print("[red]Error:[/red] No input files to process.")
         raise typer.Exit(2)
 
     # --- Read and normalize all sources, merge alerts ---
+    # Fingerprint is computed incrementally — raw strings are never accumulated.
+    import hashlib as _hashlib
+    _fp_hasher = _hashlib.sha256()
+
     all_alerts: list = []
-    all_raws: list[str] = []
     source_labels: list[str] = []
     detected_formats: list[str] = []
 
     for path in resolved_paths:
+        label = str(path)
         try:
             if str(path) == "-":
                 raw = sys.stdin.read()
                 label = "<stdin>"
+                _fp_hasher.update(raw.encode("utf-8", errors="replace"))
+                if not raw.strip():
+                    console.print(f"[yellow]Warning:[/yellow] Skipping empty stdin.")
+                    continue
+                source_alerts, fmt = _normalize(raw)
+                del raw  # free immediately
             else:
-                raw = path.read_text(encoding="utf-8")
-                label = str(path)
+                file_size = path.stat().st_size
+                if file_size == 0:
+                    console.print(f"[yellow]Warning:[/yellow] Skipping empty file: {label}")
+                    continue
+                if file_size > _LARGE_FILE_THRESHOLD_BYTES:
+                    size_mb = file_size / 1024 / 1024
+                    if not (quiet or cfg.output.quiet):
+                        console.print(
+                            f"[dim]Streaming {label} ({size_mb:.0f} MB) in batches of "
+                            f"{_STREAM_BATCH_LINES:,} lines — large-file mode.[/dim]"
+                        )
+                    source_alerts, fmt = _stream_alerts(path, _fp_hasher)
+                else:
+                    raw = path.read_text(encoding="utf-8")
+                    _fp_hasher.update(raw.encode("utf-8", errors="replace"))
+                    source_alerts, fmt = _normalize(raw)
+                    del raw  # free immediately
+        except typer.Exit:
+            raise
         except Exception as exc:
-            console.print(f"[red]Error reading {path}:[/red] {exc}")
-            raise typer.Exit(2)
-
-        if not raw.strip():
-            console.print(f"[yellow]Warning:[/yellow] Skipping empty file: {label}")
-            continue
-
-        try:
-            source_alerts, fmt = _normalize(raw)
-        except Exception as exc:
-            console.print(f"[red]Error normalizing {label}:[/red] {exc}")
+            console.print(f"[red]Error reading {label}:[/red] {exc}")
             raise typer.Exit(2)
 
         if not source_alerts:
@@ -271,7 +330,6 @@ def triage(
             continue
 
         all_alerts.extend(source_alerts)
-        all_raws.append(raw)
         source_labels.append(label)
         detected_formats.append(fmt)
 
@@ -279,7 +337,6 @@ def triage(
         console.print("[yellow]Warning:[/yellow] No alerts could be parsed from any input source.")
         raise typer.Exit(0)
 
-    raw = "\n".join(all_raws)  # combined raw for cache fingerprint
     input_file_str = ", ".join(source_labels) if len(source_labels) > 1 else (source_labels[0] if source_labels else "<unknown>")
 
     if len(source_labels) > 1 and not (quiet or cfg.output.quiet):
@@ -289,9 +346,8 @@ def triage(
     _alert_cache = None
     _cache_key: str | None = None
     if cache:
-        import hashlib
         from .cache import AlertCache, CacheConfig
-        _cache_key = hashlib.sha256(raw.encode()).hexdigest()
+        _cache_key = _fp_hasher.hexdigest()  # built incrementally during file reads
         _alert_cache = AlertCache(CacheConfig(enabled=True))
         _cached = _alert_cache.get(_cache_key)
         if _cached is not None:
