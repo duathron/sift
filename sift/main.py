@@ -126,8 +126,12 @@ def _check_enrich_consent(yes: bool, cfg) -> bool:
 
 @app.command()
 def triage(
-    file: Annotated[Path, typer.Argument(
-        help="Alert file to triage (JSON, Splunk JSON, CSV). Use '-' for stdin.",
+    files: Annotated[list[Path], typer.Argument(
+        help=(
+            "Alert files or directories to triage (JSON, Splunk JSON, CSV). "
+            "Pass multiple paths to correlate alerts across sources. "
+            "Use '-' for stdin. Directories are scanned for .json and .csv files."
+        ),
         show_default=False,
     )],
     format: Annotated[str, typer.Option(
@@ -191,7 +195,10 @@ def triage(
         help="Process alerts in chunks of N (0 = no chunking, default). Reduces memory for large files.",
     )] = 0,
 ) -> None:
-    """Triage alerts from FILE: normalize → dedup → cluster → prioritize → output."""
+    """Triage alerts from one or more FILES or directories.
+
+    Multiple sources are merged before clustering, enabling cross-source correlation.
+    """
 
     # --- Load config ---
     cfg = load_config(config_path)
@@ -203,21 +210,80 @@ def triage(
         check_interval_hours=cfg.update_check.check_interval_hours,
     )
 
-    # --- Read input ---
-    try:
-        if str(file) == "-":
-            raw = sys.stdin.read()
-            input_file_str = "<stdin>"
-        else:
-            if not file.exists():
-                console.print(f"[red]Error:[/red] File not found: {file}")
+    # --- Resolve input paths (expand directories, validate files) ---
+    _SUPPORTED_SUFFIXES = {".json", ".csv", ".ndjson", ".log"}
+
+    def _resolve_paths(raw_paths: list[Path]) -> list[Path]:
+        resolved: list[Path] = []
+        for p in raw_paths:
+            if str(p) == "-":
+                resolved.append(p)
+            elif p.is_dir():
+                found = sorted(
+                    f for f in p.rglob("*") if f.is_file() and f.suffix.lower() in _SUPPORTED_SUFFIXES
+                )
+                if not found:
+                    console.print(f"[yellow]Warning:[/yellow] No supported files found in directory: {p}")
+                else:
+                    resolved.extend(found)
+            elif p.exists():
+                resolved.append(p)
+            else:
+                console.print(f"[red]Error:[/red] File not found: {p}")
                 raise typer.Exit(2)
-            raw = file.read_text(encoding="utf-8")
-            input_file_str = str(file)
-    except Exception as exc:
-        console.print(f"[red]Error reading input:[/red] {exc}")
+        return resolved
+
+    resolved_paths = _resolve_paths(files)
+    if not resolved_paths:
+        console.print("[red]Error:[/red] No input files to process.")
         raise typer.Exit(2)
 
+    # --- Read and normalize all sources, merge alerts ---
+    all_alerts: list = []
+    all_raws: list[str] = []
+    source_labels: list[str] = []
+    detected_formats: list[str] = []
+
+    for path in resolved_paths:
+        try:
+            if str(path) == "-":
+                raw = sys.stdin.read()
+                label = "<stdin>"
+            else:
+                raw = path.read_text(encoding="utf-8")
+                label = str(path)
+        except Exception as exc:
+            console.print(f"[red]Error reading {path}:[/red] {exc}")
+            raise typer.Exit(2)
+
+        if not raw.strip():
+            console.print(f"[yellow]Warning:[/yellow] Skipping empty file: {label}")
+            continue
+
+        try:
+            source_alerts, fmt = _normalize(raw)
+        except Exception as exc:
+            console.print(f"[red]Error normalizing {label}:[/red] {exc}")
+            raise typer.Exit(2)
+
+        if not source_alerts:
+            console.print(f"[yellow]Warning:[/yellow] No alerts parsed from: {label}")
+            continue
+
+        all_alerts.extend(source_alerts)
+        all_raws.append(raw)
+        source_labels.append(label)
+        detected_formats.append(fmt)
+
+    if not all_alerts:
+        console.print("[yellow]Warning:[/yellow] No alerts could be parsed from any input source.")
+        raise typer.Exit(0)
+
+    raw = "\n".join(all_raws)  # combined raw for cache fingerprint
+    input_file_str = ", ".join(source_labels) if len(source_labels) > 1 else (source_labels[0] if source_labels else "<unknown>")
+
+    if len(source_labels) > 1 and not (quiet or cfg.output.quiet):
+        console.print(f"[dim]Sources: {len(source_labels)} files — merging {len(all_alerts)} alerts for cross-source correlation.[/dim]")
 
     # --- Cache lookup (opt-in) ---
     _alert_cache = None
@@ -236,20 +302,7 @@ def triage(
         if not quiet:
             console.print(f"[dim]Cache miss ({_cache_key[:12]}…) — running pipeline.[/dim]")
 
-    if not raw.strip():
-        console.print("[red]Error:[/red] Input is empty.")
-        raise typer.Exit(2)
-
-    # --- Normalize ---
-    try:
-        alerts, detected_format = _normalize(raw)
-    except Exception as exc:
-        console.print(f"[red]Error during normalization:[/red] {exc}")
-        raise typer.Exit(2)
-
-    if not alerts:
-        console.print("[yellow]Warning:[/yellow] No alerts could be parsed from input.")
-        raise typer.Exit(0)
+    alerts = all_alerts
 
     # F-10: filter out phantom alerts (e.g. from bare {} input) with no meaningful content.
     alerts = [
@@ -369,7 +422,7 @@ def triage(
         enrichment=enrichment,
         manifest=PipelineManifest(
             sift_version=__version__,
-            input_format=detected_format,
+            input_format=detected_formats[0] if detected_formats else "generic",
             enrich_mode=(enrich_mode or "all") if enrich and enrichment else None,
         ),
         analyzed_at=datetime.now(tz=timezone.utc),
