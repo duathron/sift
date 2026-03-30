@@ -209,17 +209,96 @@ splunk-cli export | sift triage -
 
 ---
 
-## LLM Providers
+## AI Summarization
 
-| Provider | Extra | Environment Variable | Notes |
-|---|---|---|---|
-| `template` | *(none)* | — | Default; no LLM required |
-| `mock` | *(none)* | — | Deterministic mock output for testing and CI |
-| `anthropic` | `[llm]` | `ANTHROPIC_API_KEY` | Claude via Anthropic API |
-| `openai` | `[llm]` | `OPENAI_API_KEY` | GPT via OpenAI API |
-| `ollama` | *(none)* | `SIFT_OLLAMA_URL` (optional) | Local inference; defaults to `http://localhost:11434` |
+The `--summarize` flag adds an AI-generated executive summary and per-cluster recommendations on top of the standard triage output. Without `--summarize`, sift runs entirely offline with no LLM required.
 
-Set the default provider in `~/.sift/config.yaml` or via the `SIFT_PROVIDER` environment variable.
+```bash
+sift triage alerts.json --summarize --provider anthropic
+```
+
+The summary includes:
+- **Executive summary** — one paragraph situational assessment across all clusters
+- **Per-cluster narrative** — what happened, which systems/users are involved, likely attack stage
+- **Recommendations** — prioritized action items (IMMEDIATE / WITHIN_1H / WITHIN_24H / MONITOR)
+
+---
+
+### Provider Setup
+
+#### Anthropic (Claude) — recommended
+
+```bash
+pip install "sift-triage[llm]"
+sift config --provider anthropic --api-key sk-ant-...
+sift triage alerts.json --summarize
+```
+
+Default model: `claude-sonnet-4-20250514`. Override with `--model`:
+
+```bash
+sift triage alerts.json --summarize --provider anthropic --model claude-opus-4-6
+```
+
+API key resolution order: `sift config --api-key` (`~/.sift/.env`) → `ANTHROPIC_API_KEY` env var.
+
+---
+
+#### OpenAI (GPT)
+
+```bash
+pip install "sift-triage[llm]"
+sift config --provider openai --api-key sk-...
+sift triage alerts.json --summarize
+```
+
+Default model: `gpt-4o-mini`. Override with `--model gpt-4o`.
+
+API key resolution order: `sift config --api-key` (`~/.sift/.env`) → `OPENAI_API_KEY` env var.
+
+---
+
+#### Ollama (local, no API key)
+
+Run any local model without sending data to an external API — recommended for sensitive environments.
+
+```bash
+# Install and start Ollama: https://ollama.com
+ollama pull llama3.2
+
+sift config --provider ollama
+sift triage alerts.json --summarize
+```
+
+Default model: `llama3.2`. Default endpoint: `http://localhost:11434`. Override with:
+
+```bash
+SIFT_OLLAMA_URL=http://my-server:11434 sift triage alerts.json --summarize --provider ollama --model mistral
+```
+
+---
+
+#### Template (default, no LLM)
+
+Generates a structured summary using predefined rules — no API key, no network calls.
+
+```bash
+sift triage alerts.json --summarize --provider template
+```
+
+Use this for air-gapped environments or to test the summarization pipeline without an LLM.
+
+---
+
+### Provider comparison
+
+| Provider | Install extra | API key required | Data leaves machine | Default model |
+|----------|--------------|-----------------|---------------------|---------------|
+| `template` | — | No | No | — |
+| `mock` | — | No | No | — (testing only) |
+| `anthropic` | `[llm]` | Yes | Yes (Anthropic API) | `claude-sonnet-4-20250514` |
+| `openai` | `[llm]` | Yes | Yes (OpenAI API) | `gpt-4o-mini` |
+| `ollama` | — | No | No (local) | `llama3.2` |
 
 ---
 
