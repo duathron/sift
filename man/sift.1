@@ -1,0 +1,487 @@
+.TH SIFT 1 "April 2026" "sift 1.0.16" "User Commands"
+.
+.SH NAME
+sift \- AI-powered alert triage summarizer for SOC teams
+.
+.SH SYNOPSIS
+.B sift
+.I COMMAND
+.RI [ OPTIONS ]
+.RI [ ARGS ]
+.PP
+.B sift triage
+.RI [ OPTIONS ]
+.I FILE\fR\ [\fIFILE\fR\ ...]
+.PP
+.B sift validate
+.RI [ OPTIONS ]
+.I FILE\fR\ [\fIFILE\fR\ ...]
+.PP
+.B sift doctor
+.PP
+.B sift metrics
+.RI [ OPTIONS ]
+.I FILE
+.PP
+.B sift config
+.RI [ OPTIONS ]
+.PP
+.B sift version
+.
+.SH DESCRIPTION
+.B sift
+ingests alerts from SIEM systems (JSON, Splunk JSON, CSV), deduplicates and clusters
+them by IOC overlap and time proximity, scores each cluster by risk, and produces a
+prioritized triage report.
+.PP
+AI-generated summaries are opt-in via
+.BR \-\-summarize .
+Core clustering is fully rule-based and works without any API keys.
+IOC enrichment via external APIs (VirusTotal, barb-phish) is opt-in and requires
+explicit consent.
+.PP
+.B sift
+reads configuration from
+.I ~/.sift/config.yaml
+and credentials from
+.IR ~/.sift/.env .
+All settings can be managed with
+.BR "sift config" .
+.
+.SH COMMANDS
+.
+.SS triage
+Process one or more alert files and produce a prioritized triage report.
+Multiple files and directories are supported; alerts are correlated across all sources
+before clustering.
+.PP
+.B "sift triage"
+.RI [ OPTIONS ]
+.I FILE\fR\ [\fIFILE\fR\ ...]
+.PP
+Arguments:
+.RS 4
+.TP
+.I FILE
+Alert file (JSON, Splunk JSON, CSV, NDJSON) or directory.
+Use
+.B \-
+to read from stdin.
+Directories are scanned recursively for
+.IR .json ", " .csv ", " .ndjson ", and " .log
+files.
+.RE
+.PP
+Output options:
+.RS 4
+.TP
+.BR \-f ", " \-\-format " " \fIFMT\fR
+Output format.
+One of
+.BR rich " (default), " console ", " json ", " csv ", " stix .
+.TP
+.BR \-o ", " \-\-output " " \fIPATH\fR
+Save output to file.
+For
+.B rich
+format the terminal output is shown and a JSON copy is written to
+.IR PATH .
+.TP
+.BR \-q ", " \-\-quiet
+Suppress the banner and status lines.
+.RE
+.PP
+AI summarization options:
+.RS 4
+.TP
+.BR \-s ", " \-\-summarize
+Generate a triage summary.
+Uses the configured LLM provider (default:
+.BR template ).
+The
+.B template
+provider requires no API key and produces a structured summary without AI.
+For AI-generated summaries use
+.BR \-\-provider " " anthropic
+or another LLM provider.
+.TP
+.BR \-\-provider " " \fIPROVIDER\fR
+LLM provider for summarization.
+One of
+.BR template " (no key), " anthropic ", " openai ", " ollama .
+Overrides the default set in
+.IR config.yaml .
+.RE
+.PP
+IOC enrichment options:
+.RS 4
+.TP
+.BR \-\-enrich " " \fIMODE\fR
+Enrich extracted IOCs.
+.I MODE
+is one of:
+.BR local " (heuristics only, no external API), "
+.BR barb " (phishing URL analysis), "
+.BR vex " (VirusTotal reputation), "
+.BR all " (barb + vex; default when flag is used without MODE)."
+External modes (barb, vex, all) require consent (see
+.BR \-\-yes ).
+.TP
+.BR \-y ", " \-\-yes
+Skip the interactive consent prompt for external enrichment API calls.
+.RE
+.PP
+Privacy options:
+.RS 4
+.TP
+.BR \-\-redact\-fields " " \fIFIELDS\fR
+Comma-separated list of alert fields to redact before AI submission
+(e.g.\&
+.IR user,host,source_ip ).
+Overrides the default set in
+.IR config.yaml .
+.RE
+.PP
+Other options:
+.RS 4
+.TP
+.BR \-\-filter " " \fIEXPR\fR
+Filter clusters by expression (e.g.\&
+.IR "priority >= HIGH" ).
+Supports
+.BR AND ", " OR ", " NOT ", " IN ", " NOT_IN
+and comparisons
+.BR == ", " != ", " < ", " > ", " <= ", " >= .
+.TP
+.BR \-\-no\-cache
+Disable result caching for this run (cache is on by default).
+.TP
+.BR \-\-help\-all
+Show all options including expert flags (chunk-size, drop-raw, no-dedup, etc.).
+.RE
+.PP
+Exit codes:
+.RS 4
+.TP
+.B 0
+No critical clusters found.
+.TP
+.B 1
+One or more critical clusters found.
+.TP
+.B 2
+Error (bad input, missing file, parse failure).
+.RE
+.
+.SS validate
+Parse and validate alert files without running the full pipeline.
+Reports the detected format and alert count for each file.
+Useful for testing ingestion pipelines and verifying file formats before triage.
+.PP
+.B "sift validate"
+.RI [ OPTIONS ]
+.I FILE\fR\ [\fIFILE\fR\ ...]
+.PP
+Exit codes:
+.B 0
+= all files valid,
+.B 2
+= one or more errors.
+.
+.SS doctor
+Run diagnostic checks on the sift environment.
+Reports Python version, installed dependencies (anthropic, openai, barb, vex),
+LLM API key status, output directory, result cache, and module health.
+.PP
+.B "sift doctor"
+.PP
+Exit codes:
+.B 0
+= all checks passed or warned (warnings indicate optional features),
+.B 1
+= at least one check failed.
+.
+.SS metrics
+Show statistics for alert files: cluster count, priority distribution,
+IOC type breakdown, and alert counts.
+.PP
+.B "sift metrics"
+.RI [ OPTIONS ]
+.I FILE
+.PP
+.RS 4
+.TP
+.BR \-q ", " \-\-quiet
+Suppress the banner.
+.TP
+.BR \-\-no\-dedup
+Skip deduplication before computing metrics.
+.RE
+.
+.SS config
+Show or update persistent configuration.
+Settings are written to
+.IR ~/.sift/config.yaml .
+The LLM API key is stored separately in
+.I ~/.sift/.env
+(mode 600) and never written to
+.IR config.yaml .
+.PP
+.B "sift config"
+.RI [ OPTIONS ]
+.PP
+Credential options:
+.RS 4
+.TP
+.BR \-\-api\-key " " \fIKEY\fR
+Set the LLM API key (stored as
+.B SIFT_LLM_KEY
+in
+.IR ~/.sift/.env ).
+.TP
+.BR \-\-unset\-api\-key
+Remove the LLM API key from
+.IR ~/.sift/.env .
+.RE
+.PP
+Summarization defaults:
+.RS 4
+.TP
+.BR \-\-provider " " \fIPROVIDER\fR
+Default LLM provider:
+.BR template ", " anthropic ", " openai ", " ollama .
+.TP
+.BR \-\-model " " \fIMODEL\fR
+Default LLM model name (e.g.\&
+.IR claude-opus-4-6 ).
+.RE
+.PP
+Output defaults:
+.RS 4
+.TP
+.BR \-\-quiet / \-\-no\-quiet
+Enable or disable quiet mode by default.
+.TP
+.BR \-\-default\-format " " \fIFMT\fR
+Default output format for
+.B sift triage
+(rich, console, json, csv, stix).
+.RE
+.PP
+Pipeline defaults:
+.RS 4
+.TP
+.BR \-\-chunk\-size " " \fIN\fR
+Default clustering chunk size (0 = auto-tune).
+.TP
+.BR \-\-cache / \-\-no\-cache
+Enable or disable result caching by default.
+.TP
+.BR \-\-enrich\-consent / \-\-no\-enrich\-consent
+Pre-approve consent for external enrichment API calls.
+.TP
+.BR \-\-redact\-fields " " \fIFIELDS\fR
+Default fields to redact before AI submission (comma-separated).
+Use an empty string to clear.
+.RE
+.PP
+.RS 4
+.TP
+.BR \-\-show
+Print the current configuration as YAML.
+.RE
+.
+.SS version
+Print the installed sift version and exit.
+.
+.SH EXAMPLES
+.PP
+Triage a single alert file with rich terminal output:
+.RS 4
+.B sift triage alerts.json
+.RE
+.PP
+Triage multiple sources and correlate across them:
+.RS 4
+.B sift triage firewall.json endpoint.csv siem/
+.RE
+.PP
+Read from stdin (pipe from another tool):
+.RS 4
+.B cat alerts.json | sift triage \-
+.RE
+.PP
+Generate a JSON report and save to file:
+.RS 4
+.B sift triage alerts.json \-f json \-o report.json
+.RE
+.PP
+Generate an AI triage summary using Anthropic:
+.RS 4
+.B sift triage alerts.json \-\-summarize \-\-provider anthropic
+.RE
+.PP
+Enrich IOCs with local heuristics (no external API):
+.RS 4
+.B sift triage alerts.json \-\-enrich local
+.RE
+.PP
+Enrich with VirusTotal and barb-phish (requires consent):
+.RS 4
+.B sift triage alerts.json \-\-enrich all \-\-yes
+.RE
+.PP
+Redact sensitive fields before AI submission:
+.RS 4
+.B sift triage alerts.json \-\-summarize \-\-redact\-fields user,host,source_ip
+.RE
+.PP
+Filter output to high-priority clusters only:
+.RS 4
+.B sift triage alerts.json \-\-filter "priority >= HIGH"
+.RE
+.PP
+Export a STIX 2.1 bundle:
+.RS 4
+.B sift triage alerts.json \-f stix \-o bundle.json
+.RE
+.PP
+Validate files before triage:
+.RS 4
+.B sift validate alerts.json splunk.json siem/
+.RE
+.PP
+Configure Anthropic as the default provider:
+.RS 4
+.B sift config \-\-api\-key sk\-ant\-... \-\-provider anthropic
+.RE
+.PP
+Set default redact fields and quiet mode:
+.RS 4
+.B sift config \-\-redact\-fields user,host \-\-quiet
+.RE
+.PP
+Show all expert flags:
+.RS 4
+.B sift triage \-\-help\-all
+.RE
+.PP
+Run diagnostics:
+.RS 4
+.B sift doctor
+.RE
+.
+.SH FILES
+.TP
+.I ~/.sift/config.yaml
+Persistent user configuration. Created automatically on first use.
+Managed by
+.BR "sift config" .
+.TP
+.I ~/.sift/.env
+LLM API key storage (mode 600). Written by
+.BR "sift config \-\-api\-key" .
+Contains
+.B SIFT_LLM_KEY=<key>
+and is never included in
+.IR config.yaml .
+.TP
+.I ~/.sift/cache.db
+SQLite result cache (WAL mode). Stores triage results with a 1-hour TTL.
+Cache is on by default; disable per-run with
+.BR \-\-no\-cache .
+.TP
+.I ~/.sift/version_check.json
+Stores the last PyPI version check timestamp to avoid repeated network calls.
+.
+.SH ENVIRONMENT
+.TP
+.B SIFT_LLM_KEY
+LLM API key. Equivalent to setting it with
+.BR "sift config \-\-api\-key" .
+When both
+.B SIFT_LLM_KEY
+and
+.I ~/.sift/.env
+are present the environment variable takes precedence.
+.
+.SH INPUT FORMATS
+.B sift
+auto-detects the input format:
+.TP
+.B Generic JSON
+Array of alert objects with arbitrary field names.
+Field mapping is inferred from common naming patterns
+(title, description, severity, src_ip, dst_ip, etc.).
+.TP
+.B Splunk JSON
+Output of Splunk search commands
+.RB ( results
+key with per-event fields).
+.TP
+.B CSV
+Comma-separated values with a header row.
+.TP
+.B NDJSON / .log
+Newline-delimited JSON; one alert object per line.
+.
+.SH OUTPUT FORMATS
+.TP
+.B rich
+Colored terminal table with cluster cards, IOC lists, and priority badges (default).
+.TP
+.B console
+Plain-text terminal output without Rich markup.
+.TP
+.B json
+Full-fidelity JSON export of the triage report.
+.TP
+.B csv
+Flat per-alert CSV with cluster and priority columns.
+.TP
+.B stix
+STIX 2.1 bundle containing threat indicator objects for each cluster.
+.
+.SH PIPELINE
+Alerts are processed in the following order:
+.PP
+.RS 4
+Ingest \(-> Normalize \(-> Deduplicate \(-> Extract IOCs \(->
+Cluster \(-> Prioritize \(-> Enrich (opt) \(-> Summarize (opt) \(-> Output
+.RE
+.PP
+For large inputs (>50 MB) the ingestion stage streams line-by-line to avoid
+loading the entire file into memory.
+Files larger than 500 MB are processed in batches of 100,000 alerts (sub-file chunking).
+.
+.SH EXIT CODES
+.TP
+.B 0
+Success.
+For
+.B sift triage
+this means no critical clusters were found.
+.TP
+.B 1
+.BR "sift triage" :
+one or more clusters with
+.B CRITICAL
+priority were found.
+.BR "sift doctor" :
+at least one diagnostic check failed.
+.TP
+.B 2
+Error — bad input, missing file, parse failure, or invalid flag value.
+.
+.SH SEE ALSO
+.BR jq (1),
+.BR grep (1)
+.PP
+Project homepage and documentation:
+.I https://github.com/duathron/sift
+.PP
+PyPI package:
+.I https://pypi.org/project/sift-triage/
+.
+.SH AUTHOR
+Christian Huhn <https://github.com/duathron>

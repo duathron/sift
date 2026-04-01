@@ -162,19 +162,29 @@ def _check_enrich_vex() -> CheckResult:
 
 
 def _check_llm_key() -> CheckResult:
-    """Check whether the SIFT_LLM_KEY environment variable is set."""
+    """Check whether an LLM API key is available (env var or ~/.sift/.env)."""
     key = os.environ.get("SIFT_LLM_KEY", "")
+    source = "env var"
+    if not key:
+        env_file = Path.home() / ".sift" / ".env"
+        if env_file.exists():
+            try:
+                from dotenv import dotenv_values
+                key = dotenv_values(env_file).get("SIFT_LLM_KEY", "") or ""
+                source = "~/.sift/.env"
+            except ImportError:
+                pass
     if key:
         masked = f"****{key[-4:]}" if len(key) >= 4 else "****"
         return CheckResult(
-            name="SIFT_LLM_KEY env var",
+            name="LLM API key",
             status=CheckStatus.PASS,
-            message=masked,
+            message=f"{masked} (via {source})",
         )
     return CheckResult(
-        name="SIFT_LLM_KEY env var",
+        name="LLM API key",
         status=CheckStatus.WARN,
-        message="Not set – needed for Anthropic/OpenAI",
+        message="Not set – run: sift config --api-key <key>",
     )
 
 

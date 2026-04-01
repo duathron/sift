@@ -11,6 +11,44 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.0.16] - 2026-03-31
+
+### Added
+- **`sift validate <file>`** subcommand: parse and validate alert files without
+  running the full triage pipeline. Reports alert count and detected format per
+  file. Supports multiple files, directories, and stdin (`-`). Exit 0 = all valid,
+  exit 2 = any error.
+- **`--help-all`** flag for `sift triage`: visible in standard `--help`, reveals
+  all hidden expert flags (`--chunk-size`, `--drop-raw`, `--no-dedup`,
+  `--validate-only`, `--enrich-mode`, `--config`) with descriptive help text.
+- **Config-status panel** appended to `sift triage --help` and `--help-all`:
+  shows current API key status, provider, cache setting, and redact fields.
+- **`sift config --redact-fields`**: persist default redact fields to config.yaml.
+  The `triage` command now falls back to configured defaults when `--redact-fields`
+  is not passed on the CLI.
+
+### Changed
+- **`sift triage --help`** now uses Rich flag panels (AI Summarization, IOC Enrichment,
+  Output, Privacy) for better discoverability. Key flags like `--summarize` and
+  `--enrich` include setup hints in their descriptions.
+- **`--redact-fields`** is now visible in `sift triage --help` (Privacy panel) —
+  no longer hidden.
+- **Provider hint**: when `--summarize` is used with the `template` provider but an
+  API key is configured, sift prints a tip suggesting `--provider anthropic`.
+
+### Fixed
+- **`sift doctor` API key check**: previously always showed WARN for `SIFT_LLM_KEY`
+  even when set via `sift config --api-key`. Now reads `~/.sift/.env` directly
+  and reports PASS with source (`env var` or `~/.sift/.env`).
+
+### Internal
+- Repo cleanup: private development files (implementation reports, git guides,
+  validation summaries) moved to `local/` (gitignored).
+- `_resolve_paths()` extracted to module level and shared between `triage` and
+  `validate` commands.
+
+---
+
 ## [1.0.15] - 2026-03-30
 
 ### Changed (UX Simplification — MeetUp SIFT-2026-009)

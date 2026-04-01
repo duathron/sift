@@ -24,6 +24,7 @@ app = typer.Typer(
     help="AI-powered alert triage summarizer for SOC teams.",
     add_completion=False,
     no_args_is_help=True,
+    rich_markup_mode="rich",
 )
 console = Console(stderr=True)
 
@@ -121,10 +122,91 @@ def _check_enrich_consent(yes: bool, cfg) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Shared constants + path resolver
+# ---------------------------------------------------------------------------
+
+_SUPPORTED_SUFFIXES = {".json", ".csv", ".ndjson", ".log"}
+
+
+def _resolve_paths(raw_paths: list[Path]) -> list[Path]:
+    """Expand dirs and validate files; raise typer.Exit(2) on missing paths."""
+    resolved: list[Path] = []
+    for p in raw_paths:
+        if str(p) == "-":
+            resolved.append(p)
+        elif p.is_dir():
+            found = sorted(
+                f for f in p.rglob("*") if f.is_file() and f.suffix.lower() in _SUPPORTED_SUFFIXES
+            )
+            if not found:
+                console.print(f"[yellow]Warning:[/yellow] No supported files found in directory: {p}")
+            else:
+                resolved.extend(found)
+        elif p.exists():
+            resolved.append(p)
+        else:
+            console.print(f"[red]Error:[/red] File not found: {p}")
+            raise typer.Exit(2)
+    return resolved
+
+
+# ---------------------------------------------------------------------------
+# Helper: triage --help status panel + callbacks
+# ---------------------------------------------------------------------------
+
+def _print_triage_setup_status() -> None:
+    """Print a dynamic config-status panel below --help output."""
+    try:
+        from rich.console import Console as _Console
+        from rich.panel import Panel
+        from rich.text import Text
+        _c = _Console()
+        cfg = load_config()
+
+        key = cfg.summarize.api_key or ""
+        key_line = f"[green]✓[/green] set (via ~/.sift/.env)" if key else "[yellow]✗[/yellow] not set  (run: sift config --api-key <key>)"
+        provider_line = cfg.summarize.provider
+        cache_line = "on  [dim](--no-cache to disable)[/dim]" if cfg.cache_enabled else "off [dim](default)[/dim]"
+        redact_fields = cfg.redaction.fields if hasattr(cfg, "redaction") else []
+        redact_line = ", ".join(redact_fields) if redact_fields else "[dim](none)[/dim]"
+
+        body = Text.from_markup(
+            f"  API key    {key_line}\n"
+            f"  Provider   {provider_line}\n"
+            f"  Cache      {cache_line}\n"
+            f"  Redact     {redact_line}\n\n"
+            f"  [dim]Run 'sift config --show' for full configuration.[/dim]"
+        )
+        _c.print(Panel(body, title="[bold]Current Setup[/bold]", expand=False))
+    except Exception:
+        pass
+
+
+def _triage_help_callback(ctx: "typer.Context", param: "typer.CallbackParam", value: bool) -> None:
+    if not value or ctx.resilient_parsing:
+        return
+    import click
+    click.echo(ctx.get_help())
+    _print_triage_setup_status()
+    raise typer.Exit()
+
+
+def _help_all_callback(ctx: "typer.Context", param: "typer.CallbackParam", value: bool) -> None:
+    if not value or ctx.resilient_parsing:
+        return
+    for p in ctx.command.params:
+        p.hidden = False
+    import click
+    click.echo(ctx.get_help())
+    _print_triage_setup_status()
+    raise typer.Exit()
+
+
+# ---------------------------------------------------------------------------
 # triage command
 # ---------------------------------------------------------------------------
 
-@app.command()
+@app.command(context_settings={"help_option_names": []})
 def triage(
     files: Annotated[list[Path], typer.Argument(
         help=(
@@ -134,69 +216,104 @@ def triage(
         ),
         show_default=False,
     )],
+    # --- Output ---
     format: Annotated[str, typer.Option(
         "--format", "-f",
         help="Output format: rich | console | json | csv | stix",
+        rich_help_panel="Output",
     )] = "rich",
-    filter: Annotated[Optional[str], typer.Option(
-        "--filter",
-        help="Filter clusters (e.g. 'priority >= HIGH')",
-    )] = None,
-    summarize: Annotated[bool, typer.Option(
-        "--summarize", "-s",
-        help="Generate AI/template triage summary.",
-    )] = False,
-    provider: Annotated[Optional[str], typer.Option(
-        help="LLM provider: template | mock | anthropic | openai | ollama",
-    )] = None,
     output: Annotated[Optional[Path], typer.Option(
         "--output", "-o",
         help="Save output to file.",
+        rich_help_panel="Output",
     )] = None,
     quiet: Annotated[bool, typer.Option(
         "--quiet", "-q",
-        help="Suppress banner.",
+        help="Suppress banner and status lines.",
+        rich_help_panel="Output",
     )] = False,
+    # --- AI Summarization ---
+    summarize: Annotated[bool, typer.Option(
+        "--summarize", "-s",
+        help="Generate AI summary. Uses --provider (template requires no key).",
+        rich_help_panel="AI Summarization",
+    )] = False,
+    provider: Annotated[Optional[str], typer.Option(
+        "--provider",
+        help="LLM provider: template (no key) | anthropic | openai | ollama",
+        rich_help_panel="AI Summarization",
+    )] = None,
+    # --- IOC Enrichment ---
     enrich: Annotated[Optional[str], typer.Option(
         "--enrich",
-        help="Enrich IOCs: all | local | barb | vex  (default: all when flag is used).",
+        help="Enrich IOCs: local (no API) | barb | vex | all (external, requires consent).",
+        rich_help_panel="IOC Enrichment",
     )] = None,
     yes: Annotated[bool, typer.Option(
         "--yes", "-y",
         help="Skip consent prompt for external enrichment API calls.",
+        rich_help_panel="IOC Enrichment",
     )] = False,
+    # --- Privacy ---
+    redact_fields: Annotated[Optional[str], typer.Option(
+        "--redact-fields",
+        help="Fields to redact before AI submission (e.g. 'user,host,source_ip').",
+        rich_help_panel="Privacy",
+    )] = None,
+    # --- Options ---
+    filter: Annotated[Optional[str], typer.Option(
+        "--filter",
+        help="Filter clusters (e.g. 'priority >= HIGH').",
+    )] = None,
     no_cache: Annotated[bool, typer.Option(
         "--no-cache",
         help="Disable result caching for this run.",
     )] = False,
-    # --- Advanced / hidden flags (use sift triage --help-all to see) ---
-    config_path: Annotated[Optional[Path], typer.Option(
-        "--config", help="Path to config.yaml", show_default=False, hidden=True,
+    # --- Help ---
+    help_flag: Annotated[Optional[bool], typer.Option(
+        "--help", "-h",
+        help="Show this message and exit.",
+        is_eager=True,
+        callback=_triage_help_callback,
+        expose_value=False,
     )] = None,
-    no_dedup: Annotated[bool, typer.Option(
-        "--no-dedup", help="Skip alert deduplication.", hidden=True,
-    )] = False,
-    validate_only: Annotated[bool, typer.Option(
-        "--validate-only", help="Parse and validate only, skip output.", hidden=True,
-    )] = False,
-    redact_fields: Annotated[Optional[str], typer.Option(
-        "--redact-fields",
-        help="Comma-separated fields to redact (e.g. 'user,host,source_ip').",
+    help_all: Annotated[Optional[bool], typer.Option(
+        "--help-all",
+        help="Show all options including expert flags.",
+        is_eager=True,
+        callback=_help_all_callback,
+        expose_value=False,
+    )] = None,
+    # --- Expert / hidden flags (sift triage --help-all to reveal) ---
+    config_path: Annotated[Optional[Path], typer.Option(
+        "--config",
+        help="Path to a custom config.yaml (default: ~/.sift/config.yaml).",
+        show_default=False,
         hidden=True,
     )] = None,
+    no_dedup: Annotated[bool, typer.Option(
+        "--no-dedup",
+        help="Skip alert deduplication. Use only for testing or when your SIEM already deduplicates.",
+        hidden=True,
+    )] = False,
+    validate_only: Annotated[bool, typer.Option(
+        "--validate-only",
+        help="[Deprecated] Use 'sift validate <file>' instead. Parse and validate without producing output.",
+        hidden=True,
+    )] = False,
     chunk_size: Annotated[int, typer.Option(
         "--chunk-size",
-        help="Override auto-tuned chunk size (0 = auto).",
+        help="Override auto-tuned chunk size for clustering (0 = auto). Use when auto-tuning picks wrong size.",
         hidden=True,
     )] = 0,
     drop_raw: Annotated[bool, typer.Option(
         "--drop-raw",
-        help="Force drop raw alert data (auto-enabled for large files).",
+        help="Discard raw alert data after normalization — halves RAM for wide CSVs. Auto-enabled for files >500 MB.",
         hidden=True,
     )] = False,
     enrich_mode: Annotated[Optional[str], typer.Option(
         "--enrich-mode",
-        help="[Deprecated] Use --enrich MODE instead.",
+        help="[Deprecated] Use --enrich MODE instead (e.g. --enrich local).",
         hidden=True,
     )] = None,
 ) -> None:
@@ -207,6 +324,11 @@ def triage(
 
     # --- Load config ---
     cfg = load_config(config_path)
+
+    # --- Resolve effective redact fields (CLI flag overrides config default) ---
+    _effective_redact: Optional[str] = redact_fields or (
+        ",".join(cfg.redaction.fields) if cfg.redaction.fields else None
+    )
 
     # --- Backward compat: --enrich-mode (deprecated) merged into --enrich ---
     if enrich_mode and enrich is None:
@@ -228,30 +350,8 @@ def triage(
     )
 
     # --- Resolve input paths (expand directories, validate files) ---
-    _SUPPORTED_SUFFIXES = {".json", ".csv", ".ndjson", ".log"}
-    # Files larger than this threshold are read line-by-line to avoid OOM on multi-GB inputs.
     _LARGE_FILE_THRESHOLD_BYTES = 50 * 1024 * 1024   # 50 MB
     _STREAM_BATCH_LINES = 5_000                        # normalize this many lines at a time
-
-    def _resolve_paths(raw_paths: list[Path]) -> list[Path]:
-        resolved: list[Path] = []
-        for p in raw_paths:
-            if str(p) == "-":
-                resolved.append(p)
-            elif p.is_dir():
-                found = sorted(
-                    f for f in p.rglob("*") if f.is_file() and f.suffix.lower() in _SUPPORTED_SUFFIXES
-                )
-                if not found:
-                    console.print(f"[yellow]Warning:[/yellow] No supported files found in directory: {p}")
-                else:
-                    resolved.extend(found)
-            elif p.exists():
-                resolved.append(p)
-            else:
-                console.print(f"[red]Error:[/red] File not found: {p}")
-                raise typer.Exit(2)
-        return resolved
 
     def _stream_alerts(path: Path, hasher, show_progress: bool, *, sub_chunk: bool = False) -> tuple[list, str]:
         """Read a large file line-by-line in batches with optional progress bar.
@@ -295,8 +395,8 @@ def triage(
             from .pipeline.ioc_extractor import enrich_alerts_iocs
             _dedup_cfg = DeduplicatorConfig(time_window_minutes=cfg.clustering.time_window_minutes)
             _deduped, _ = deduplicate(_pending_alerts, _dedup_cfg)
-            if redact_fields:
-                _fields = [f.strip() for f in redact_fields.split(",") if f.strip()]
+            if _effective_redact:
+                _fields = [f.strip() for f in _effective_redact.split(",") if f.strip()]
                 _deduped = [a.redact(_fields) for a in _deduped]
             if drop_raw:
                 _deduped = [a.model_copy(update={"raw": {}}) for a in _deduped]
@@ -618,8 +718,8 @@ def triage(
         total_after_dedup += file_dedup_count
 
         # --- Field-level redaction (optional) ---
-        if redact_fields:
-            fields_to_redact = [f.strip() for f in redact_fields.split(",") if f.strip()]
+        if _effective_redact:
+            fields_to_redact = [f.strip() for f in _effective_redact.split(",") if f.strip()]
             try:
                 alerts_for_clustering = [a.redact(fields_to_redact) for a in alerts_for_clustering]
             except ValueError as exc:
@@ -763,6 +863,13 @@ def triage(
     if summarize or cfg.summarize.provider != "template":
         effective_provider = provider or cfg.summarize.provider
         summarizer = _build_summarizer(effective_provider, cfg)
+        if summarize and effective_provider == "template" and cfg.summarize.api_key:
+            _quiet_mode = quiet or cfg.output.quiet
+            if not _quiet_mode:
+                console.print(
+                    "[dim]Tip: API key is set — for AI summary add [bold]--provider anthropic[/bold] "
+                    "(or set default: sift config --provider anthropic).[/dim]"
+                )
         try:
             report = report.model_copy(update={"summary": summarizer.summarize(report)})
         except Exception as exc:
@@ -867,6 +974,75 @@ def _render_output(report: TriageReport, *, format: str, output_path: Optional[P
             "Valid formats: rich | console | json | csv | stix"
         )
         raise typer.Exit(2)
+
+
+# ---------------------------------------------------------------------------
+# validate command
+# ---------------------------------------------------------------------------
+
+@app.command()
+def validate(
+    files: Annotated[list[Path], typer.Argument(
+        help="Alert files or directories to validate (JSON, Splunk JSON, CSV). Use '-' for stdin.",
+        show_default=False,
+    )],
+    quiet: Annotated[bool, typer.Option(
+        "--quiet", "-q",
+        help="Suppress banner.",
+    )] = False,
+    config_path: Annotated[Optional[Path], typer.Option(
+        "--config",
+        help="Path to a custom config.yaml.",
+        show_default=False,
+        hidden=True,
+    )] = None,
+) -> None:
+    """Validate alert files — parse and report format/count without running the full pipeline."""
+    cfg = load_config(config_path)
+
+    show_banner(
+        quiet=quiet or cfg.output.quiet,
+        update_check_enabled=cfg.update_check.enabled,
+        check_interval_hours=cfg.update_check.check_interval_hours,
+    )
+
+    resolved = _resolve_paths(files)
+    if not resolved:
+        console.print("[yellow]Warning:[/yellow] No files to validate.")
+        raise typer.Exit(0)
+
+    any_error = False
+    for path in resolved:
+        label = "<stdin>" if str(path) == "-" else path.name
+        try:
+            if str(path) == "-":
+                raw = sys.stdin.read()
+            else:
+                raw = path.read_text(encoding="utf-8")
+        except Exception as exc:
+            console.print(f"[red]✗[/red] {label} — Error reading file: {exc}")
+            any_error = True
+            continue
+
+        if not raw.strip():
+            console.print(f"[yellow]✗[/yellow] {label} — Empty file.")
+            any_error = True
+            continue
+
+        try:
+            alerts, fmt = _normalize(raw)
+        except Exception as exc:
+            console.print(f"[red]✗[/red] {label} — Parse error: {exc}")
+            any_error = True
+            continue
+
+        if not alerts:
+            console.print(f"[yellow]✗[/yellow] {label} — No alerts found (format detected: {fmt}).")
+            any_error = True
+        else:
+            console.print(f"[green]✓[/green] {label} — {len(alerts):,} alert(s) ({fmt})")
+
+    raise typer.Exit(2 if any_error else 0)
 
 
 # ---------------------------------------------------------------------------
@@ -1047,6 +1223,11 @@ def config_cmd(
         "--enrich-consent/--no-enrich-consent",
         help="Pre-approve enrichment consent (skips interactive prompt for --enrich).",
     )] = None,
+    redact_fields_default: Annotated[Optional[str], typer.Option(
+        "--redact-fields",
+        help="Default fields to redact before AI submission (comma-separated, e.g. 'user,host,source_ip'). Use '' to clear.",
+        show_default=False,
+    )] = None,
 ) -> None:
     """Show or set sift configuration.
 
@@ -1060,6 +1241,7 @@ def config_cmd(
       sift config --provider anthropic --model claude-opus-4-6
       sift config --quiet --default-format json
       sift config --chunk-size 100 --cache
+      sift config --redact-fields user,host,source_ip
       sift config --unset-api-key
     """
     from sift.config import clear_credentials, save_credentials
@@ -1119,6 +1301,9 @@ def config_cmd(
     if enrich_consent is not None:
         cfg.enrich.consent_given = enrich_consent
         cfg_changed = True
+    if redact_fields_default is not None:
+        cfg.redaction.fields = [f.strip() for f in redact_fields_default.split(",") if f.strip()]
+        cfg_changed = True
 
     if cfg_changed:
         from sift.config import save_config as _save_config
@@ -1139,6 +1324,7 @@ def config_cmd(
             "       sift config --api-key <key>\n"
             "       sift config --provider <template|anthropic|openai|ollama>\n"
             "       sift config --quiet --default-format json\n"
+            "       sift config --redact-fields user,host,source_ip\n"
             "Run 'sift config --help' for all options."
         )
 

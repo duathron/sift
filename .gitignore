@@ -10,3 +10,5 @@ build/
 *.log
 .DS_Store
 CLAUDE.md
+local/
+rich
