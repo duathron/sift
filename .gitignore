@@ -12,3 +12,7 @@ build/
 CLAUDE.md
 local/
 rich
+# Root-level config — potential API key leak; real config lives at ~/.sift/config.yaml
+config.yaml
+# Generated large test fixtures — regenerate with tests/fixtures/generate_brute_force.py
+tests/fixtures/brute_force_scenario.json
