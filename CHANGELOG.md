@@ -11,6 +11,28 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.0.161] - 2026-04-13
+
+### Fixed
+- **LLM prompt — alert-type distribution table**: Replaced first-5 alert slice
+  (`cluster.alerts[:5]`) with a full breakdown of distinct alert types (count +
+  max severity + 1 representative sample per unique title, sorted by severity
+  descending). Large heterogeneous clusters (e.g. 2325 alerts, 17 distinct types)
+  now surface buried high-severity events (Credential Dumping, Lateral Movement)
+  instead of showing only the dominant low-signal noise type.
+- **CSV normalizer — space-separated column names**: Added aliases for columns
+  with spaces (`"source ip"`, `"destination ip"`, etc.) so netflow-style CSVs
+  like CIC-DDoS2019 are mapped correctly. `"label"` is now recognised as
+  `title` and `category`.
+
+### Internal
+- Removed `tests/fixtures/brute_force_scenario.json` (1.4 MB generated file)
+  from the repository — regenerate with `tests/fixtures/generate_brute_force.py`.
+- Removed `config.yaml` from repository root (potential API key leak risk);
+  real user config lives at `~/.sift/config.yaml`.
+
+---
+
 ## [1.0.16] - 2026-03-31
 
 ### Added
