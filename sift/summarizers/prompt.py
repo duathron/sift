@@ -306,22 +306,39 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
         else:
             lines.append("- Techniques  : none mapped")
 
-        # Sample alert titles (up to 5, respecting redaction)
+        # Alert type distribution: 1 representative sample per unique title, sorted by max severity.
+        # This ensures the LLM sees the full statistical picture of the cluster rather than
+        # an arbitrary first-N slice that may be dominated by low-signal noise.
         if cluster.alerts:
-            lines.append("- Sample alerts:")
-            for alert in cluster.alerts[:5]:
-                parts: list[str] = []
-
-                if "title" not in redact:
-                    parts.append(f"[{alert.severity.value}] {alert.title}")
+            # Build: title_key → (count, max_severity, representative_alert)
+            seen: dict[str, list] = {}
+            for alert in cluster.alerts:
+                key = alert.title if "title" not in redact else "[title redacted]"
+                if key not in seen:
+                    seen[key] = [1, alert.severity, alert]
                 else:
-                    parts.append(f"[{alert.severity.value}] [title redacted]")
+                    seen[key][0] += 1
+                    if alert.severity.score > seen[key][1].score:
+                        seen[key][1] = alert.severity
 
+            sorted_types = sorted(
+                seen.items(),
+                key=lambda kv: kv[1][1].score,
+                reverse=True,
+            )
+
+            _SHOW = 10
+            n_types = len(sorted_types)
+            n_total = len(cluster.alerts)
+            lines.append(
+                f"- Alert type breakdown ({n_types} distinct type(s), {n_total} total):"
+            )
+            for title_key, (count, max_sev, rep) in sorted_types[:_SHOW]:
                 optional_fields: list[tuple[str, str | None]] = [
-                    ("source_ip", alert.source_ip),
-                    ("dest_ip", alert.dest_ip),
-                    ("user", alert.user),
-                    ("host", alert.host),
+                    ("source_ip", rep.source_ip),
+                    ("dest_ip", rep.dest_ip),
+                    ("user", rep.user),
+                    ("host", rep.host),
                 ]
                 detail_parts: list[str] = []
                 for field_name, field_val in optional_fields:
@@ -331,15 +348,10 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
                         detail_parts.append(f"{field_name}=[redacted]")
                     else:
                         detail_parts.append(f"{field_name}={field_val}")
-
-                if detail_parts:
-                    parts.append(f"({', '.join(detail_parts)})")
-
-                lines.append(f"  * {' '.join(parts)}")
-
-            remaining = len(cluster.alerts) - 5
-            if remaining > 0:
-                lines.append(f"  * … and {remaining} more alert(s)")
+                sample = f" — sample: ({', '.join(detail_parts)})" if detail_parts else ""
+                lines.append(f"  [{max_sev.value}] {title_key}  ×{count}{sample}")
+            if n_types > _SHOW:
+                lines.append(f"  … ({n_types - _SHOW} more type(s))")
 
         lines.append("")  # blank line between clusters
 

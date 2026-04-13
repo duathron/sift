@@ -208,6 +208,71 @@ class TestPromptBuildingWithExamples:
 
 
 # ---------------------------------------------------------------------------
+# Alert Type Distribution (MeetUp 2026-04-13)
+# ---------------------------------------------------------------------------
+
+
+class TestAlertTypeBreakdown:
+    """Cluster prompt shows alert type distribution instead of first-5 sample slice."""
+
+    def _mixed_cluster(self) -> Cluster:
+        """Simulate a large heterogeneous cluster: 2000 low-noise + 324 brute-force + 1 critical."""
+        alerts: list[Alert] = [
+            Alert(id=f"ps-{i}", title="External Port Scan Detected",
+                  severity=AlertSeverity.LOW, source_ip="185.1.2.3")
+            for i in range(2000)
+        ]
+        alerts += [
+            Alert(id=f"bf-{i}", title="SSH Login Failed",
+                  severity=AlertSeverity.MEDIUM, source_ip="185.1.2.3", dest_ip="10.10.1.5")
+            for i in range(324)
+        ]
+        alerts.append(Alert(
+            id="cred-1", title="Credential Dumping Detected",
+            severity=AlertSeverity.CRITICAL, host="dc01",
+        ))
+        return make_cluster(priority=ClusterPriority.CRITICAL, alerts=alerts)
+
+    def test_distribution_header_present(self):
+        prompt = build_cluster_prompt(make_report([self._mixed_cluster()]), make_config())
+        assert "Alert type breakdown" in prompt
+
+    def test_critical_alert_appears_with_correct_label(self):
+        prompt = build_cluster_prompt(make_report([self._mixed_cluster()]), make_config())
+        assert "Credential Dumping Detected" in prompt
+        assert "[CRITICAL]" in prompt
+
+    def test_count_shown_for_dominant_type(self):
+        prompt = build_cluster_prompt(make_report([self._mixed_cluster()]), make_config())
+        assert "×2000" in prompt
+
+    def test_critical_appears_before_low(self):
+        prompt = build_cluster_prompt(make_report([self._mixed_cluster()]), make_config())
+        assert prompt.index("[CRITICAL]") < prompt.index("[LOW]")
+
+    def test_old_sample_alerts_header_absent(self):
+        prompt = build_cluster_prompt(make_report([self._mixed_cluster()]), make_config())
+        assert "Sample alerts:" not in prompt
+
+    def test_redacted_title_handled(self):
+        config = make_config()
+        config.redact_fields = ["title"]
+        prompt = build_cluster_prompt(make_report([self._mixed_cluster()]), config)
+        assert "[title redacted]" in prompt
+        assert "Credential Dumping Detected" not in prompt
+
+    def test_overflow_line_for_more_than_10_types(self):
+        """If cluster has >10 distinct alert titles, a '… (N more type(s))' line is shown."""
+        alerts = [
+            Alert(id=f"t{i}", title=f"Alert Type {i}", severity=AlertSeverity.LOW)
+            for i in range(15)
+        ]
+        cluster = make_cluster(alerts=alerts)
+        prompt = build_cluster_prompt(make_report([cluster]), make_config())
+        assert "more type(s)" in prompt
+
+
+# ---------------------------------------------------------------------------
 # Test Example Structure
 # ---------------------------------------------------------------------------
 

@@ -154,6 +154,84 @@ def _resolve_paths(raw_paths: list[Path]) -> list[Path]:
 # Helper: triage --help status panel + callbacks
 # ---------------------------------------------------------------------------
 
+def _print_triage_config_panel(
+    *,
+    resolved_paths: "list[Path]",
+    total_bytes: int,
+    summarize: bool,
+    provider: str,
+    model: "Optional[str]",
+    enrich_active: bool,
+    enrich_mode_str: str,
+    redact: "Optional[str]",
+    cache_enabled: bool,
+    chunk_size: int,
+    no_dedup: bool,
+    time_window: int,
+) -> None:
+    """Print a ffuf-style config summary panel before the triage pipeline starts."""
+    from rich.filesize import decimal as _fmt_size
+    from rich.panel import Panel
+    from rich.text import Text
+
+    _LBL = 10    # fixed label column width → values always start at the same offset
+
+    def row(label: str, value: str) -> str:
+        return f"{label:<{_LBL}}{value}\n"
+
+    # --- Input ---
+    file_count = len(resolved_paths)
+    stdin_count = sum(1 for p in resolved_paths if str(p) == "-")
+    named_count = file_count - stdin_count
+    size_str = _fmt_size(total_bytes) if total_bytes > 0 else "?"
+    input_val = (
+        f"{file_count} file{'s' if file_count != 1 else ''} ({size_str})"
+        if not stdin_count else
+        f"stdin" if named_count == 0 else
+        f"{named_count} file{'s' if named_count != 1 else ''} + stdin ({size_str})"
+    )
+
+    # --- Summarize ---
+    if summarize:
+        model_hint = f" [dim]({model or 'auto'})[/dim]" if provider not in ("template", "mock") else ""
+        sum_val = f"[green]on[/green]  {provider}{model_hint}"
+    else:
+        sum_val = "[dim]off[/dim]"
+
+    # --- Enrich ---
+    enrich_val = f"[green]on[/green]  {enrich_mode_str}" if enrich_active else "[dim]off[/dim]"
+
+    # --- Redact ---
+    redact_val = redact if redact else "[dim](none)[/dim]"
+
+    # --- Cache ---
+    cache_val = "[green]on[/green]" if cache_enabled else "[dim]off[/dim]"
+
+    # --- Chunks ---
+    if chunk_size > 0:
+        chunk_val = f"[dim]auto[/dim] ({chunk_size:,} alerts/chunk)"
+    else:
+        chunk_val = "[dim]off[/dim] (small input)"
+
+    # --- Dedup ---
+    dedup_val = "[dim]off[/dim]  [yellow](--no-dedup)[/yellow]" if no_dedup else f"[green]on[/green]  [dim]({time_window} min window)[/dim]"
+
+    body = Text.from_markup(
+        row("Input", input_val)
+        + row("Summarize", sum_val)
+        + row("Enrich", enrich_val)
+        + row("Redact", redact_val)
+        + row("Cache", cache_val)
+        + row("Chunks", chunk_val)
+        + row("Dedup", dedup_val).rstrip("\n")
+    )
+
+    from rich.console import Console as _RichConsole
+    _RichConsole(stderr=True).print(
+        Panel(body, title="[bold]Triage Config[/bold]", expand=False, padding=(0, 2))
+    )
+
+
 def _print_triage_setup_status() -> None:
     """Print a dynamic config-status panel below --help output."""
     try:
@@ -542,6 +620,23 @@ def triage(
 
     if not _quiet_mode and _tune.reason != "no tuning needed (small input)":
         console.print(f"[dim]Auto-tuned: {_tune.reason}[/dim]")
+
+    # --- Triage config panel (ffuf-style, shown before pipeline starts) ---
+    if not _quiet_mode:
+        _print_triage_config_panel(
+            resolved_paths=resolved_paths,
+            total_bytes=_total_bytes_estimate,
+            summarize=summarize,
+            provider=provider or cfg.summarize.provider,
+            model=cfg.summarize.model,
+            enrich_active=_enrich_active,
+            enrich_mode_str=_enrich_mode_str,
+            redact=_effective_redact,
+            cache_enabled=not no_cache and cfg.cache_enabled,
+            chunk_size=effective_chunk_size,
+            no_dedup=no_dedup,
+            time_window=cfg.clustering.time_window_minutes,
+        )
 
     # --- Cache (default on, --no-cache to disable) ---
     _cache_enabled = not no_cache and cfg.cache_enabled

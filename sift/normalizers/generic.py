@@ -17,14 +17,14 @@ from ..models import Alert, AlertSeverity
 _ID_FIELDS = ["id", "alert_id", "event_id", "uid", "_id"]
 _TIMESTAMP_FIELDS = ["timestamp", "time", "event_time", "created_at", "@timestamp", "date"]
 _SEVERITY_FIELDS = ["severity", "priority", "level", "risk_level", "alert_level"]
-_TITLE_FIELDS = ["title", "name", "alert_name", "message", "msg", "description", "event_name"]
+_TITLE_FIELDS = ["title", "name", "alert_name", "message", "msg", "description", "event_name", "label"]
 _DESC_FIELDS = ["description", "details", "message", "msg", "summary"]
 _SOURCE_FIELDS = ["source", "sensor", "detector", "product", "vendor"]
-_SOURCE_IP_FIELDS = ["source_ip", "src_ip", "src", "sourceAddress", "source_address", "attacker_ip"]
-_DEST_IP_FIELDS = ["dest_ip", "dst_ip", "dst", "destAddress", "destination_ip", "target_ip"]
+_SOURCE_IP_FIELDS = ["source_ip", "src_ip", "src", "sourceAddress", "source_address", "attacker_ip", "source ip", "src ip"]
+_DEST_IP_FIELDS = ["dest_ip", "dst_ip", "dst", "destAddress", "destination_ip", "target_ip", "destination ip", "dest ip", "dst ip"]
 _USER_FIELDS = ["user", "username", "user_name", "account", "actor"]
 _HOST_FIELDS = ["host", "hostname", "computer", "device", "endpoint", "machine"]
-_CATEGORY_FIELDS = ["category", "type", "alert_type", "event_type", "classification"]
+_CATEGORY_FIELDS = ["category", "type", "alert_type", "event_type", "classification", "label"]
 
 _SEVERITY_MAP = {
     "info": AlertSeverity.INFO,
