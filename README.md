@@ -395,6 +395,72 @@ sift limits enrichment to 20 IOCs per run to avoid API rate limits.
 
 ---
 
+## Ticketing
+
+Create incident tickets directly from triage output — no copy-paste required.
+
+| Provider | Auth | Ticket type |
+|----------|------|-------------|
+| **TheHive 5** | Bearer token | Alert (analyst can promote to Case) |
+| **Jira Service Management** | Email + API token | Issue (configurable type) |
+| **dry-run** | none | JSON preview to stdout or file |
+
+### Setup
+
+```bash
+# Install HTTP dependency
+pip install "sift-triage[ticket]"
+
+# TheHive
+sift config --ticket-provider thehive --ticket-url https://thehive.example.com
+sift config --ticket-token <THEHIVE_API_TOKEN>
+
+# Jira
+sift config --ticket-provider jira \
+            --ticket-url https://company.atlassian.net \
+            --ticket-project SOC \
+            --ticket-jira-email analyst@company.com
+sift config --ticket-token <JIRA_API_TOKEN>
+```
+
+API tokens are stored in `~/.sift/.env` (mode 600) — never in `config.yaml`.
+
+### Usage
+
+```bash
+# Create ticket for top-priority cluster (uses configured default provider)
+sift triage alerts.json --ticket thehive
+
+# Jira ticket
+sift triage alerts.json --ticket jira
+
+# Preview ticket JSON without sending
+sift triage alerts.json --ticket dry-run
+sift triage alerts.json --ticket-output ticket.json
+
+# One ticket per HIGH/CRITICAL cluster
+sift triage alerts.json --ticket thehive --ticket-all
+
+# Check connectivity
+sift doctor
+```
+
+### Ticket content
+
+Each ticket contains:
+- **Title**: `[sift] {SEVERITY} | {cluster label}`
+- **Summary**: LLM narrative (if `--summarize`) or auto-generated description
+- **Timeline**: alerts sorted chronologically (up to 10 entries)
+- **IOCs**: all unique indicators from the cluster
+- **ATT&CK**: technique IDs mapped from alerts
+- **Recommendations**: actionable checklist from AI summary
+- **Confidence**: clustering confidence score (0–100 %)
+
+> **TheHive**: IOCs are automatically mapped as Observables (IP / hash / URL / domain).
+> **Jira**: description uses Atlassian Document Format with checkbox task lists for recommendations.
+
+---
+
 ## Output Formats
 
 | Flag | Output |

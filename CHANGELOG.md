@@ -11,6 +11,53 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.1.0] - 2026-04-25
+
+### Added
+- **Ticketing integration** (`sift/ticketing/`): create incident tickets directly
+  from triage output.
+  - **TheHive 5** provider: creates Alerts via `/api/v1/alert`. IOCs are mapped
+    to TheHive Observables (IP, hash, URL, domain). Full Markdown description with
+    summary, timeline, recommendations, and ATT&CK techniques.
+  - **Jira Service Management** provider: creates Issues via `/rest/api/3/issue`
+    using Basic Auth (email + API token). Description uses Atlassian Document Format
+    (ADF) with headings, bullet lists, and checkbox task lists.
+  - **DryRun** provider: serialises the ticket to JSON (stdout or `--ticket-output
+    <path>`) for preview. Foundation for v1.5 Shadow-Mode.
+  - `sift triage --ticket thehive|jira|dry-run` — create ticket for top-priority
+    cluster after triage completes.
+  - `sift triage --ticket-output <path>` — save ticket JSON to file (implies
+    `dry-run` when `--ticket` is not set).
+  - `sift triage --ticket-all` — create one ticket per HIGH/CRITICAL cluster
+    (default: top cluster only).
+  - `sift config --ticket-provider`, `--ticket-url`, `--ticket-project`,
+    `--ticket-jira-email` — persist ticketing defaults to `~/.sift/config.yaml`.
+  - `sift config --ticket-token <token>` — store TheHive or Jira API token in
+    `~/.sift/.env` (mode 600, never in config.yaml).
+  - `sift doctor` now checks ticketing provider connectivity (`_check_ticketing`).
+- **`TicketingConfig`** Pydantic model added to `AppConfig` for persistent
+  ticketing settings.
+- **`TicketDraft`** provider-agnostic ticket model with title, summary, severity,
+  priority, confidence, timeline, IOCs, ATT&CK technique IDs, recommendations,
+  and evidence block.
+- **`httpx`** added as optional dependency (`sift-triage[ticket]`).
+- **`pytest-httpx`** added to dev dependencies for HTTP-mock testing.
+
+### Changed
+- Ticket creation is **post-processing** — a ticket send failure never changes the
+  triage exit code (0 = no critical clusters, 1 = critical/high found, 2 = error).
+- `TicketDraft.title` format: `[sift] {SEVERITY} | {cluster label}` (max 80 chars).
+
+### Notes
+- TheHive: tested against TheHive 5.x API. TheHive 4 and earlier use a different
+  API path (`/api/alert`) and are not supported in v1.1.
+- Jira: tested against Jira Cloud REST v3. Jira Server/Data Center may require
+  different authentication.
+- ServiceNow provider deferred to v1.2 (high integration complexity).
+- 123 new tests added (918 total, 3 skipped).
+
+---
+
 ## [1.0.161] - 2026-04-13
 
 ### Fixed

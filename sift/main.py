@@ -394,6 +394,22 @@ def triage(
         help="[Deprecated] Use --enrich MODE instead (e.g. --enrich local).",
         hidden=True,
     )] = None,
+    # --- Ticketing ---
+    ticket: Annotated[Optional[str], typer.Option(
+        "--ticket",
+        help="Create ticket from triage result: thehive | jira | dry-run",
+        rich_help_panel="Ticketing",
+    )] = None,
+    ticket_output: Annotated[Optional[Path], typer.Option(
+        "--ticket-output",
+        help="Save ticket JSON to file (implies --ticket dry-run if --ticket not set).",
+        rich_help_panel="Ticketing",
+    )] = None,
+    ticket_all: Annotated[bool, typer.Option(
+        "--ticket-all",
+        help="Create one ticket per HIGH/CRITICAL cluster (default: top cluster only).",
+        rich_help_panel="Ticketing",
+    )] = False,
 ) -> None:
     """Triage alerts from one or more FILES or directories.
 
@@ -1000,6 +1016,39 @@ def triage(
     # --- Output ---
     _render_output(report, format=format, output_path=output, cfg=cfg, quiet=quiet)
 
+    # --- Ticketing (post-processing — failure never breaks triage exit code) ---
+    if ticket or ticket_output:
+        from sift.ticketing import build_provider, report_to_draft, top_clusters_for_ticket
+
+        _ticket_provider_name = ticket or "dry-run"
+        try:
+            _ticket_provider = build_provider(_ticket_provider_name, cfg, output_path=ticket_output)
+        except ValueError as exc:
+            console.print(f"[red]Ticket config error:[/red] {exc}")
+            raise typer.Exit(2)
+
+        if ticket_all:
+            _ticket_clusters = top_clusters_for_ticket(report)
+            if not _ticket_clusters and not _quiet_mode:
+                console.print("[yellow]No HIGH/CRITICAL clusters found — no tickets created.[/yellow]")
+        else:
+            _ticket_clusters = [report.clusters[0]] if report.clusters else []
+
+        for _tc in _ticket_clusters:
+            try:
+                _draft = report_to_draft(report, _tc)
+                _result = _ticket_provider.send(_draft)
+                if _result.ticket_url:
+                    console.print(
+                        f"[green]✓[/green] Ticket created: "
+                        f"[link={_result.ticket_url}]{_result.ticket_id or 'dry-run'}[/link] "
+                        f"({_ticket_provider_name})"
+                    )
+                else:
+                    console.print(f"[green]✓[/green] Ticket output generated (dry-run → stdout)")
+            except Exception as exc:
+                console.print(f"[red]✗[/red] Ticket failed ({_tc.label[:40]}): {exc}")
+
     # --- Exit code ---
     raise typer.Exit(report.exit_code)
 
@@ -1323,6 +1372,32 @@ def config_cmd(
         help="Default fields to redact before AI submission (comma-separated, e.g. 'user,host,source_ip'). Use '' to clear.",
         show_default=False,
     )] = None,
+    # --- Ticketing ---
+    ticket_provider: Annotated[Optional[str], typer.Option(
+        "--ticket-provider",
+        help="Default ticket provider: thehive | jira | dry-run.",
+        show_default=False,
+    )] = None,
+    ticket_url: Annotated[Optional[str], typer.Option(
+        "--ticket-url",
+        help="Ticket provider base URL (e.g. https://thehive.example.com).",
+        show_default=False,
+    )] = None,
+    ticket_project: Annotated[Optional[str], typer.Option(
+        "--ticket-project",
+        help="Jira project key (e.g. SOC).",
+        show_default=False,
+    )] = None,
+    ticket_jira_email: Annotated[Optional[str], typer.Option(
+        "--ticket-jira-email",
+        help="Jira account email for Basic Auth.",
+        show_default=False,
+    )] = None,
+    ticket_token: Annotated[Optional[str], typer.Option(
+        "--ticket-token",
+        help="Store API token for ticket provider (TheHive or Jira). Saved to ~/.sift/.env.",
+        show_default=False,
+    )] = None,
 ) -> None:
     """Show or set sift configuration.
 
@@ -1400,6 +1475,33 @@ def config_cmd(
         cfg.redaction.fields = [f.strip() for f in redact_fields_default.split(",") if f.strip()]
         cfg_changed = True
 
+    # --- Ticketing credentials (stored in ~/.sift/.env, never config.yaml) ---
+    if ticket_token is not None:
+        from sift.config import save_ticket_token
+        _tp_name = ticket_provider or cfg.ticketing.provider
+        if not _tp_name or _tp_name == "dry-run":
+            console.print(
+                "[red]Error:[/red] --ticket-token requires --ticket-provider thehive or jira "
+                "(or set a default first: sift config --ticket-provider thehive)."
+            )
+            raise typer.Exit(2)
+        env_path = save_ticket_token(ticket_token, _tp_name)
+        console.print(f"[green]✓[/green] Ticket token saved to {env_path}")
+
+    # --- Ticketing config fields ---
+    if ticket_provider is not None:
+        cfg.ticketing.provider = ticket_provider
+        cfg_changed = True
+    if ticket_url is not None:
+        cfg.ticketing.url = ticket_url
+        cfg_changed = True
+    if ticket_project is not None:
+        cfg.ticketing.project_key = ticket_project
+        cfg_changed = True
+    if ticket_jira_email is not None:
+        cfg.ticketing.jira_email = ticket_jira_email
+        cfg_changed = True
+
     if cfg_changed:
         from sift.config import save_config as _save_config
         saved_path = _save_config(cfg, config_path)
@@ -1413,13 +1515,15 @@ def config_cmd(
         return
 
     # If nothing was done, show usage hint
-    if not cfg_changed and not api_key and not unset_api_key:
+    if not cfg_changed and not api_key and not unset_api_key and not ticket_token:
         typer.echo(
             "Usage: sift config --show\n"
             "       sift config --api-key <key>\n"
             "       sift config --provider <template|anthropic|openai|ollama>\n"
             "       sift config --quiet --default-format json\n"
             "       sift config --redact-fields user,host,source_ip\n"
+            "       sift config --ticket-provider thehive --ticket-url https://...\n"
+            "       sift config --ticket-token <token>\n"
             "Run 'sift config --help' for all options."
         )
 

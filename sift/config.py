@@ -96,6 +96,18 @@ class AlertRedactionConfig(BaseModel):
     redact_raw: bool = False     # if True, always redact the `raw` dict
 
 
+class TicketingConfig(BaseModel):
+    """Ticketing provider configuration (credentials stored separately in ~/.sift/.env)."""
+
+    provider: Optional[str] = None          # thehive | jira | dry-run
+    url: Optional[str] = None               # provider base URL
+    project_key: Optional[str] = None       # Jira: project key
+    jira_email: Optional[str] = None        # Jira: account email
+    jira_issue_type: str = "Task"           # Jira: issue type
+    thehive_tlp: int = 2                    # TheHive: TLP (0–3, AMBER=2)
+    timeout: float = 10.0                   # HTTP request timeout (seconds)
+
+
 class AppConfig(BaseModel):
     """Top-level application configuration."""
 
@@ -107,6 +119,7 @@ class AppConfig(BaseModel):
     update_check: UpdateCheckConfig = UpdateCheckConfig()
     injection: PromptInjectionConfig = PromptInjectionConfig()
     redaction: AlertRedactionConfig = AlertRedactionConfig()
+    ticketing: TicketingConfig = TicketingConfig()
     cache_enabled: bool = True   # Result caching on by default (use --no-cache to disable)
 
 
@@ -163,6 +176,22 @@ def save_credentials(api_key: str) -> Path:
     lines = env_path.read_text().splitlines() if env_path.exists() else []
     lines = [l for l in lines if not l.startswith("SIFT_LLM_KEY=")]
     lines.append(f"SIFT_LLM_KEY={api_key}")
+    env_path.write_text("\n".join(lines) + "\n")
+    env_path.chmod(_FILE_MODE)
+    return env_path
+
+
+def save_ticket_token(token: str, provider: str) -> Path:
+    """Store ticket provider token in ~/.sift/.env (mode 600).
+
+    TheHive → SIFT_THEHIVE_TOKEN
+    Jira    → SIFT_JIRA_TOKEN
+    """
+    env_key = "SIFT_THEHIVE_TOKEN" if provider == "thehive" else "SIFT_JIRA_TOKEN"
+    env_path = _ensure_app_dir() / ".env"
+    lines = env_path.read_text().splitlines() if env_path.exists() else []
+    lines = [l for l in lines if not l.startswith(f"{env_key}=")]
+    lines.append(f"{env_key}={token}")
     env_path.write_text("\n".join(lines) + "\n")
     env_path.chmod(_FILE_MODE)
     return env_path

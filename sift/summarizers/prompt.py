@@ -288,7 +288,7 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
 
         # IOCs
         if cluster.iocs and "iocs" not in redact:
-            ioc_preview = cluster.iocs[:5]
+            ioc_preview = cluster.iocs[:5]  # SAFE-SLICE: IOC preview only; remaining count shown in suffix
             suffix = f" (+{len(cluster.iocs) - 5} more)" if len(cluster.iocs) > 5 else ""
             lines.append(f"- IOCs        : {', '.join(ioc_preview)}{suffix}")
         elif "iocs" in redact:
@@ -333,7 +333,7 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
             lines.append(
                 f"- Alert type breakdown ({n_types} distinct type(s), {n_total} total):"
             )
-            for title_key, (count, max_sev, rep) in sorted_types[:_SHOW]:
+            for title_key, (count, max_sev, rep) in sorted_types[:_SHOW]:  # SAFE-SLICE: severity-sorted; highest-severity types shown first; overflow count shown below
                 optional_fields: list[tuple[str, str | None]] = [
                     ("source_ip", rep.source_ip),
                     ("dest_ip", rep.dest_ip),

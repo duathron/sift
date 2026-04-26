@@ -243,6 +243,51 @@ def _check_cache_directory() -> CheckResult:
     )
 
 
+def _check_ticketing() -> CheckResult:
+    """Check ticketing provider config and connectivity (optional feature)."""
+    try:
+        from sift.config import load_config
+        cfg = load_config()
+    except Exception:
+        return CheckResult(name="Ticketing", status=CheckStatus.WARN, message="Could not load config")
+
+    provider = cfg.ticketing.provider
+    if not provider:
+        return CheckResult(
+            name="Ticketing",
+            status=CheckStatus.INFO if hasattr(CheckStatus, "INFO") else CheckStatus.WARN,
+            message="No default provider set — optional (use: sift config --ticket-provider)",
+        )
+
+    try:
+        from sift.ticketing import build_provider
+        tp = build_provider(provider, cfg)
+        ok, msg = tp.healthcheck()
+        return CheckResult(
+            name=f"Ticketing: {provider}",
+            status=CheckStatus.PASS if ok else CheckStatus.FAIL,
+            message=msg,
+        )
+    except ValueError as exc:
+        return CheckResult(
+            name=f"Ticketing: {provider}",
+            status=CheckStatus.WARN,
+            message=str(exc),
+        )
+    except ImportError:
+        return CheckResult(
+            name="Ticketing",
+            status=CheckStatus.WARN,
+            message="httpx not installed — run: pip install sift-triage[ticket]",
+        )
+    except Exception as exc:
+        return CheckResult(
+            name=f"Ticketing: {provider}",
+            status=CheckStatus.FAIL,
+            message=str(exc),
+        )
+
+
 def _check_attck_module() -> CheckResult:
     """Check that the ATT&CK technique validation module works correctly."""
     try:
@@ -307,6 +352,7 @@ def run_checks() -> list[CheckResult]:
         _check_cache_directory(),
         _check_stix_export(),
         _check_attck_module(),
+        _check_ticketing(),
     ]
 
 
