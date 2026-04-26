@@ -11,6 +11,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.1.02] - 2026-04-26
+
+### Fixed
+- **LLM truncation**: `max_tokens` default raised from 1000 → 4096. Multi-cluster
+  triage reports were silently cut off mid-JSON, causing parse failures and
+  fallback to the template summarizer.
+- **Rich markup escaping**: `[llm]`, `[enrich]`, `[ticket]` in install-hint
+  strings were interpreted as Rich markup tags and silently stripped from
+  `sift doctor` output and warning messages. Brackets now escaped correctly.
+
+### Added
+- `--max-tokens <N>` expert flag for `sift triage`: override LLM output token
+  limit per-run without changing persistent config (e.g. `--max-tokens 8192`
+  for very large multi-cluster reports).
+
+---
+
 ## [1.1.01] - 2026-04-26
 
 ### Fixed

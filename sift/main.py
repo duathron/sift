@@ -13,6 +13,7 @@ from typing import Annotated, Optional
 
 import typer
 from rich.console import Console
+from rich.markup import escape as _markup_escape
 
 from . import __version__
 from .banner import show_banner
@@ -85,7 +86,7 @@ def _build_summarizer(provider: str, config):
             from .summarizers.anthropic import AnthropicSummarizer
             return AnthropicSummarizer(config.summarize)
         except ImportError as e:
-            console.print(f"[yellow]Warning:[/yellow] {e}")
+            console.print(f"[yellow]Warning:[/yellow] {_markup_escape(str(e))}")
             console.print("[dim]Falling back to template summarizer.[/dim]")
             return TemplateSummarizer()
 
@@ -94,7 +95,7 @@ def _build_summarizer(provider: str, config):
             from .summarizers.openai import OpenAISummarizer
             return OpenAISummarizer(config.summarize)
         except ImportError as e:
-            console.print(f"[yellow]Warning:[/yellow] {e}")
+            console.print(f"[yellow]Warning:[/yellow] {_markup_escape(str(e))}")
             console.print("[dim]Falling back to template summarizer.[/dim]")
             return TemplateSummarizer()
 
@@ -320,6 +321,12 @@ def triage(
         "--provider",
         help="LLM provider: template (no key) | anthropic | openai | ollama",
         rich_help_panel="AI Summarization",
+    )] = None,
+    max_tokens: Annotated[Optional[int], typer.Option(
+        "--max-tokens",
+        help="Max output tokens for LLM summary (default: 4096). Raise for large multi-cluster reports.",
+        rich_help_panel="AI Summarization",
+        hidden=True,
     )] = None,
     # --- IOC Enrichment ---
     enrich: Annotated[Optional[str], typer.Option(
@@ -973,6 +980,8 @@ def triage(
     # --- Summarize ---
     if summarize or cfg.summarize.provider != "template":
         effective_provider = provider or cfg.summarize.provider
+        if max_tokens is not None:
+            cfg.summarize.max_tokens = max_tokens
         summarizer = _build_summarizer(effective_provider, cfg)
         if summarize and effective_provider == "template" and cfg.summarize.api_key:
             _quiet_mode = quiet or cfg.output.quiet

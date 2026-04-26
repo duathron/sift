@@ -61,7 +61,7 @@ class SummarizeConfig(BaseModel):
     provider: str = "template"      # template | anthropic | openai | ollama
     model: Optional[str] = None     # None = auto-select per provider
     api_key: Optional[str] = None   # or SIFT_LLM_KEY env var
-    max_tokens: int = 1000
+    max_tokens: int = 4096
     temperature: float = 0.1
     redact_fields: list[str] = []   # field names to strip before LLM submission
 

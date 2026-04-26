@@ -36,8 +36,8 @@ OLLAMA_TIMEOUT_S = 2
 MIN_PYTHON_MAJOR = 3
 MIN_PYTHON_MINOR = 12
 
-LLM_INSTALL_HINT = "Not installed – run: pip install sift-triage[llm]"
-ENRICH_INSTALL_HINT = "Not installed – run: pip install sift-triage[enrich]"
+LLM_INSTALL_HINT = r"Not installed – run: pip install sift-triage\[llm]"
+ENRICH_INSTALL_HINT = r"Not installed – run: pip install sift-triage\[enrich]"
 
 
 # ---------------------------------------------------------------------------
@@ -278,7 +278,7 @@ def _check_ticketing() -> CheckResult:
         return CheckResult(
             name="Ticketing",
             status=CheckStatus.WARN,
-            message="httpx not installed — run: pip install sift-triage[ticket]",
+            message=r"httpx not installed — run: pip install sift-triage\[ticket]",
         )
     except Exception as exc:
         return CheckResult(
