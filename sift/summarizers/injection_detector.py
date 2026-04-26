@@ -101,11 +101,24 @@ class PromptInjectionDetector:
             flags,
         )
 
-        # Pattern 4: Base64 or hex encoded payloads
-        # Base64: 12+ chars without padding, OR 4+ chars with 2-char padding, OR 8+ chars with 1-char padding
-        # Hex: 20+ hex digits (10+ bytes)
+        # Pattern 4: Base64 or hex encoded payloads.
+        # Branch 1: 12+ base64 chars that contain at least one '+' or '/' — lookahead
+        #   rules out plain English words (e.g. "Exfiltration", "Configuration")
+        #   which are purely alphanumeric and never contain Base64 special chars.
+        # Branch 2/3: padded Base64 (== or =) — padding chars cannot appear in
+        #   normal prose, so any length is suspicious.
+        # Branch 4: 15+ purely-alphanumeric chars — raised from 12 so that common
+        #   security terms ("Exfiltration"=12, "Configuration"=13) are excluded
+        #   while long random-looking Base64 without special chars is still caught.
+        # Branch 5: hex-encoded bytes — 10+ two-hex-digit pairs (20+ hex chars).
         self.pattern_base64_hex = re.compile(
-            r'(?:[A-Za-z0-9+/]{12,}|[A-Za-z0-9+/]{4,}==|[A-Za-z0-9+/]{8,}=|(?:[0-9a-fA-F]{2}){10,})',
+            r'(?:'
+            r'(?=[A-Za-z0-9+/]*[+/])[A-Za-z0-9+/]{12,}'  # Branch 1: 12+ with +/
+            r'|[A-Za-z0-9+/]{4,}=='                        # Branch 2: == padded
+            r'|[A-Za-z0-9+/]{8,}='                         # Branch 3: = padded
+            r'|[A-Za-z0-9]{15,}'                            # Branch 4: 15+ alphanumeric
+            r'|(?:[0-9a-fA-F]{2}){10,}'                     # Branch 5: hex pairs
+            r')',
             flags,
         )
 
