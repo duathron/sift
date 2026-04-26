@@ -11,6 +11,25 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.1.01] - 2026-04-26
+
+### Fixed
+- **Injection detector Base64 FP**: Pattern 4 was matching common English security
+  terms (`Exfiltration` 12 chars, `Configuration` 13 chars) as Base64 payloads,
+  causing legitimate alert titles to be silently redacted to `[REDACTED]` in LLM
+  prompts. Root cause: `[A-Za-z0-9+/]{12,}` matched any 12+ alphanumeric sequence.
+  Fix: Branch 1 now requires `+` or `/` via lookahead; Branch 4 raises threshold
+  from 12 → 15 chars (excludes typical security terms; still catches ≥15-char
+  random-looking strings).
+- **Test defect**: `test_redact_alerts_list` relied on the FP Base64 match to
+  detect `"ignore instructions"` — now uses a proper instruction_override pattern.
+
+### Added
+- `TestBase64FalsePositives` (10 tests): common SOC alert titles must not trigger
+  `encoded_payload` — regression guard for the above FP class.
+
+---
+
 ## [1.1.0] - 2026-04-25
 
 ### Added

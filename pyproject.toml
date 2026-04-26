@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sift-triage"
-version = "1.1.0"
+version = "1.1.01"
 description = "AI-powered alert triage summarizer for SOC teams"
 readme = "README.md"
 license = "MIT"
@@ -34,7 +34,7 @@ dependencies = [
 [project.optional-dependencies]
 llm = ["anthropic>=0.30.0", "openai>=1.30.0"]
 enrich = ["barb-phish>=1.0.0"]
-all = ["anthropic>=0.30.0", "openai>=1.30.0", "barb-phish>=1.0.0"]
+all = ["anthropic>=0.30.0", "openai>=1.30.0", "barb-phish>=1.0.0", "httpx>=0.27.0"]
 dev = ["pytest>=8.0.0", "ruff>=0.4.0", "mypy>=1.10.0", "pytest-httpx>=0.30.0"]
 ticket = ["httpx>=0.27.0"]
 
