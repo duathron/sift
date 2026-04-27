@@ -11,6 +11,35 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.1.03] - 2026-04-27
+
+### Fixed
+- **API key leak**: `sift config --show` was printing the LLM API key in plain
+  text. Key field is now excluded from `model_dump()` output.
+- **Config mutation**: `--max-tokens` override was directly mutating the live
+  `AppConfig` Pydantic object. Fixed to use `model_copy()` for an isolated copy.
+- **Unescaped exception strings**: Five `console.print(f"... {exc}")` calls
+  in `main.py` passed raw exception messages to Rich without escaping, risking
+  markup injection from exception text. All now wrapped in `_markup_escape()`.
+- **Injection detector Branch 5 dead code**: Under `re.IGNORECASE`, the hex-pairs
+  branch (`(?:[0-9a-fA-F]{2}){10,}`) was subsumed by the preceding Branch 4
+  alphanumeric pattern. Moved Branch 5 before Branch 4 to restore correct
+  matching semantics.
+- **Injection detector Branch 4 FP**: Threshold raised from 15 → 20 characters
+  to avoid false positives on hostnames, process names, and other long-but-valid
+  alphanumeric strings in alert data.
+- **Ticket message inconsistency**: `sift triage --ticket dry-run` printed
+  "Ticket created" for file-backed dry-run tickets. Now prints "Ticket saved:
+  <path>" when the ticket URL uses the `file://` scheme.
+- **Non-deterministic IOC ordering**: `report_to_draft()` in `mapper.py` used
+  `list(target.iocs)` on a set, producing random ordering across runs. Fixed
+  to `sorted(target.iocs)` for deterministic output and reproducible tests.
+- **Doctor hint brackets**: Install-hint strings containing `[llm]`, `[enrich]`,
+  `[ticket]` were silently stripped by Rich as markup tags. Brackets are now
+  preserved as-is in constants and escaped at render time with `_markup_escape()`.
+
+---
+
 ## [1.1.02] - 2026-04-26
 
 ### Fixed

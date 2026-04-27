@@ -783,7 +783,7 @@ def triage(
         except typer.Exit:
             raise
         except Exception as exc:
-            console.print(f"[red]Error reading {label}:[/red] {exc}")
+            console.print(f"[red]Error reading {_markup_escape(label)}:[/red] {_markup_escape(str(exc))}")
             raise typer.Exit(2)
 
         if not source_alerts:
@@ -841,7 +841,7 @@ def triage(
             try:
                 alerts_for_clustering = [a.redact(fields_to_redact) for a in alerts_for_clustering]
             except ValueError as exc:
-                console.print(f"[red]Error:[/red] {exc}")
+                console.print(f"[red]Error:[/red] {_markup_escape(str(exc))}")
                 raise typer.Exit(2)
 
         # --- IOC extraction ---
@@ -958,7 +958,7 @@ def triage(
                     max_ioc_limit = getattr(cfg.enrich, 'max_iocs', 20)
                     enrichment = runner.enrich(all_iocs, max_iocs=max_ioc_limit)
                 except Exception as e:
-                    console.print(f"[yellow]Warning:[/yellow] Enrichment failed: {e}")
+                    console.print(f"[yellow]Warning:[/yellow] Enrichment failed: {_markup_escape(str(e))}")
         else:
             console.print("[dim]Enrichment skipped.[/dim]")
 
@@ -981,7 +981,10 @@ def triage(
     if summarize or cfg.summarize.provider != "template":
         effective_provider = provider or cfg.summarize.provider
         if max_tokens is not None:
-            cfg.summarize.max_tokens = max_tokens
+            # Use model_copy to avoid mutating the live cfg object (prevents accidental persist)
+            cfg = cfg.model_copy(
+                update={"summarize": cfg.summarize.model_copy(update={"max_tokens": max_tokens})}
+            )
         summarizer = _build_summarizer(effective_provider, cfg)
         if summarize and effective_provider == "template" and cfg.summarize.api_key:
             _quiet_mode = quiet or cfg.output.quiet
@@ -993,7 +996,7 @@ def triage(
         try:
             report = report.model_copy(update={"summary": summarizer.summarize(report)})
         except Exception as exc:
-            console.print(f"[yellow]Warning:[/yellow] Summarization failed: {exc}")
+            console.print(f"[yellow]Warning:[/yellow] Summarization failed: {_markup_escape(str(exc))}")
 
     # --- Validation-only mode ---
     if validate_only:
@@ -1013,7 +1016,7 @@ def triage(
                 console.print(f"[dim]Filter '{filter}': {after}/{before} cluster(s) matched.[/dim]")
             report = report.model_copy(update={"clusters": filtered})
         except Exception as e:
-            console.print(f"[yellow]Warning:[/yellow] Filter parsing failed: {e}")
+            console.print(f"[yellow]Warning:[/yellow] Filter parsing failed: {_markup_escape(str(e))}")
 
     # --- Cache write (opt-in) ---
     if _alert_cache is not None and _cache_key is not None:
@@ -1047,16 +1050,22 @@ def triage(
             try:
                 _draft = report_to_draft(report, _tc)
                 _result = _ticket_provider.send(_draft)
-                if _result.ticket_url:
+                if _result.ticket_url and _result.ticket_url.startswith("file://"):
+                    _saved_path = _result.ticket_url[len("file://"):]
+                    console.print(f"[green]✓[/green] Ticket saved: {_markup_escape(_saved_path)}")
+                elif _result.ticket_url:
                     console.print(
                         f"[green]✓[/green] Ticket created: "
-                        f"[link={_result.ticket_url}]{_result.ticket_id or 'dry-run'}[/link] "
+                        f"[link={_result.ticket_url}]{_markup_escape(_result.ticket_id or 'dry-run')}[/link] "
                         f"({_ticket_provider_name})"
                     )
                 else:
                     console.print(f"[green]✓[/green] Ticket output generated (dry-run → stdout)")
             except Exception as exc:
-                console.print(f"[red]✗[/red] Ticket failed ({_tc.label[:40]}): {exc}")
+                console.print(
+                    f"[red]✗[/red] Ticket failed "
+                    f"({_markup_escape(_tc.label[:40])}): {_markup_escape(str(exc))}"
+                )
 
     # --- Exit code ---
     raise typer.Exit(report.exit_code)
@@ -1518,7 +1527,8 @@ def config_cmd(
 
     # --- Show ---
     if show:
-        data = cfg.model_dump()
+        # Exclude api_key — never print credentials to stdout (terminal history, CI logs)
+        data = cfg.model_dump(exclude={"summarize": {"api_key"}})
         yaml_str = yaml.dump(data, default_flow_style=False, sort_keys=False)
         rich_console.print(Syntax(yaml_str, "yaml", theme="monokai", line_numbers=False))
         return

@@ -21,6 +21,7 @@ from pathlib import Path
 from pydantic import BaseModel
 from rich import box
 from rich.console import Console
+from rich.markup import escape as _markup_escape
 from rich.table import Table
 
 # ---------------------------------------------------------------------------
@@ -36,8 +37,8 @@ OLLAMA_TIMEOUT_S = 2
 MIN_PYTHON_MAJOR = 3
 MIN_PYTHON_MINOR = 12
 
-LLM_INSTALL_HINT = r"Not installed – run: pip install sift-triage\[llm]"
-ENRICH_INSTALL_HINT = r"Not installed – run: pip install sift-triage\[enrich]"
+LLM_INSTALL_HINT = "Not installed – run: pip install sift-triage[llm]"
+ENRICH_INSTALL_HINT = "Not installed – run: pip install sift-triage[enrich]"
 
 
 # ---------------------------------------------------------------------------
@@ -278,7 +279,7 @@ def _check_ticketing() -> CheckResult:
         return CheckResult(
             name="Ticketing",
             status=CheckStatus.WARN,
-            message=r"httpx not installed — run: pip install sift-triage\[ticket]",
+            message="httpx not installed — run: pip install sift-triage[ticket]",
         )
     except Exception as exc:
         return CheckResult(
@@ -403,7 +404,7 @@ def print_doctor_report(
         table.add_row(
             f"[{style}]{result.status.value}[/{style}]",
             result.name,
-            result.message,
+            _markup_escape(result.message),
         )
         if result.status is CheckStatus.FAIL:
             has_fail = True

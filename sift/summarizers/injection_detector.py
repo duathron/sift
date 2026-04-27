@@ -116,8 +116,8 @@ class PromptInjectionDetector:
             r'(?=[A-Za-z0-9+/]*[+/])[A-Za-z0-9+/]{12,}'  # Branch 1: 12+ with +/
             r'|[A-Za-z0-9+/]{4,}=='                        # Branch 2: == padded
             r'|[A-Za-z0-9+/]{8,}='                         # Branch 3: = padded
-            r'|[A-Za-z0-9]{15,}'                            # Branch 4: 15+ alphanumeric
-            r'|(?:[0-9a-fA-F]{2}){10,}'                     # Branch 5: hex pairs
+            r'|(?:[0-9a-fA-F]{2}){10,}'                     # Branch 5: hex pairs (before Branch 4 to preserve pair semantics)
+            r'|[A-Za-z0-9]{20,}'                            # Branch 4: 20+ alphanumeric (raised from 15 — avoids FP on hostnames/process names)
             r')',
             flags,
         )

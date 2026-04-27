@@ -127,7 +127,8 @@ class TestBase64HexPattern:
         assert any(f.pattern_type == "encoded_payload" for f in findings)
 
     def test_detects_base64_no_padding(self):
-        alert = make_alert(description="SGVsbG8gV29ybGQ content here")
+        # 22-char unpadded Base64 ("Hello World test") — matches Branch 4 (20+ alphanumeric)
+        alert = make_alert(description="SGVsbG8gV29ybGQgdGVzdA content here")
         findings = scan_alert(alert)
         assert len(findings) >= 1
         assert any(f.pattern_type == "encoded_payload" for f in findings)
