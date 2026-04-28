@@ -11,6 +11,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.1.04] - 2026-04-28
+
+### Fixed
+- **Cache hit crash**: `sift triage --cache` on a warm cache hit raised
+  `AttributeError: 'dict' object has no attribute 'summary'`.
+  Root cause: `AlertCache.get()` returns a plain `dict` (JSON-deserialized);
+  `_render_output()` expected a `TriageReport` instance.
+  Fix: `main.py` now calls `TriageReport.model_validate(_cached_raw)` before
+  passing the result to `_render_output()`.
+
+### Tests
+- `TestCacheTriageReportRoundtrip` (2 tests): regression guard confirming
+  `model_dump()` → cache → `model_validate()` round-trip produces a valid
+  `TriageReport`, and that `cache.get()` returns a `dict` (not auto-deserialized).
+
+---
+
 ## [1.1.03] - 2026-04-27
 
 ### Fixed

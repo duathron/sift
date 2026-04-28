@@ -691,10 +691,11 @@ def triage(
         from .cache import AlertCache, CacheConfig
         _cache_key = _fp_hasher.hexdigest()
         _alert_cache = AlertCache(CacheConfig(enabled=True))
-        _cached = _alert_cache.get(_cache_key)
-        if _cached is not None:
+        _cached_raw = _alert_cache.get(_cache_key)
+        if _cached_raw is not None:
             if not _quiet_mode:
                 console.print(f"[dim]Cache hit ({_cache_key[:12]}…) — skipping pipeline.[/dim]")
+            _cached = TriageReport.model_validate(_cached_raw)
             _render_output(_cached, format=format, output_path=output, cfg=cfg, quiet=quiet)
             raise typer.Exit(0)
         if not _quiet_mode:

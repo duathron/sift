@@ -307,3 +307,57 @@ class TestCacheConfig:
         extra_fp = f"{max_e:064x}"
         cache.put(extra_fp, sample_result(extra_fp))
         assert cache.stats()["entries"] == max_e
+
+
+# ---------------------------------------------------------------------------
+# TestCacheTriageReportRoundtrip
+# ---------------------------------------------------------------------------
+
+
+class TestCacheTriageReportRoundtrip:
+    """Regression tests: cache stores model_dump() dicts; caller must model_validate().
+
+    Covers the bug where cache.get() returns a dict and _render_output() received
+    that dict instead of a TriageReport, causing AttributeError on .summary access.
+    """
+
+    def _make_report(self, input_file: str = "test.json"):
+        from datetime import datetime, timezone
+        from sift.models import TriageReport
+        return TriageReport(
+            input_file=input_file,
+            alerts_ingested=0,
+            alerts_after_dedup=0,
+            analyzed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            clusters=[],
+        )
+
+    def test_triage_report_roundtrip_via_cache(self, tmp_path: Path) -> None:
+        """TriageReport.model_dump() stored in cache → model_validate() round-trips."""
+        from sift.models import TriageReport
+
+        report = self._make_report("test.json")
+        dumped = report.model_dump()
+
+        cache = AlertCache(make_config(tmp_path))
+        cache.put(FP_A, dumped)
+
+        raw = cache.get(FP_A)
+        assert isinstance(raw, dict), "cache.get() must return dict"
+
+        restored = TriageReport.model_validate(raw)
+        assert isinstance(restored, TriageReport)
+        assert restored.input_file == "test.json"
+        assert restored.clusters == []
+
+    def test_get_returns_dict_not_triage_report(self, tmp_path: Path) -> None:
+        """cache.get() returns plain dict — never a TriageReport — confirming caller owns deserialization."""
+        from sift.models import TriageReport
+
+        report = self._make_report("x.json")
+        cache = AlertCache(make_config(tmp_path))
+        cache.put(FP_A, report.model_dump())
+
+        raw = cache.get(FP_A)
+        assert not isinstance(raw, TriageReport), "cache must not auto-deserialize"
+        assert isinstance(raw, dict)
