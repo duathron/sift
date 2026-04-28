@@ -11,6 +11,30 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.1.07] - 2026-04-28
+
+### Fixed
+- **Comprehensive enrichment bridge hardening** (`vex_bridge.py`, `barb_bridge.py`):
+  - Markdown-link guard: IOCs starting with `[` (raw Sysmon `[text](url)` fields)
+    now rejected before the "bare domain" heuristic can accept them.
+  - Email guard in `vex_bridge.py`: addresses containing `@` are now explicitly
+    excluded (previously only blocked by the "bare domain" fall-through).
+  - Private/reserved IP filtering in `vex_bridge.py`: added `_is_private_or_reserved_ip()`
+    covering RFC 1918, loopback (`127.0.0.0/8`), link-local (`169.254.0.0/16`),
+    shared address space (`100.64.0.0/10`), unspecified (`0.0.0.0/8`),
+    IPv4-mapped IPv6 (`::ffff:x.x.x.x`), documentation range (`2001:db8::/32`),
+    and the `::/8` reserved IPv6 prefix (catches compressed forms like `::ffff:3`
+    that `ipv4_mapped` does not recognise).
+  - Non-routable TLD filtering: added `_NON_IOC_TLDS` frozenset to both bridges
+    (mirroring `ioc_extractor.py`); bare domains with TLDs like `.local`,
+    `.internal`, `.corp`, `.test`, `.arpa` etc. are now rejected.
+  - Binary path cached at `__init__` time (was re-looked up each call).
+- **IPv6 test case corrected**: `test_ipv6_returns_true` was asserting that
+  `2001:db8::1` (RFC 3849 documentation range — intentionally blocked) should
+  pass `can_enrich`. Updated to `2606:4700:4700::1111` (Cloudflare DNS, public).
+
+---
+
 ## [1.1.06] - 2026-04-28
 
 ### Fixed

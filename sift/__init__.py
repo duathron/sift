@@ -1,3 +1,3 @@
 """sift — AI-Powered Alert Triage Summarizer for SOC Teams."""
 
-__version__ = "1.1.06"
+__version__ = "1.1.07"

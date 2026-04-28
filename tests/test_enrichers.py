@@ -129,7 +129,8 @@ class TestVexBridgeCanEnrich:
         assert VexBridge().can_enrich(sha256) is True
 
     def test_ipv6_returns_true(self):
-        assert VexBridge().can_enrich("2001:db8::1") is True
+        # Use a real public IPv6 (Cloudflare DNS); 2001:db8::/32 is RFC 3849 docs range → blocked
+        assert VexBridge().can_enrich("2606:4700:4700::1111") is True
 
     def test_email_with_ip_domain_returns_false(self):
         # Even if the domain part looks odd, '@' presence marks it as email

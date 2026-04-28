@@ -4,6 +4,9 @@ barb is called via subprocess to avoid internal API coupling. The bridge
 filters to URL/domain IOCs and parses the JSON output of `barb analyze`.
 """
 
+from __future__ import annotations
+
+import ipaddress
 import json
 import shutil
 import subprocess
@@ -17,20 +20,37 @@ class BarbBridge:
     """
 
     def __init__(self) -> None:
-        self.available: bool = shutil.which("barb") is not None
+        self._barb_bin: str | None = shutil.which("barb")
+        self.available: bool = self._barb_bin is not None
 
     @property
     def name(self) -> str:
         return "barb"
 
     def can_enrich(self, ioc: str) -> bool:
-        """Return True for URLs (http/https/ftp) and bare domain-like strings."""
+        """Return True for URLs (http/https/ftp) and bare domain-like strings.
+
+        Excluded:
+        - Markdown links (start with [)
+        - Email addresses (contain @)
+        - Plain IP addresses (handled by vex)
+        - File hashes (handled by vex)
+        - Filenames (known extensions: .exe, .dll, .log, etc.)
+        - Domains with non-routable TLDs (.local, .internal, .example, etc.)
+        """
         ioc = ioc.strip()
+        # Exclude markdown links (raw [text](url) from Sysmon fields)
+        if ioc.startswith("["):
+            return False
+        # Exclude email addresses
+        if "@" in ioc:
+            return False
+        # Accept URLs (http/https/ftp)
         if ioc.lower().startswith(("http://", "https://", "ftp://",
                                    "hxxp://", "hxxps://")):
             return True
         # Bare domain heuristic: contains at least one dot, no spaces,
-        # not a plain IP (handled by vex), not a hash, not a filename.
+        # not a plain IP, not a hash, not a filename, non-internal TLD.
         if (
             "." in ioc
             and " " not in ioc
@@ -38,7 +58,8 @@ class BarbBridge:
             and not _looks_like_hash(ioc)
             and not _looks_like_filename(ioc)
         ):
-            return True
+            tld = ioc.rsplit(".", 1)[-1].lower()
+            return tld not in _NON_IOC_TLDS
         return False
 
     def enrich(self, iocs: list[str]) -> list[dict]:
@@ -49,7 +70,7 @@ class BarbBridge:
         url_iocs = [i for i in iocs if self.can_enrich(i)]
         results: list[dict] = []
         for ioc in url_iocs:
-            results.append(_call_barb_cli(ioc))
+            results.append(_call_barb_cli(ioc, self._barb_bin))
         return results
 
 
@@ -57,19 +78,22 @@ class BarbBridge:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _call_barb_cli(ioc: str) -> dict:
-    barb_bin = shutil.which("barb")
-    if not barb_bin:
+def _call_barb_cli(ioc: str, barb_bin: str | None = None) -> dict:
+    bin_path = barb_bin or shutil.which("barb")
+    if not bin_path:
         return {"ioc": ioc, "error": "barb not found in PATH"}
     try:
         result = subprocess.run(
-            [barb_bin, "analyze", "-o", "json", "-q", "--", ioc],
+            [bin_path, "analyze", "-o", "json", "-q", "--", ioc],
             capture_output=True,
             text=True,
             timeout=15,
         )
         if result.stdout.strip():
-            return json.loads(result.stdout)
+            parsed = json.loads(result.stdout)
+            if not isinstance(parsed, dict):
+                return {"ioc": ioc, "error": f"barb: unexpected output type {type(parsed).__name__}"}
+            return parsed
         return {"ioc": ioc, "error": result.stderr.strip() or "empty output"}
     except subprocess.TimeoutExpired:
         return {"ioc": ioc, "error": "barb timed out after 15s"}
@@ -80,7 +104,6 @@ def _call_barb_cli(ioc: str) -> dict:
 
 
 def _looks_like_ip(value: str) -> bool:
-    import ipaddress
     try:
         ipaddress.ip_address(value.split("/")[0])
         return True
@@ -96,17 +119,27 @@ def _looks_like_hash(value: str) -> bool:
     )
 
 
-_FILE_EXTENSIONS = frozenset({
-    ".exe", ".dll", ".sys", ".ps1", ".bat", ".cmd", ".vbs", ".js",
-    ".log", ".ldb", ".sst", ".tmp", ".mca", ".inf", ".msi", ".jar",
-    ".zip", ".rar", ".7z", ".tar", ".gz", ".iso", ".img",
-    ".py", ".sh", ".rb", ".pl", ".php",
-})
-
-
 def _looks_like_filename(value: str) -> bool:
     """Return True if value looks like a filename rather than a domain."""
     if "." not in value:
         return False
     ext = "." + value.rsplit(".", 1)[-1].lower()
     return ext in _FILE_EXTENSIONS
+
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+# TLDs that indicate non-routable / internal domains — mirror ioc_extractor._NON_IOC_TLDS
+_NON_IOC_TLDS = frozenset({
+    "local", "internal", "corp", "test", "example", "invalid",
+    "localhost", "lan", "home", "intranet", "localdomain", "domain", "arpa",
+})
+
+_FILE_EXTENSIONS = frozenset({
+    ".exe", ".dll", ".sys", ".ps1", ".bat", ".cmd", ".vbs", ".js",
+    ".log", ".ldb", ".sst", ".tmp", ".mca", ".inf", ".msi", ".jar",
+    ".zip", ".rar", ".7z", ".tar", ".gz", ".iso", ".img",
+    ".py", ".sh", ".rb", ".pl", ".php",
+})
