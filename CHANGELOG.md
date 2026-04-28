@@ -11,6 +11,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.1.05] - 2026-04-28
+
+### Fixed
+- **vex enrichment broken**: `vex_bridge.py` called `vex triage -- <ioc> -o json -q`.
+  The `--` end-of-options separator caused Typer to treat `-o json -q` as extra
+  positional arguments → `Got unexpected extra arguments (-o json -q)`. Also,
+  `vex` has no `-q` flag. Fix: `vex triage -o json -- <ioc>` (flags before `--`,
+  `-q` removed).
+- **barb enrichment broken**: `barb_bridge.py` called
+  `barb analyze -- <ioc> --format json -q`. Same `--` issue caused `--format json -q`
+  to be treated as URL arguments. Additionally `--format` doesn't exist in barb
+  (correct flag is `-o`). Fix: `barb analyze -o json -q -- <ioc>`.
+
+---
+
 ## [1.1.04] - 2026-04-28
 
 ### Fixed
