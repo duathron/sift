@@ -11,6 +11,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.1.06] - 2026-04-28
+
+### Fixed
+- **Filename IOCs sent to vex/barb**: `can_enrich()` in both bridges accepted
+  filenames like `KERNEL32.DLL`, `MsMpEng.exe`, `000003.log` as "bare domains"
+  (contains dot, no spaces). vex returns `[]` for these → Pydantic validation
+  error: `Input should be a valid dictionary, input_value=[]`. Added
+  `_looks_like_filename()` with a 28-extension blocklist; both bridges now
+  skip filenames before calling the external tool.
+- **vex list-response crash**: `_call_vex_cli` assumed vex always returns a
+  JSON dict. When vex returns `[]` (HTTP error or unsupported type), the list
+  was passed to `EnrichmentContext` causing a validation crash. Added defensive
+  handling: empty list → error dict; non-empty list → first element.
+
+---
+
 ## [1.1.05] - 2026-04-28
 
 ### Fixed

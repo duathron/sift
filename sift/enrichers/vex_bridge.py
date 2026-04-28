@@ -40,6 +40,9 @@ class VexBridge:
         if ioc.lower().startswith(("http://", "https://", "ftp://",
                                    "hxxp://", "hxxps://")):
             return True
+        # Exclude filenames (common extensions that are not domains)
+        if _looks_like_filename(ioc):
+            return False
         # Accept bare domains (contains dot, no spaces)
         if "." in ioc and " " not in ioc:
             return True
@@ -72,7 +75,14 @@ def _call_vex_cli(ioc: str) -> dict:
             timeout=30,
         )
         if result.stdout.strip():
-            return json.loads(result.stdout)
+            parsed = json.loads(result.stdout)
+            # vex returns [] on HTTP errors or unsupported IOC types
+            if isinstance(parsed, list):
+                if not parsed:
+                    return {"ioc": ioc, "error": "vex: no results (IOC type unsupported or HTTP error)"}
+                first = parsed[0]
+                return first if isinstance(first, dict) else {"ioc": ioc, "error": "vex: unexpected output format"}
+            return parsed
         return {"ioc": ioc, "error": result.stderr.strip() or "empty output"}
     except subprocess.TimeoutExpired:
         return {"ioc": ioc, "error": "vex timed out after 30s"}
@@ -101,3 +111,19 @@ def _looks_like_hash(value: str) -> bool:
     return len(stripped) in (32, 40, 64) and all(
         c in "0123456789abcdefABCDEF" for c in stripped
     )
+
+
+_FILE_EXTENSIONS = frozenset({
+    ".exe", ".dll", ".sys", ".ps1", ".bat", ".cmd", ".vbs", ".js",
+    ".log", ".ldb", ".sst", ".tmp", ".mca", ".inf", ".msi", ".jar",
+    ".zip", ".rar", ".7z", ".tar", ".gz", ".iso", ".img",
+    ".py", ".sh", ".rb", ".pl", ".php",
+})
+
+
+def _looks_like_filename(value: str) -> bool:
+    """Return True if value looks like a filename rather than a domain."""
+    if "." not in value:
+        return False
+    ext = "." + value.rsplit(".", 1)[-1].lower()
+    return ext in _FILE_EXTENSIONS

@@ -30,12 +30,13 @@ class BarbBridge:
                                    "hxxp://", "hxxps://")):
             return True
         # Bare domain heuristic: contains at least one dot, no spaces,
-        # not a plain IP (handled by vex), not a hash.
+        # not a plain IP (handled by vex), not a hash, not a filename.
         if (
             "." in ioc
             and " " not in ioc
             and not _looks_like_ip(ioc)
             and not _looks_like_hash(ioc)
+            and not _looks_like_filename(ioc)
         ):
             return True
         return False
@@ -93,3 +94,19 @@ def _looks_like_hash(value: str) -> bool:
     return len(stripped) in (32, 40, 64) and all(
         c in "0123456789abcdefABCDEF" for c in stripped
     )
+
+
+_FILE_EXTENSIONS = frozenset({
+    ".exe", ".dll", ".sys", ".ps1", ".bat", ".cmd", ".vbs", ".js",
+    ".log", ".ldb", ".sst", ".tmp", ".mca", ".inf", ".msi", ".jar",
+    ".zip", ".rar", ".7z", ".tar", ".gz", ".iso", ".img",
+    ".py", ".sh", ".rb", ".pl", ".php",
+})
+
+
+def _looks_like_filename(value: str) -> bool:
+    """Return True if value looks like a filename rather than a domain."""
+    if "." not in value:
+        return False
+    ext = "." + value.rsplit(".", 1)[-1].lower()
+    return ext in _FILE_EXTENSIONS
