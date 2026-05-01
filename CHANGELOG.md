@@ -11,6 +11,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.1.08] - 2026-05-01
+
+### Added
+- **Filename IOC extraction** (`ioc_extractor.py`): new `_RE_FILENAME` regex captures
+  Windows executables and scripts (`.exe`, `.dll`, `.sys`, `.ps1`, `.bat`, `.cmd`,
+  `.vbs`, `.js`, `.scr`, `.msi`, `.jar`, `.hta`, `.wsf`, `.lnk`, `.rb`, `.pl`,
+  `.php`, `.py`, `.sh`) including underscore-bearing malware names that the domain
+  regex skips (e.g. `OUTSTANDING_GUTTER.exe`, `script.ps1`). Uses `\b` word-boundary
+  anchoring — correctly extracts filenames from full Windows paths like
+  `C:\Windows\Temp\OUTSTANDING_GUTTER.exe`.
+- **`filename` IOC type** in `detect_ioc_type()`: filenames now classified as
+  `"filename"` instead of `"unknown"`.
+
+### Fixed
+- **Null-sentinel hash filtering** (`ioc_extractor.py`): added `_is_null_hash()`
+  helper; all-zero or all-`f` hashes (e.g. Sysmon `IMPHASH=00000000000000000000000000000000`
+  emitted when a PE has no import table) are now silently dropped from extraction
+  and type-detection. Eliminates junk entries at the top of the IOC frequency list.
+
+---
+
 ## [1.1.07] - 2026-04-28
 
 ### Fixed

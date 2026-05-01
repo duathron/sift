@@ -59,6 +59,18 @@ _RE_MD5    = re.compile(r"\b[0-9a-fA-F]{32}\b")
 _RE_SHA1   = re.compile(r"\b[0-9a-fA-F]{40}\b")
 _RE_SHA256 = re.compile(r"\b[0-9a-fA-F]{64}\b")
 
+# Suspicious filenames — Windows executables / scripts. Allows underscores so
+# malware names like ``OUTSTANDING_GUTTER.exe`` are captured (the domain regex
+# excludes underscores per RFC 1035 and would miss them otherwise). Path
+# separators (``\``/``/``) are non-word chars, so ``\b`` correctly anchors
+# even inside full paths like ``C:\Windows\Temp\OUTSTANDING_GUTTER.exe``.
+_RE_FILENAME = re.compile(
+    r"\b[A-Za-z0-9_][A-Za-z0-9_\-]{0,254}"
+    r"\.(?:exe|dll|sys|ps1|bat|cmd|vbs|js|scr|msi|jar|hta|wsf|lnk|rb|pl|php|py|sh)"
+    r"\b",
+    re.IGNORECASE,
+)
+
 # Email addresses (RFC 5321-ish, intentionally loose)
 _RE_EMAIL = re.compile(
     r"\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b"
@@ -102,6 +114,19 @@ _NON_IOC_TLDS: frozenset[str] = frozenset(
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
+
+def _is_null_hash(h: str) -> bool:
+    """Return True if *h* is a sentinel/null hash (all zeros or all `f`s).
+
+    Sysmon emits ``IMPHASH=00000000000000000000000000000000`` when a binary
+    has no import table; many tools emit all-`f` placeholders for missing
+    values. These are not real IOCs and pollute clustering.
+    """
+    if not h:
+        return False
+    low = h.lower()
+    return low == "0" * len(low) or low == "f" * len(low)
+
 
 def _is_private_ipv4(addr: str) -> bool:
     """Return True if *addr* is a private/loopback IPv4 address."""
@@ -214,12 +239,16 @@ def detect_ioc_type(ioc: str) -> str:
         pass
 
     # Hashes — ordered longest-first to prevent SHA256 matching as SHA1/MD5.
-    if re.fullmatch(r"[0-9a-fA-F]{64}", ioc):
+    if re.fullmatch(r"[0-9a-fA-F]{64}", ioc) and not _is_null_hash(ioc):
         return "hash_sha256"
-    if re.fullmatch(r"[0-9a-fA-F]{40}", ioc):
+    if re.fullmatch(r"[0-9a-fA-F]{40}", ioc) and not _is_null_hash(ioc):
         return "hash_sha1"
-    if re.fullmatch(r"[0-9a-fA-F]{32}", ioc):
+    if re.fullmatch(r"[0-9a-fA-F]{32}", ioc) and not _is_null_hash(ioc):
         return "hash_md5"
+
+    # Filename — Windows executable / script.
+    if _RE_FILENAME.fullmatch(ioc):
+        return "filename"
 
     # Domain — must look like a multi-label hostname with a valid TLD length.
     if _RE_DOMAIN.fullmatch(ioc) and _tld_of(ioc) not in _NON_IOC_TLDS:
@@ -281,18 +310,30 @@ def extract_iocs(text: str) -> list[str]:
                 pass
             candidates.add(domain)
 
+    # --- Suspicious filenames (covers underscore-bearing names that the
+    #     domain regex skips, e.g. OUTSTANDING_GUTTER.exe) ---
+    for m in _RE_FILENAME.finditer(text):
+        candidates.add(m.group())
+
     # --- Hashes: SHA256 first to prevent prefix collisions ---
     for m in _RE_SHA256.finditer(text):
-        candidates.add(m.group().lower())
+        h = m.group().lower()
+        if _is_null_hash(h):
+            continue
+        candidates.add(h)
 
     for m in _RE_SHA1.finditer(text):
         h = m.group().lower()
+        if _is_null_hash(h):
+            continue
         # Skip if it was already captured as part of a longer SHA256 match.
         if not any(existing.startswith(h) and len(existing) > len(h) for existing in candidates):
             candidates.add(h)
 
     for m in _RE_MD5.finditer(text):
         h = m.group().lower()
+        if _is_null_hash(h):
+            continue
         if not any(existing.startswith(h) and len(existing) > len(h) for existing in candidates):
             candidates.add(h)
 
