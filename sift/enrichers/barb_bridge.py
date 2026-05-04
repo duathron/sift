@@ -37,18 +37,26 @@ class BarbBridge:
         - File hashes (handled by vex)
         - Filenames (known extensions: .exe, .dll, .log, etc.)
         - Domains with non-routable TLDs (.local, .internal, .example, etc.)
+        - Synthetic / framework-reference IOC types (CVE, MITRE, registry,
+          PowerShell encoded blocks, ssdeep, TLSH)
         """
         ioc = ioc.strip()
+        # Exclude framework / synthetic IOC types — barb only resolves
+        # URLs and bare domains.
+        if _is_non_enrichable_type(ioc):
+            return False
         # Exclude markdown links (raw [text](url) from Sysmon fields)
         if ioc.startswith("["):
             return False
-        # Exclude email addresses
-        if "@" in ioc:
-            return False
-        # Accept URLs (http/https/ftp)
+        # Accept URLs *first* — URLs may legitimately contain ``@`` in
+        # userinfo (``http://user:pass@host/...``), so the URL check has
+        # to run before the bare ``@`` rejection or those URLs are lost.
         if ioc.lower().startswith(("http://", "https://", "ftp://",
                                    "hxxp://", "hxxps://")):
             return True
+        # Exclude email addresses (after URL acceptance).
+        if "@" in ioc:
+            return False
         # Bare domain heuristic: contains at least one dot, no spaces,
         # not a plain IP, not a hash, not a filename, non-internal TLD.
         if (
@@ -112,11 +120,51 @@ def _looks_like_ip(value: str) -> bool:
 
 
 def _looks_like_hash(value: str) -> bool:
-    """MD5 (32), SHA-1 (40), SHA-256 (64) hex strings."""
+    """MD5 (32), SHA-1 (40), SHA-256 (64), SHA-512 (128) hex strings."""
     stripped = value.strip()
-    return len(stripped) in (32, 40, 64) and all(
+    return len(stripped) in (32, 40, 64, 128) and all(
         c in "0123456789abcdefABCDEF" for c in stripped
     )
+
+
+def _is_non_enrichable_type(value: str) -> bool:
+    """Return True if *value* is a synthetic / framework-reference IOC type
+    that barb (URL/domain enrichment) does not support.
+
+    Covers: CVE IDs, MITRE ATT&CK technique IDs, Windows registry keys,
+    PowerShell encoded sentinel values, ssdeep / TLSH fingerprints.
+    """
+    if not value:
+        return False
+    v = value.strip()
+    upper = v.upper()
+    if upper.startswith("CVE-"):
+        return True
+    if (
+        len(v) >= 5
+        and v[0] == "T"
+        and v[1:5].isdigit()
+        and (len(v) == 5 or (len(v) == 9 and v[5] == "." and v[6:].isdigit()))
+    ):
+        return True
+    if upper.startswith(("HKLM\\", "HKCU\\", "HKCR\\", "HKU\\", "HKCC\\",
+                         "HKEY_")):
+        return True
+    if v.startswith("ps_encoded:"):
+        return True
+    if v.count(":") == 2:
+        parts = v.split(":")
+        if (
+            parts[0].isdigit()
+            and len(parts[1]) >= 3
+            and len(parts[2]) >= 3
+        ):
+            return True
+    if upper.startswith("T1") and len(v) in (70, 72) and all(
+        c in "0123456789ABCDEFabcdef" for c in v[2:]
+    ):
+        return True
+    return False
 
 
 def _looks_like_filename(value: str) -> bool:

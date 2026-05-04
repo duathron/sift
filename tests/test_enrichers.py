@@ -89,7 +89,7 @@ class TestBarbBridgeCanEnrich:
         assert BarbBridge().can_enrich("185.220.101.47") is False
 
     def test_md5_hash_returns_false(self):
-        assert BarbBridge().can_enrich("d41d8cd98f00b204e9800998ecf8427e") is False
+        assert BarbBridge().can_enrich("5d41402abc4b2a76b9719d911017c592") is False
 
     def test_hxxp_defanged_url_returns_true(self):
         assert BarbBridge().can_enrich("hxxp://malware.example.com/payload") is True
@@ -119,7 +119,7 @@ class TestVexBridgeCanEnrich:
         assert VexBridge().can_enrich("http://evil.ru") is True
 
     def test_md5_hash_returns_true(self):
-        assert VexBridge().can_enrich("d41d8cd98f00b204e9800998ecf8427e") is True
+        assert VexBridge().can_enrich("5d41402abc4b2a76b9719d911017c592") is True
 
     def test_email_returns_false(self):
         assert VexBridge().can_enrich("user@evil.ru") is False
@@ -280,7 +280,7 @@ class TestEnrichmentRunnerCollectIocs:
 
     def test_returns_unique_iocs_from_all_clusters(self):
         cluster_a = make_cluster(iocs=["185.220.101.47", "evil.ru"])
-        cluster_b = make_cluster(iocs=["evil.ru", "d41d8cd98f00b204e9800998ecf8427e"])
+        cluster_b = make_cluster(iocs=["evil.ru", "5d41402abc4b2a76b9719d911017c592"])
         report = make_report([cluster_a, cluster_b])
 
         iocs = EnrichmentRunner.collect_iocs_from_report(report)
@@ -288,7 +288,7 @@ class TestEnrichmentRunnerCollectIocs:
         # "evil.ru" appears in both clusters — should appear only once
         assert iocs.count("evil.ru") == 1
         assert "185.220.101.47" in iocs
-        assert "d41d8cd98f00b204e9800998ecf8427e" in iocs
+        assert "5d41402abc4b2a76b9719d911017c592" in iocs
 
     def test_preserves_first_seen_order(self):
         cluster_a = make_cluster(iocs=["first.example.com", "second.example.com"])

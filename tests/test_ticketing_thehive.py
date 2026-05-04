@@ -182,7 +182,8 @@ class TestTheHiveIocType:
         assert TheHiveProvider._ioc_type("evil.phish.ru") == "domain"
 
     def test_plain_hostname(self):
-        assert TheHiveProvider._ioc_type("badhost") == "domain"
+        # Bare hostname without a dot is "unknown" to detect_ioc_type → "other" in TheHive
+        assert TheHiveProvider._ioc_type("badhost") == "other"
 
 
 class TestTheHiveSeverityInt:

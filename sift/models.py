@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 # ---------------------------------------------------------------------------
 # Alert severity
@@ -48,7 +48,7 @@ class Alert(BaseModel):
     iocs: list[str] = Field(default_factory=list)          # extracted IOCs (IPs, hashes, URLs, domains)
     technique_ids: list[str] = Field(default_factory=list) # ATT&CK technique IDs
     raw: dict = Field(default_factory=dict)                # original untouched record
-    _duplicate_of: Optional[str] = None  # set during deduplication
+    _duplicate_of: Optional[str] = PrivateAttr(default=None)
 
     _REDACTABLE_FIELDS: frozenset[str] = frozenset(
         {"title", "description", "source_ip", "dest_ip", "user", "host", "iocs", "raw"}

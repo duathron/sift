@@ -13,17 +13,19 @@ _CACHE_FILE = Path.home() / ".sift" / "version_check.json"
 _PYPI_URL = "https://pypi.org/pypi/sift-triage/json"
 
 
-def _parse_ver(v: str) -> tuple[int, ...]:
-    """Parse a version string into a comparable tuple of ints."""
-    try:
-        return tuple(int(x) for x in v.strip().split("."))
-    except Exception:
-        return (0,)
-
-
 def _is_newer(latest: str, current: str) -> bool:
     """Return True only if latest is strictly newer than current."""
-    return _parse_ver(latest) > _parse_ver(current)
+    try:
+        from packaging.version import Version
+        return Version(latest) > Version(current)
+    except Exception:
+        # Fallback: compare as integer tuples for simple x.y.z versions.
+        def _parse(v: str) -> tuple[int, ...]:
+            try:
+                return tuple(int(x) for x in v.strip().split("."))
+            except Exception:
+                return (0,)
+        return _parse(latest) > _parse(current)
 
 
 def check_for_update(check_interval_hours: int = 24) -> Optional[str]:

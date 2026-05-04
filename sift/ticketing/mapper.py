@@ -1,4 +1,10 @@
-"""Map a TriageReport + Cluster into a TicketDraft."""
+"""Map a TriageReport + Cluster into a TicketDraft.
+
+``ps_encoded:<base64>`` IOCs are sanitised by default so the obfuscated
+payload never appears in ticket fields. Pass ``include_raw_payload=True``
+through to :func:`report_to_draft` for the forensic-record path that
+preserves the original base-64 (analyst tooling, internal SOC use only).
+"""
 
 from __future__ import annotations
 
@@ -13,6 +19,8 @@ from sift.models import (
     ClusterSummary,
     TriageReport,
 )
+from sift.output.export import _ps_encoded_stub
+from sift.pipeline.ioc_extractor import classify_severity_hint, detect_ioc_type
 from sift.ticketing.protocol import TicketDraft
 
 _PRIORITY_MAP: dict[ClusterPriority, str] = {
@@ -27,11 +35,25 @@ _TIMELINE_MAX = 10
 _TITLE_MAX = 80
 
 
-def report_to_draft(report: TriageReport, cluster: Cluster | None = None) -> TicketDraft:
+def report_to_draft(
+    report: TriageReport,
+    cluster: Cluster | None = None,
+    *,
+    include_raw_payload: bool = False,
+) -> TicketDraft:
     """Build a TicketDraft from a TriageReport for one cluster.
 
     If *cluster* is None the highest-priority cluster in the report is used.
     Raises ValueError when the report has no clusters.
+
+    Args:
+        report:               The full triage report.
+        cluster:              Optional explicit cluster to ticket; defaults to
+                              the highest-priority cluster.
+        include_raw_payload:  When True, ``ps_encoded:<b64>`` IOCs keep their
+                              full base-64 payload in ``draft.iocs``.  Default
+                              False — payloads are replaced with a SHA-256
+                              stub before the ticket leaves sift.
     """
     target = cluster or _top_cluster(report)
     if target is None:
@@ -40,6 +62,21 @@ def report_to_draft(report: TriageReport, cluster: Cluster | None = None) -> Tic
     sev = _top_severity(target)
     cluster_summary = _find_cluster_summary(report, target.id)
 
+    ioc_types = list(dict.fromkeys(
+        detect_ioc_type(ioc) for ioc in sorted(target.iocs)
+    ))
+    cve_ids = [ioc for ioc in target.iocs if detect_ioc_type(ioc) == "cve"]
+    mitre_ids = [ioc for ioc in target.iocs if detect_ioc_type(ioc) == "mitre_technique"]
+    severity_hint = _max_severity_hint(target.iocs)
+
+    if include_raw_payload:
+        ticket_iocs = sorted(target.iocs)
+    else:
+        ticket_iocs = sorted(
+            _ps_encoded_stub(ioc) if ioc.startswith("ps_encoded:") else ioc
+            for ioc in target.iocs
+        )
+
     return TicketDraft(
         title=_build_title(target, sev),
         summary=_build_summary(target, cluster_summary),
@@ -47,7 +84,7 @@ def report_to_draft(report: TriageReport, cluster: Cluster | None = None) -> Tic
         priority=_PRIORITY_MAP.get(target.priority, "WITHIN_24H"),
         confidence=target.confidence,
         timeline=_build_timeline(target),
-        iocs=sorted(target.iocs),
+        iocs=ticket_iocs,
         technique_ids=_extract_technique_ids(target),
         recommendations=_extract_recommendations(cluster_summary),
         evidence={
@@ -62,6 +99,10 @@ def report_to_draft(report: TriageReport, cluster: Cluster | None = None) -> Tic
         source_file=report.input_file,
         generated_at=datetime.now(tz=timezone.utc),
         sift_version=__version__,
+        severity_hint=severity_hint,
+        ioc_types=ioc_types,
+        cve_ids=cve_ids,
+        mitre_ids=mitre_ids,
     )
 
 
@@ -157,6 +198,16 @@ def _find_cluster_summary(report: TriageReport, cluster_id: str) -> ClusterSumma
     for cs in report.summary.cluster_summaries:
         if cs.cluster_id == cluster_id:
             return cs
+    return None
+
+
+def _max_severity_hint(iocs: list[str]) -> str | None:
+    """Return the highest severity hint across all cluster IOCs, or None."""
+    hints = {classify_severity_hint(ioc) for ioc in iocs}
+    if "critical" in hints:
+        return "critical"
+    if "high" in hints:
+        return "high"
     return None
 
 

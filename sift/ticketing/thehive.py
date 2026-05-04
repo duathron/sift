@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import re
-
 import httpx
 
+from sift.pipeline.ioc_extractor import detect_ioc_type
 from sift.ticketing.protocol import TicketDraft, TicketResult
 
 _DEFAULT_TLP = 2   # AMBER
@@ -86,8 +85,11 @@ class TheHiveProvider:
     def _build_payload(self, draft: TicketDraft) -> dict:
         tags = (
             ["sift", f"severity:{draft.severity}", f"priority:{draft.priority}"]
+            + ([f"hint:{draft.severity_hint}"] if draft.severity_hint else [])
             + [f"confidence:{int(draft.confidence * 100)}pct"]
             + draft.technique_ids[:10]
+            + [cve for cve in draft.cve_ids[:5]]
+            + [mid for mid in draft.mitre_ids[:5]]
         )
         observables = [
             {"dataType": self._ioc_type(ioc), "data": ioc}
@@ -112,17 +114,24 @@ class TheHiveProvider:
 
     @staticmethod
     def _ioc_type(ioc: str) -> str:
-        if re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", ioc):
+        itype = detect_ioc_type(ioc)
+        if itype == "ip":
             return "ip"
-        if re.match(r"^[0-9a-fA-F]{32}$", ioc):
+        if itype in ("hash_md5", "hash_sha1", "hash_sha256", "hash_sha512", "jarm", "ssdeep", "tlsh"):
             return "hash"
-        if re.match(r"^[0-9a-fA-F]{40}$", ioc):
-            return "hash"
-        if re.match(r"^[0-9a-fA-F]{64}$", ioc):
-            return "hash"
-        if ioc.startswith(("http://", "https://")):
+        if itype == "url":
             return "url"
-        return "domain"
+        if itype == "email":
+            return "mail"
+        if itype in ("cve", "mitre_technique", "ps_encoded"):
+            return "other"
+        if itype == "registry_key":
+            return "registry"
+        if itype == "filename":
+            return "filename"
+        if itype == "domain":
+            return "domain"
+        return "other"
 
     @staticmethod
     def _render_markdown(draft: TicketDraft) -> str:

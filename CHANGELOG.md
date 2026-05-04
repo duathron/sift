@@ -11,6 +11,254 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.1.10] - 2026-05-03
+
+This release is the culmination of an app-wide audit (see vault MeetUp log
+`AI/PROJECTS/CODING/sift/MeetUp Logs/2026-05-01-app-wide-review.md`). It bundles
+the IOC extractor expansion (originally drafted as v1.1.10) together with all
+P0 ship-blockers and P1 follow-up fixes that the audit identified — so the
+FREEZE candidate is internally consistent rather than shipping a partial
+extractor that no downstream consumer actually used.
+
+### Added — IOC extraction expansion (industry-standard coverage)
+- **Defang refang preprocessor** (`_refang`): handles `hxxp://`/`hxxps://`,
+  `[.]`/`(.)`/`{.}`, `[:]`/`[/]`, `[dot]`/`{dot}`, `[at]`/`(at)`/`{at}`
+  (with domain-context lookahead to avoid corrupting prose like
+  `state[at]rest`), fullwidth Unicode lookalikes (`．`, `＠`, `：`, `／`),
+  zero-width / BOM strip (U+200B/C/D, U+FEFF, U+2060). Idempotent.
+- **CVE IDs** (`_RE_CVE`): `CVE-YYYY-NNNN[N…]`.
+- **MITRE ATT&CK technique IDs** (`_RE_MITRE`): `T1###` and `T1###.###`,
+  range-restricted to T1xxx (covers entire enterprise catalogue, drops
+  false positives on `T2024` / `T9999`).
+- **PowerShell encoded blocks** (`_RE_PS_ENCODED`): `-enc <b64>`,
+  `-EncodedCommand`, `/enc`, `FromBase64String("…")`. Surfaced as
+  `ps_encoded:<b64>` sentinel — auto-tagged `critical` severity by
+  `classify_severity_hint`.
+- **Windows registry keys** (`_RE_REGKEY`): `HK(LM|CU|CR|U|CC)\…` and
+  full `HKEY_*` forms. Persistence-key fragments (`\Run`, `\RunOnce`,
+  `\Image File Execution Options`, `\Services\`, `\Winlogon\`,
+  `\AppInit_DLLs`, `\Active Setup`) auto-tagged `high`.
+- **Tunnel / cloud-abuse domain tagging**: ngrok, serveo, trycloudflare,
+  loca.lt, localtunnel, pagekite, tunnelmole, bore.pub auto-`high`.
+  Paste hosts (pastebin/paste.ee/ghostbin/hastebin/rentry/controlc/dpaste)
+  auto-`high`. Discord webhook URLs and Telegram bot URLs auto-`high`.
+- **Extended hashes**: SHA512 (128 hex), ssdeep (`<blocksize>:<h1>:<h2>`),
+  TLSH (T1 + 70 hex), JARM (62 hex, case-insensitive). JA3 / JA3S /
+  imphash extracted via keyword-anchored regex (`\b(ja3s?|imphash)\s*[:=]\s*([0-9a-f]{32})\b`)
+  to avoid colliding with arbitrary 32-char hex.
+- **`classify_severity_hint(ioc) -> 'high'|'critical'|None`** new public
+  helper that downstream prioritisation can consult.
+- **`__all__`** explicit export list on `ioc_extractor.py`.
+- **Fixture corpus** at `tests/fixtures/ioc_corpus/`: PS Eclipse Sysmon,
+  defanged threat report, any.run sandbox report, OTX pulse, ransomware
+  note. Each backed by golden-file regression tests in
+  `tests/test_ioc_corpus.py` (95 new tests).
+
+### Fixed
+- **Email IOCs were silently dropped** — extracted by `ioc_extractor` but
+  filtered by both bridges. Bridges now use `_is_non_enrichable_type()` to
+  exclude only synthetic types (CVE, MITRE, registry, ps_encoded, ssdeep,
+  TLSH); emails are still rejected for VT lookup but no longer disappear
+  from output.
+- **`barb_bridge.can_enrich`** rejected URLs with `userinfo` (e.g.
+  `http://user:pass@host/`) because the `@` check ran before the URL
+  prefix check. URL acceptance moved above the `@` rejection.
+- **IPv6 regex** rewritten with atomic group `(?>…)` — full form
+  `2606:4700:4700::1111` now extracted as a single match instead of
+  fragmenting into prefixes; eliminates catastrophic-backtracking risk
+  on adversarial input.
+- **`.com` removed** from filename extension list — DOS-era COM binaries
+  are extinct and the extension collided with the `.com` TLD, mis-classifying
+  every commercial domain as a filename.
+- **URL trailing punctuation** (`.,;:!?)]}"'`) is now stripped from
+  extracted URL tokens so `https://evil.com/x.` becomes `https://evil.com/x`.
+- **Null-hash sentinel filter expanded** to include hashes-of-empty-bytestring
+  (MD5 `d41d8cd9…`, SHA1 `da39a3ee…`, SHA256 `e3b0c442…`) in addition to
+  the existing all-zero / all-`f` sentinels.
+
+### Bridge changes
+- `vex_bridge._looks_like_hash` now accepts SHA512 (128 hex) in addition to
+  MD5/SHA1/SHA256 — vex CLI returns `[]` for unsupported lookups so this
+  is safe.
+- `barb_bridge._looks_like_hash` likewise extended.
+- Both bridges gain `_is_non_enrichable_type()` to centralise rejection of
+  synthetic IOC types. ssdeep heuristic tightened (each hash segment must
+  be ≥3 chars) so timestamp strings like `12:34:56` are not mis-classified.
+
+### Fixed — P0 ship-blockers (audit findings #1–11, all consumers of new IOC types)
+- **Severity-hint plumbing** (`pipeline/prioritizer.py`):
+  `classify_severity_hint` is now imported and applied per IOC inside
+  `score_cluster` — `critical` → ×1.4, `high` → ×1.2 (multipliers compound).
+  Previously the helper existed but was never called, so every persistence
+  registry key, ngrok tunnel, and PowerShell-encoded block was completely
+  ignored by prioritisation.
+- **Cluster overflow rescue** (`pipeline/clusterer.py`): `max_clusters`
+  early-termination merged dropped Union-Find roots into a single sentinel
+  `"Other"` cluster instead of silently discarding them. Alerts no longer
+  vanish from the report.
+- **STIX export type coverage** (`output/stix.py`): `_pattern_from_ioc`
+  gained explicit branches for every new type — `cve`, `mitre_technique`,
+  `registry_key`, `ps_encoded`, `jarm`, `ssdeep`, `tlsh`, `hash_sha512`,
+  `filename`. `ps_encoded` payloads are sanitised to a SHA-256 stub before
+  emission so the raw base-64 never reaches downstream STIX consumers.
+- **TheHive observable typing** (`ticketing/thehive.py`): `_ioc_type` now
+  uses `detect_ioc_type` and maps each new type correctly
+  (jarm/ssdeep/tlsh → `hash`, cve/mitre/ps_encoded → `other`, registry_key →
+  `registry`, filename → `filename`). Previously every new type collapsed
+  to `"domain"`.
+- **Jira severity-hint plumbing** (`ticketing/jira.py`): clusters with a
+  `critical` severity-hint IOC bump Jira priority to `Highest`; `high` hints
+  bump to `High`; otherwise the cluster's max alert severity drives priority.
+- **Injection-detector IOC scan** (`summarizers/injection_detector.py`):
+  scanner now walks `cluster.iocs` so PowerShell-encoded base-64 payloads
+  cannot bypass the injection check.
+- **Prompt sanitiser** (`summarizers/prompt.py`): `ps_encoded:<b64>`
+  sentinels are replaced with `ps_encoded:<sha256-prefix> (Nb)` before the
+  prompt reaches any LLM, eliminating the prompt-injection vector.
+- **vex SHA-512 routing** (`enrichers/vex_bridge.py`): `_looks_like_hash`
+  no longer accepts 128-char hashes — vex CLI does not support SHA-512 and
+  every routed IOC was burning a 30 s subprocess timeout. SHA-512 IOCs are
+  surfaced in output but skipped at the bridge.
+- **Anthropic default model** (`summarizers/anthropic.py`): `_DEFAULT_MODEL`
+  bumped from `claude-sonnet-4-20250514` to `claude-sonnet-4-6` (current as
+  of 2026-05).
+- **Ollama fallback** (`summarizers/ollama.py`): `TemplateSummarizer(...)`
+  was being called with an argument the constructor does not accept,
+  crashing the fallback path whenever the local Ollama daemon was
+  unreachable. Argument removed.
+- **Sysmon CSV aliases** (`normalizers/generic.py`): `image → host`,
+  `commandline → description`, `eventid → category`, `parentimage →
+  source` aliases let the structured pipeline (clusterer, prioritizer)
+  see Sysmon CSV fields that previously fell into the unstructured `raw`
+  blob — closes the original PS Eclipse motivating gap.
+
+### Fixed — P1 follow-up (audit findings #12–30, integrated before FREEZE)
+- **Dedup fingerprint** (`pipeline/dedup.py`): `host` and `user` added to
+  the SHA-256 fingerprint tuple. Distinct alerts that differ only by host
+  or user are no longer collapsed.
+- **Chunker score correctness** (`pipeline/chunker.py`): IOC-overlap merge
+  re-derives cluster score via `prioritize()` from alert severity weights
+  instead of summing pre-computed scores, eliminating double-counting and
+  the priority/score desync after merge.
+- **Cache hardening** (`cache.py`): custom `_json_default` encoder handles
+  `datetime` and `Path` round-trip; `__del__` wrapped in try/except so the
+  GC thread cannot crash the process; `Path.is_relative_to()` replaces the
+  fragile `relative_to` try/except.
+- **Timestamp timezone correctness** (`normalizers/generic.py`):
+  `fromisoformat()` and `strptime` results without tzinfo are forced to
+  UTC so dedup time-windowing comparisons no longer raise on naive vs
+  aware datetimes.
+- **Doctor ticketing check** (`doctor.py`): `CheckStatus.WARN` replaces
+  the dead-code `hasattr(CheckStatus, "INFO")` fallback.
+- **Banner TTY check** (`banner.py`): `sys.stderr.isatty()` replaces
+  `sys.stdout.isatty()` — banner now suppresses correctly when stdout is
+  redirected but stderr is still a terminal.
+- **PrivateAttr declaration** (`models.py`): `_duplicate_of` is declared
+  `PrivateAttr(default=None)` so Pydantic v2 stops silently dropping it
+  on `model_validate`.
+- **Version comparison** (`version_check.py`): switched to
+  `packaging.version.Version` (with a tuple-of-ints fallback) so prerelease
+  strings like `1.1.0a1` and `1.1.0.dev1` no longer parse to `(0,)`.
+- **Mock summarizer determinism** (`summarizers/mock.py`):
+  `generated_at = datetime(2026, 1, 1, tzinfo=UTC)` so deterministic-output
+  tests can assert equality across two calls.
+
+### Added — P1 follow-up
+- **`--no-llm` CLI flag** (`main.py`): forces `provider="template"`
+  regardless of config — useful for offline / keyless triage and CI.
+- **`.jsonl` directory scan** (`main.py`): `.jsonl` added to
+  `_SUPPORTED_SUFFIXES` so directory triage picks up NDJSON files.
+- **Splunk NDJSON normalizer** (`normalizers/splunk.py`): `can_handle()`
+  and `normalize()` accept both `{"results": [...]}` and newline-delimited
+  JSON; `_raw` field used as description fallback when richer fields
+  are absent.
+- **`TicketDraft` enriched metadata** (`ticketing/protocol.py`,
+  `ticketing/mapper.py`, `ticketing/jira.py`, `ticketing/thehive.py`):
+  new `severity_hint`, `ioc_types`, `cve_ids`, `mitre_ids` fields. Jira
+  reads `draft.severity_hint` directly instead of recomputing; TheHive
+  tags include hint, CVEs, MITRE IDs.
+- **Enrichment concurrency** (`enrichers/runner.py`): barb and vex
+  bridges now run concurrently via `ThreadPoolExecutor(max_workers=4)`.
+  IOCs are normalised (hex lower-cased, URLs refanged) before the cache
+  dedup pass so case variants collapse to a single API call.
+- **Formatter severity-hint column + ps_encoded display**
+  (`output/formatter.py`): cluster table gains a "Hint" column; the IOC
+  detail panel renders `ps_encoded:<b64>` as
+  `ps_encoded:<sha256-prefix>… (Nb)` instead of dumping raw base-64.
+- **CSV export typed columns** (`output/export.py`): `export_csv()` gains
+  an `alert_ioc_types` column (pipe-separated). Any `ps_encoded:` payload
+  in `alert_iocs` is replaced with `ps_encoded:[REDACTED]`.
+- **Injection-detector NFKC + IOC-field exemption**
+  (`summarizers/injection_detector.py`): NFKC normalisation runs before
+  every pattern check (defeats Unicode lookalike bypasses); the base-64
+  hex pattern skips `ioc.*` fields to avoid false positives on hash and
+  base-64 IOCs.
+- **Prompt IOC-type guidance** (`summarizers/prompt.py`):
+  `_BASE_SYSTEM_PROMPT` gains an `## IOC types` section enumerating all 15
+  types and the triage implication for each. One extra `PromptExample`
+  per provider exercises CVE / `ps_encoded` / registry / MITRE clusters
+  so few-shot grounding actually covers the new vocabulary.
+
+### Added — Option B sanitisation (post-QA security hardening)
+- **Default ps_encoded sanitisation everywhere** — `output/export.py`'s
+  `export_json()`, `export_csv()`, and `ticketing/mapper.py`'s
+  `report_to_draft()` now replace `ps_encoded:<b64>` IOCs with a SHA-256
+  stub (`ps_encoded:<sha256_first_16hex> (<bytelen>B)`) by default.
+  Previously raw base-64 was preserved in JSON output and ticket drafts;
+  the QA beta-tester flagged the gap before FREEZE. STIX export, CSV
+  export, the LLM injection detector, and the prompt sanitiser were
+  already covered.
+- **`--include-raw-payload` CLI flag** (`main.py`): forensic-mode escape
+  hatch that re-enables full base-64 in JSON / CSV / ticket output for
+  analysts who need the original payload. Default is sanitised.
+
+### Fixed — post-QA bug sweep
+- **Cache thread-safety** (`cache.py`): SQLite connection now opened with
+  `check_same_thread=False`; all public-API methods (`get`, `put`,
+  `invalidate`, `clear`, `stats`, `close`) wrapped in a re-entrant
+  `threading.RLock()`. The new `ThreadPoolExecutor` in `enrichers/runner.py`
+  was sharing the connection across threads without serialisation; under
+  load this would raise `sqlite3.ProgrammingError` or race on writes.
+- **Test isolation** (`tests/test_p1_all.py`): two cache tests passed
+  `CacheConfig(db_path=...)` — `db_path` is not a CacheConfig field, so
+  Pydantic silently dropped it and the tests wrote to `~/.sift/cache`
+  instead of `tmp_path`. Switched to `cache_dir=tmp_path/"cache"` for
+  proper isolation.
+- **Stale dedup docstring** (`pipeline/dedup.py`): top-of-module strategy
+  block still documented the pre-v1.1.10 four-tuple fingerprint. Updated
+  to the six-tuple including `host` and `user` and an audit-finding
+  reference.
+- **Test version refs** (`tests/test_p1_all.py`): `sift_version="1.1.11"`
+  → `"1.1.10"` so fixtures match the squashed combined release.
+
+### QA process
+Three QA agents (debug, code-review, beta-tester) verified the IOC
+extractor changes; an app-wide audit by five further agents (pipeline,
+enrichers, output/ticketing, summarizer, CLI/normalizers/models) drove
+the P0 + P1 backlog; a final pre-FREEZE QA batch of five more agents
+verified P0+P1 integration end-to-end and surfaced the cache thread-
+safety bug, the test-isolation bug, and the JSON/ticket sanitisation
+gap that became Option B. The MeetUp log
+(`AI/PROJECTS/CODING/sift/MeetUp Logs/2026-05-01-app-wide-review.md`)
+records every finding and decision.
+
+Findings driven into the extractor:
+- `[at]` over-refang → domain-context lookahead.
+- MITRE FP on `T2024`/`T9999` → range restriction to T1xxx.
+- ssdeep heuristic on timestamps → segment-length floor.
+- IPv6 catastrophic backtracking → atomic group.
+- barb URL+userinfo bug → URL check before `@` rejection.
+- Missing `__all__` → added.
+
+### Test counts
+- v1.1.08 baseline: 964 passed, 3 skipped.
+- v1.1.10 ship: **1130 passed, 3 skipped** (+166 new tests covering
+  refang, new IOC types, severity-hint plumbing through every consumer,
+  TicketDraft metadata, NDJSON, NFKC, PrivateAttr, the determinism
+  guarantees, and the Option B sanitisation contract).
+
+---
+
 ## [1.1.08] - 2026-05-01
 
 ### Added

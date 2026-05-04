@@ -7,12 +7,15 @@ SDOs with appropriate patterns, and relationships tie them together.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
 from sift.models import ClusterPriority, TriageReport
+from sift.pipeline.ioc_extractor import detect_ioc_type
 
 
 # ---------------------------------------------------------------------------
@@ -36,27 +39,53 @@ def _now_iso() -> str:
 def _pattern_from_ioc(ioc: str, ioc_type: str | None = None) -> str:
     """Map IOC to a STIX indicator pattern.
 
-    Auto-detects IOC type if not provided:
-    - IPv4 addresses
-    - IPv6 addresses
-    - Domain names
-    - URLs
-    - Email addresses
-    - MD5/SHA1/SHA256 hashes
+    Explicit *ioc_type* (from :func:`~sift.pipeline.ioc_extractor.detect_ioc_type`)
+    takes precedence; falls back to auto-detection for unknown or legacy callers.
+    ps_encoded sentinels are sanitised to a SHA-256 prefix + byte-length stub so
+    raw base64 is never emitted into STIX bundles.
     """
+    ioc_type_lower = (ioc_type or "").lower()
+
+    # ps_encoded: sanitise before emit — never expose raw base64 in STIX.
+    if ioc_type_lower == "ps_encoded" or ioc.startswith("ps_encoded:"):
+        payload = ioc[len("ps_encoded:"):]
+        try:
+            decoded = base64.b64decode(payload)
+            digest = hashlib.sha256(decoded).hexdigest()[:16]
+            stub = f"ps_encoded:{digest} ({len(decoded)}b)"
+        except Exception:
+            stub = f"ps_encoded:[decode-error]"
+        safe_stub = stub.replace("\\", "\\\\").replace("'", "\\'").replace("]", "\\]")
+        return f"[artifact:payload_bin = '{safe_stub}']"
+
     # Escape chars that have special meaning in STIX pattern syntax.
     # Order matters: backslash first, then others.
     safe = ioc.replace("\\", "\\\\").replace("'", "\\'").replace("]", "\\]")
-    ioc_type_lower = (ioc_type or "").lower()
 
-    # Explicit type mapping
-    if ioc_type_lower == "sha256":
+    # Explicit type mapping — detect_ioc_type labels
+    if ioc_type_lower in ("hash_sha256", "sha256"):
         return f"[file:hashes.'SHA-256' = '{safe}']"
-    if ioc_type_lower == "sha1":
+    if ioc_type_lower in ("hash_sha1", "sha1"):
         return f"[file:hashes.'SHA-1' = '{safe}']"
-    if ioc_type_lower == "md5":
+    if ioc_type_lower in ("hash_md5", "md5"):
         return f"[file:hashes.MD5 = '{safe}']"
-    if ioc_type_lower == "ipv4":
+    if ioc_type_lower == "hash_sha512":
+        return f"[file:hashes.'SHA-512' = '{safe}']"
+    if ioc_type_lower == "ssdeep":
+        return f"[file:hashes.ssdeep = '{safe}']"
+    if ioc_type_lower == "tlsh":
+        return f"[file:hashes.TLSH = '{safe}']"
+    if ioc_type_lower == "jarm":
+        return f"[network-traffic:extensions.'tls-ext'.ja3_hash = '{safe}']"
+    if ioc_type_lower == "cve":
+        return f"[vulnerability:name = '{safe}']"
+    if ioc_type_lower == "mitre_technique":
+        return f"[attack-pattern:name = '{safe}']"
+    if ioc_type_lower == "registry_key":
+        return f"[windows-registry-key:key = '{safe}']"
+    if ioc_type_lower == "filename":
+        return f"[file:name = '{safe}']"
+    if ioc_type_lower in ("ip", "ipv4"):
         return f"[ipv4-addr:value = '{safe}']"
     if ioc_type_lower == "ipv6":
         return f"[ipv6-addr:value = '{safe}']"
@@ -67,32 +96,24 @@ def _pattern_from_ioc(ioc: str, ioc_type: str | None = None) -> str:
     if ioc_type_lower == "email":
         return f"[email-addr:value = '{safe}']"
 
-    # Auto-detect: check hash patterns
+    # Auto-detect fallback (legacy callers / unknown type)
     ioc_lower = ioc.lower()
-    if len(ioc) == 32 and all(c in "0123456789abcdef" for c in ioc_lower):
-        return f"[file:hashes.MD5 = '{safe}']"
-    if len(ioc) == 40 and all(c in "0123456789abcdef" for c in ioc_lower):
-        return f"[file:hashes.'SHA-1' = '{safe}']"
+    if len(ioc) == 128 and all(c in "0123456789abcdef" for c in ioc_lower):
+        return f"[file:hashes.'SHA-512' = '{safe}']"
     if len(ioc) == 64 and all(c in "0123456789abcdef" for c in ioc_lower):
         return f"[file:hashes.'SHA-256' = '{safe}']"
-
-    # Auto-detect: check URL pattern
+    if len(ioc) == 62 and all(c in "0123456789abcdef" for c in ioc_lower):
+        return f"[network-traffic:extensions.'tls-ext'.ja3_hash = '{safe}']"
+    if len(ioc) == 40 and all(c in "0123456789abcdef" for c in ioc_lower):
+        return f"[file:hashes.'SHA-1' = '{safe}']"
+    if len(ioc) == 32 and all(c in "0123456789abcdef" for c in ioc_lower):
+        return f"[file:hashes.MD5 = '{safe}']"
     if ioc.startswith("http://") or ioc.startswith("https://"):
         return f"[url:value = '{safe}']"
-
-    # Auto-detect: check email pattern
     if "@" in ioc and "." in ioc:
         return f"[email-addr:value = '{safe}']"
-
-    # Auto-detect: check IPv4 pattern
     if ioc.count(".") == 3 and all(part.isdigit() for part in ioc.split(".")):
         return f"[ipv4-addr:value = '{safe}']"
-
-    # Auto-detect: check IPv6 pattern
-    if ":" in ioc:
-        return f"[ipv6-addr:value = '{safe}']"
-
-    # Default to domain or artifact
     if "." in ioc and not ioc.startswith("["):
         return f"[domain-name:value = '{safe}']"
 
@@ -234,7 +255,7 @@ class STIXExporter:
             "modified": self.now,
             "name": f"IOC: {ioc}",
             "description": f"Indicator detected in cluster alerts",
-            "pattern": _pattern_from_ioc(ioc),
+            "pattern": _pattern_from_ioc(ioc, detect_ioc_type(ioc)),
             "pattern_type": "stix",
             "valid_from": self.now,
             "labels": ["malicious-activity"],

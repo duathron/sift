@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from sift.config import ScoringConfig, SeverityWeights
 from sift.models import Cluster, ClusterPriority
+from sift.pipeline.ioc_extractor import classify_severity_hint
 
 
 def score_cluster(cluster: Cluster, weights: SeverityWeights) -> float:
@@ -47,6 +48,13 @@ def score_cluster(cluster: Cluster, weights: SeverityWeights) -> float:
     # × 1.1 if three or more distinct ATT&CK techniques are referenced.
     if len(cluster.techniques) >= 3:
         multiplier *= 1.1
+
+    # Severity-hint boost from IOC types (ps_encoded, tunnel domains, persistence keys, etc.)
+    hints = {classify_severity_hint(ioc) for ioc in cluster.iocs}
+    if "critical" in hints:
+        multiplier *= 1.4
+    if "high" in hints:
+        multiplier *= 1.2
 
     # Apply the cluster's own confidence as a final multiplier.
     multiplier *= cluster.confidence

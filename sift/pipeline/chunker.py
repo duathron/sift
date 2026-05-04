@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from sift.models import Alert, Cluster, ClusterPriority, TriageReport
+
+if TYPE_CHECKING:
+    from sift.config import ScoringConfig
 
 _PRIORITY_ORDER: dict[ClusterPriority, int] = {
     ClusterPriority.NOISE: 0,
@@ -25,11 +29,17 @@ def chunk_alerts(alerts: list[Alert], size: int) -> list[list[Alert]]:
     return [alerts[i : i + size] for i in range(0, len(alerts), size)]
 
 
-def _merge_ioc_overlapping_clusters(clusters: list[Cluster]) -> list[Cluster]:
+def _merge_ioc_overlapping_clusters(
+    clusters: list[Cluster],
+    scoring_config: "ScoringConfig | None" = None,
+) -> list[Cluster]:
     """Second-pass Union-Find merge: combine clusters that share IOCs.
 
     Restores cross-chunk IOC-overlap clustering that chunk boundaries prevent
-    during the first-pass clustering inside each chunk.
+    during the first-pass clustering inside each chunk.  After merging, each
+    combined cluster's score and priority are re-derived from its constituent
+    alerts via the prioritizer — summing pre-computed scores would double-count
+    severity multipliers.
     """
     if len(clusters) <= 1:
         return clusters
@@ -96,16 +106,14 @@ def _merge_ioc_overlapping_clusters(clusters: list[Cluster]) -> list[Cluster]:
             if c.last_seen and (last_seen is None or c.last_seen > last_seen):
                 last_seen = c.last_seen
 
-        total_score = sum(c.score for c in group)
-        max_priority = max(group, key=lambda c: _PRIORITY_ORDER[c.priority]).priority
         max_confidence = max(c.confidence for c in group)
 
-        merged.append(base.model_copy(update={
+        draft = base.model_copy(update={
             "alerts": all_alerts,
             "iocs": all_iocs,
             "techniques": all_techniques,
-            "score": total_score,
-            "priority": max_priority,
+            "score": 0.0,
+            "priority": ClusterPriority.NOISE,
             "confidence": max_confidence,
             "first_seen": first_seen,
             "last_seen": last_seen,
@@ -113,13 +121,21 @@ def _merge_ioc_overlapping_clusters(clusters: list[Cluster]) -> list[Cluster]:
                 f"{base.cluster_reason} [merged {len(group)} chunks by IOC overlap]"
                 if base.cluster_reason else f"merged {len(group)} chunks by IOC overlap"
             ),
-        }))
+        })
+
+        # Re-derive score and priority from the merged cluster's alerts so that
+        # severity multipliers are applied exactly once (not summed from each chunk).
+        from sift.pipeline.prioritizer import prioritize
+        merged.append(prioritize(draft, scoring_config))
 
     merged.sort(key=lambda c: c.score, reverse=True)
     return merged
 
 
-def merge_triage_reports(reports: list[TriageReport]) -> TriageReport:
+def merge_triage_reports(
+    reports: list[TriageReport],
+    scoring_config: "ScoringConfig | None" = None,
+) -> TriageReport:
     """Merge multiple TriageReport objects into one.
 
     - Combines all clusters from all reports
@@ -150,7 +166,7 @@ def merge_triage_reports(reports: list[TriageReport]) -> TriageReport:
         total_after_dedup += report.alerts_after_dedup
 
     # Second-pass: merge clusters sharing IOCs across chunk boundaries (F-02 fix)
-    all_clusters = _merge_ioc_overlapping_clusters(all_clusters)
+    all_clusters = _merge_ioc_overlapping_clusters(all_clusters, scoring_config)
 
     first = reports[0]
     return TriageReport(

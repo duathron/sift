@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from enum import Enum
 from typing import Optional
 
@@ -155,16 +156,25 @@ class PromptInjectionDetector:
                 if isinstance(val, str):
                     fields_to_scan[f"raw.{key}"] = val
 
+        # Scan IOC list — ps_encoded base64 payloads are a prompt-injection vector.
+        for i, ioc_val in enumerate(alert.iocs):
+            fields_to_scan[f"ioc.{i}"] = ioc_val
+
         for field_name, field_value in fields_to_scan.items():
             if field_value is None or not isinstance(field_value, str):
                 continue
 
+            # NFKC normalisation defeats Unicode lookalike / zero-width bypasses.
+            normalized = unicodedata.normalize("NFKC", field_value)
+
             # Skip fields that match an operator-defined whitelist pattern
-            if self._whitelist and any(p.search(field_value) for p in self._whitelist):
+            if self._whitelist and any(p.search(normalized) for p in self._whitelist):
                 continue
 
+            is_ioc_field = field_name.startswith("ioc.")
+
             # Check each pattern (use if, not elif, to detect all patterns in a field)
-            if self.pattern_ignore_instructions.search(field_value):
+            if self.pattern_ignore_instructions.search(normalized):
                 findings.append(
                     InjectionFinding(
                         field=field_name,
@@ -175,7 +185,7 @@ class PromptInjectionDetector:
                     )
                 )
 
-            if self.pattern_instead_output.search(field_value):
+            if self.pattern_instead_output.search(normalized):
                 findings.append(
                     InjectionFinding(
                         field=field_name,
@@ -186,7 +196,7 @@ class PromptInjectionDetector:
                     )
                 )
 
-            if self.pattern_json_escapes.search(field_value):
+            if self.pattern_json_escapes.search(normalized):
                 findings.append(
                     InjectionFinding(
                         field=field_name,
@@ -197,7 +207,9 @@ class PromptInjectionDetector:
                     )
                 )
 
-            if self.pattern_base64_hex.search(field_value):
+            # IOC fields legitimately contain hashes, base64 digests, etc.;
+            # skip encoded-payload check to avoid false positives.
+            if not is_ioc_field and self.pattern_base64_hex.search(normalized):
                 findings.append(
                     InjectionFinding(
                         field=field_name,
@@ -208,7 +220,7 @@ class PromptInjectionDetector:
                     )
                 )
 
-            if self.pattern_shell_commands.search(field_value):
+            if self.pattern_shell_commands.search(normalized):
                 findings.append(
                     InjectionFinding(
                         field=field_name,
@@ -244,7 +256,16 @@ class PromptInjectionDetector:
         alert_dict = alert.model_dump()
 
         for field_name in fields_to_redact:
-            if "." in field_name:
+            if field_name.startswith("ioc."):
+                # Handle IOC list entries
+                try:
+                    idx = int(field_name[4:])
+                    iocs_list = alert_dict.get("iocs", [])
+                    if 0 <= idx < len(iocs_list):
+                        iocs_list[idx] = "[REDACTED]"
+                except (ValueError, TypeError):
+                    pass
+            elif "." in field_name:
                 # Handle nested raw.* fields
                 parts = field_name.split(".", 1)
                 if parts[0] == "raw" and len(parts) == 2:

@@ -114,11 +114,11 @@ class TestIOCExtractor:
         assert any("phishing.example.com" in i or "https://" in i for i in iocs)
 
     def test_extract_md5(self):
-        iocs = extract_iocs("Hash: d41d8cd98f00b204e9800998ecf8427e")
-        assert "d41d8cd98f00b204e9800998ecf8427e" in iocs
+        iocs = extract_iocs("Hash: 5d41402abc4b2a76b9719d911017c592")
+        assert "5d41402abc4b2a76b9719d911017c592" in iocs
 
     def test_extract_sha256(self):
-        sha = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        sha = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
         iocs = extract_iocs(f"Malware hash: {sha}")
         assert sha in iocs
 
@@ -133,10 +133,10 @@ class TestIOCExtractor:
         assert detect_ioc_type("evil.phish.ru") == "domain"
 
     def test_detect_ioc_type_md5(self):
-        assert detect_ioc_type("d41d8cd98f00b204e9800998ecf8427e") == "hash_md5"
+        assert detect_ioc_type("5d41402abc4b2a76b9719d911017c592") == "hash_md5"
 
     def test_detect_ioc_type_sha256(self):
-        sha = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        sha = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
         assert detect_ioc_type(sha) == "hash_sha256"
 
     def test_enrich_alert_iocs(self):

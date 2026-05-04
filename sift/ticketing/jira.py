@@ -193,13 +193,18 @@ class JiraProvider:
             ["sift", f"sift-{draft.severity.lower()}", f"confidence-{int(draft.confidence * 100)}"]
             + [t.replace(".", "-") for t in draft.technique_ids[:5]]
         )
+        # Boost priority when any IOC carries a critical severity hint.
+        if draft.severity_hint == "critical":
+            priority_name = "Highest"
+        else:
+            priority_name = self._priority_name(draft.severity)
         return {
             "fields": {
                 "project": {"key": self._project_key},
                 "issuetype": {"name": self._issue_type},
                 "summary": draft.title,
                 "description": _build_adf(draft),
-                "priority": {"name": self._priority_name(draft.severity)},
+                "priority": {"name": priority_name},
                 "labels": labels,
             }
         }

@@ -83,7 +83,7 @@ class OllamaSummarizer:
         except Exception:  # noqa: BLE001
             from .template import TemplateSummarizer  # noqa: PLC0415
 
-            return TemplateSummarizer(self._config).summarize(report)
+            return TemplateSummarizer().summarize(report)
 
     # ------------------------------------------------------------------
     # Internal helpers

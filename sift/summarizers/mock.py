@@ -55,6 +55,6 @@ class MockSummarizer:
         return result.model_copy(
             update={
                 "provider": "mock",
-                "generated_at": datetime.now(tz=timezone.utc),
+                "generated_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
             }
         )

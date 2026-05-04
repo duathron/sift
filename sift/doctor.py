@@ -256,7 +256,7 @@ def _check_ticketing() -> CheckResult:
     if not provider:
         return CheckResult(
             name="Ticketing",
-            status=CheckStatus.INFO if hasattr(CheckStatus, "INFO") else CheckStatus.WARN,
+            status=CheckStatus.WARN,
             message="No default provider set — optional (use: sift config --ticket-provider)",
         )
 

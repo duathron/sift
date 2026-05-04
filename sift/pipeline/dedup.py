@@ -2,12 +2,15 @@
 
 Strategy
 --------
-A fingerprint is computed for each alert by hashing the four-tuple:
+A fingerprint is computed for each alert by hashing the six-tuple:
 
-    (title_normalized, source_ip, dest_ip, category)
+    (title_normalized, source_ip, dest_ip, category, host, user)
 
 All components are lowercased; ``None`` fields are treated as empty strings
-before hashing.  Within a configurable time window (default 5 minutes), only
+before hashing.  ``host`` and ``user`` were added in v1.1.10 (audit finding
+#12) so distinct alerts differing only by which host or which user
+triggered them are no longer collapsed into one fingerprint.  Within a
+configurable time window (default 5 minutes), only
 the *first* occurrence of a fingerprint is kept; subsequent duplicates are
 discarded.  Alerts that carry no timestamp bypass time-windowing and are
 deduplicated purely on fingerprint across the entire input set.
@@ -98,16 +101,21 @@ def _normalize_title(title: str) -> str:
 def _fingerprint(alert: Alert) -> str:
     """Return a stable SHA-256 hex fingerprint for *alert*.
 
-    The fingerprint is derived from the four-tuple
-    ``(title_normalized, source_ip, dest_ip, category)``.  Missing fields
-    contribute an empty string so that the fingerprint space remains
-    well-defined regardless of how sparse an alert is.
+    The fingerprint is derived from the six-tuple
+    ``(title_normalized, source_ip, dest_ip, category, host, user)``.
+    Missing fields contribute an empty string so that the fingerprint space
+    remains well-defined regardless of how sparse an alert is.
+
+    ``host`` and ``user`` are included so that identical alerts from different
+    endpoints or accounts are treated as distinct events rather than merged.
     """
     parts = (
         _normalize_title(alert.title),
         (alert.source_ip or "").lower(),
         (alert.dest_ip or "").lower(),
         (alert.category or "").lower(),
+        (alert.host or "").lower(),
+        (alert.user or "").lower(),
     )
     raw = "\x00".join(parts)
     return hashlib.sha256(raw.encode()).hexdigest()

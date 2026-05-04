@@ -37,15 +37,21 @@ class VexBridge:
         - Filenames (known extensions: .exe, .dll, .log, etc.)
         - Private/reserved/loopback IP addresses
         - Domains with non-routable TLDs (.local, .internal, .example, etc.)
+        - Synthetic / framework-reference IOC types (CVE, MITRE technique,
+          registry keys, PowerShell encoded blocks, ssdeep, TLSH, JARM)
         """
         ioc = ioc.strip()
+        # Exclude framework / synthetic IOC types — vex only supports
+        # network and file-hash observables.
+        if _is_non_enrichable_type(ioc):
+            return False
         # Exclude markdown links (raw [text](url) from Sysmon fields)
         if ioc.startswith("["):
             return False
         # Exclude email addresses
         if _looks_like_email(ioc):
             return False
-        # Accept hashes (MD5/SHA1/SHA256)
+        # Accept hashes (MD5/SHA1/SHA256/SHA512)
         if _looks_like_hash(ioc):
             return True
         # Accept public IPs only (exclude private, reserved, loopback)
@@ -146,11 +152,61 @@ def _is_private_or_reserved_ip(value: str) -> bool:
 
 
 def _looks_like_hash(value: str) -> bool:
-    """MD5 (32), SHA-1 (40), SHA-256 (64) hex strings."""
+    """MD5 (32), SHA-1 (40), SHA-256 (64) hex strings. SHA-512 excluded — vex unsupported."""
     stripped = value.strip()
     return len(stripped) in (32, 40, 64) and all(
         c in "0123456789abcdefABCDEF" for c in stripped
     )
+
+
+def _is_non_enrichable_type(value: str) -> bool:
+    """Return True if *value* is a synthetic / framework-reference IOC type
+    that vex (VirusTotal) does not support as a lookup key.
+
+    Covers: CVE IDs, MITRE ATT&CK technique IDs, Windows registry keys,
+    PowerShell encoded sentinel values, ssdeep / TLSH / JARM fingerprints
+    (vex CLI does not currently route these to VT-Intelligence searches).
+    """
+    if not value:
+        return False
+    v = value.strip()
+    upper = v.upper()
+    # CVE-YYYY-NNNN
+    if upper.startswith("CVE-"):
+        return True
+    # MITRE technique T#### or T####.###
+    if (
+        len(v) >= 5
+        and v[0] == "T"
+        and v[1:5].isdigit()
+        and (len(v) == 5 or (len(v) == 9 and v[5] == "." and v[6:].isdigit()))
+    ):
+        return True
+    # Registry key (HKLM / HKCU / etc., or full HKEY_* form)
+    if upper.startswith(("HKLM\\", "HKCU\\", "HKCR\\", "HKU\\", "HKCC\\",
+                         "HKEY_")):
+        return True
+    # PowerShell encoded sentinel
+    if v.startswith("ps_encoded:"):
+        return True
+    # ssdeep (``blocksize:hash:hash``) — exactly 2 colons, first segment
+    # all-digits, *and* both hash segments at least 3 chars long. The
+    # length floor avoids mis-classifying timestamps like ``12:34:56``
+    # (segments only 2 chars each) as ssdeep.
+    if v.count(":") == 2:
+        parts = v.split(":")
+        if (
+            parts[0].isdigit()
+            and len(parts[1]) >= 3
+            and len(parts[2]) >= 3
+        ):
+            return True
+    # TLSH (T1 prefix + 70 hex)
+    if upper.startswith("T1") and len(v) in (70, 72) and all(
+        c in "0123456789ABCDEFabcdef" for c in v[2:]
+    ):
+        return True
+    return False
 
 
 def _looks_like_filename(value: str) -> bool:

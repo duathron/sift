@@ -287,8 +287,8 @@ def cluster_alerts(
     # Early termination: honour max_clusters if requested
     # -----------------------------------------------------------------------
     if max_clusters is not None and len(root_to_members) > max_clusters:
-        # Keep only the top-scoring roots so we return at most max_clusters
-        # clusters.  Score is approximated by the sum of member severities.
+        # Keep only the top-scoring roots and merge the rest into an "Other"
+        # cluster so no alerts are silently dropped.
         def _group_score(member_indices: list[int]) -> float:
             return sum(alerts[idx].severity.score for idx in member_indices)
 
@@ -297,7 +297,14 @@ def cluster_alerts(
             key=lambda kv: _group_score(kv[1]),
             reverse=True,
         )
-        root_to_members = dict(sorted_roots[:max_clusters])
+        # Reserve one slot for the "Other" bucket; keep max_clusters-1 top roots.
+        kept = sorted_roots[: max_clusters - 1]
+        dropped = sorted_roots[max_clusters - 1 :]
+        other_members = [idx for _, members in dropped for idx in members]
+        root_to_members = dict(kept)
+        if other_members:
+            # Use sentinel key -1 for the Other cluster (all real roots are ≥0).
+            root_to_members[-1] = other_members
 
     # -----------------------------------------------------------------------
     # Build Cluster objects
@@ -307,6 +314,18 @@ def cluster_alerts(
     for root, member_indices in root_to_members.items():
         member_alerts = [alerts[i] for i in member_indices]
         is_singleton = len(member_alerts) == 1
+
+        if root == -1:
+            # Alerts merged into the Other bucket by max_clusters early-term.
+            cluster = _build_cluster(
+                cluster_id=str(uuid.uuid4()),
+                alerts=member_alerts,
+                label=f"Other ({len(member_alerts)} alerts)",
+                confidence=1.0,
+                cluster_reason="max_clusters limit reached; grouped as Other",
+            )
+            clusters.append(cluster)
+            continue
 
         if is_singleton:
             # Pass 4: singleton

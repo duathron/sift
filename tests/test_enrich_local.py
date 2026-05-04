@@ -91,11 +91,11 @@ class TestEntropyHeuristics:
 
 class TestHashHeuristics:
     def test_md5_identified(self):
-        result = analyze("d41d8cd98f00b204e9800998ecf8427e")
+        result = analyze("5d41402abc4b2a76b9719d911017c592")
         assert "hash:md5" in result["findings"]
 
     def test_sha256_identified(self):
-        result = analyze("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+        result = analyze("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
         assert "hash:sha256" in result["findings"]
 
 

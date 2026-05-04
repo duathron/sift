@@ -1,0 +1,30 @@
+any.run sandbox detonation — sample 4f8a92b1
+
+Process tree:
+  winword.exe (PID 1234)
+   └─ cmd.exe (PID 2345)
+      └─ powershell.exe (PID 3456)
+
+Command lines:
+  cmd.exe /c "powershell -nop -w hidden -enc QQBCAEMARAAxADIAMwA0ADUANgA3ADgAOQBhAGIAYwBkAGUAZgBnAGgAaQBqAGsAbABtAG4AbwBwAHEAcgBzAHQAdQB2AHcAeAB5AHoAQQBCAEMARABlADEAMgAzADQANQA2ADcAOAA="
+  schtasks /create /tn "WinUpdater" /tr "C:\ProgramData\loader.exe" /sc minute /mo 5
+
+Registry persistence:
+  HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Updater = "C:\Users\victim\AppData\Roaming\loader.exe"
+  HKLM\SYSTEM\CurrentControlSet\Services\WinDefendUpd\ImagePath = "C:\ProgramData\u.exe"
+
+Network IOCs:
+  POST https://discord.com/api/webhooks/1234567890/AbCdEf1234567890abcdef1234567890
+  GET hxxps://abc123[.]trycloudflare[.]com/payload
+  Beacon to 185.220.101.5:443 every 60s
+
+TLS fingerprint:
+  JA3=e7d705a3286e19ea42f587b344ee6865
+  JA3S: 4835b19f14997673071435cb321f5445
+  JARM=2ad2ad0002ad2ad00042d42d000000abcdef1234567890abcdef1234567890
+
+Files:
+  Dropped: C:\ProgramData\loader.exe SHA256=ab1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcd
+  IMPHASH: f34d5f2d4577ed6d9ceec516c1f5a744
+  ssdeep: 1536:y6dkO/ZD3OgK2bUk7H8kF+hVtY:y6mO/ZDHZk7Hpp
+  TLSH: T12C72E0B23F8E3B7A14B73A4A52EA6F2D938710C82E69BBD4B0F5B6F0D85F3B8A4C1F6D

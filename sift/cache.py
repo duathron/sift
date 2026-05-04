@@ -22,7 +22,8 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from datetime import datetime, timezone
+import threading
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -112,6 +113,13 @@ class AlertCache:
         self._hits: int = 0
         self._misses: int = 0
         self._conn: Optional[sqlite3.Connection] = None
+        # Thread-safety: the enrichment runner uses a ThreadPoolExecutor
+        # (see ``enrichers/runner.py``) so multiple threads may call get/put
+        # concurrently. SQLite connections are opened with
+        # ``check_same_thread=False`` and serialised through this lock to
+        # avoid "SQLite objects created in a thread can only be used in
+        # that same thread" errors and concurrent-write races.
+        self._lock = threading.RLock()
 
         if config.enabled:
             self._ensure_db()
@@ -134,45 +142,46 @@ class AlertCache:
         if not self._config.enabled:
             return None
 
-        conn = self._get_conn()
-        row = conn.execute(
-            "SELECT fingerprint, result_json, created_at, hits "
-            "FROM cache_entries WHERE fingerprint = ?",
-            (fingerprint,),
-        ).fetchone()
-
-        if row is None:
-            self._misses += 1
-            return None
-
-        entry = CacheEntry(
-            fingerprint=row[0],
-            result_json=row[1],
-            created_at=datetime.fromisoformat(row[2]),
-            hits=row[3],
-        )
-
-        if self._is_expired(entry):
-            # Lazy expiry: remove stale entry and report miss.
-            conn.execute(
-                "DELETE FROM cache_entries WHERE fingerprint = ?",
+        with self._lock:
+            conn = self._get_conn()
+            row = conn.execute(
+                "SELECT fingerprint, result_json, created_at, hits "
+                "FROM cache_entries WHERE fingerprint = ?",
                 (fingerprint,),
+            ).fetchone()
+
+            if row is None:
+                self._misses += 1
+                return None
+
+            entry = CacheEntry(
+                fingerprint=row[0],
+                result_json=row[1],
+                created_at=datetime.fromisoformat(row[2]),
+                hits=row[3],
+            )
+
+            if self._is_expired(entry):
+                # Lazy expiry: remove stale entry and report miss.
+                conn.execute(
+                    "DELETE FROM cache_entries WHERE fingerprint = ?",
+                    (fingerprint,),
+                )
+                conn.commit()
+                self._misses += 1
+                return None
+
+            # Update access metadata for LRU ordering.
+            now_iso = datetime.now(tz=timezone.utc).isoformat()
+            conn.execute(
+                "UPDATE cache_entries SET hits = hits + 1, accessed_at = ? "
+                "WHERE fingerprint = ?",
+                (now_iso, fingerprint),
             )
             conn.commit()
-            self._misses += 1
-            return None
 
-        # Update access metadata for LRU ordering.
-        now_iso = datetime.now(tz=timezone.utc).isoformat()
-        conn.execute(
-            "UPDATE cache_entries SET hits = hits + 1, accessed_at = ? "
-            "WHERE fingerprint = ?",
-            (now_iso, fingerprint),
-        )
-        conn.commit()
-
-        self._hits += 1
-        return json.loads(entry.result_json)
+            self._hits += 1
+            return json.loads(entry.result_json)
 
     def put(self, fingerprint: str, result: dict) -> None:
         """Store *result* under *fingerprint*.
@@ -183,40 +192,49 @@ class AlertCache:
         if not self._config.enabled:
             return
 
-        conn = self._get_conn()
-        now_iso = datetime.now(tz=timezone.utc).isoformat()
-        result_json = json.dumps(result, default=str)
+        with self._lock:
+            conn = self._get_conn()
+            now_iso = datetime.now(tz=timezone.utc).isoformat()
 
-        # Evict before inserting so we never breach max_entries.
-        count: int = conn.execute(
-            "SELECT COUNT(*) FROM cache_entries"
-        ).fetchone()[0]
+            def _json_default(o: object) -> str:
+                if isinstance(o, (datetime, date)):
+                    return o.isoformat()
+                if hasattr(o, "as_posix"):
+                    return str(o)
+                return str(o)
 
-        # Only evict if an entry for this fingerprint does *not* already exist
-        # (updates don't change the row count).
-        exists: bool = (
+            result_json = json.dumps(result, default=_json_default)
+
+            # Evict before inserting so we never breach max_entries.
+            count: int = conn.execute(
+                "SELECT COUNT(*) FROM cache_entries"
+            ).fetchone()[0]
+
+            # Only evict if an entry for this fingerprint does *not* already exist
+            # (updates don't change the row count).
+            exists: bool = (
+                conn.execute(
+                    "SELECT 1 FROM cache_entries WHERE fingerprint = ?",
+                    (fingerprint,),
+                ).fetchone()
+                is not None
+            )
+            if not exists and count >= self._config.max_entries:
+                self._evict_lru()
+
             conn.execute(
-                "SELECT 1 FROM cache_entries WHERE fingerprint = ?",
-                (fingerprint,),
-            ).fetchone()
-            is not None
-        )
-        if not exists and count >= self._config.max_entries:
-            self._evict_lru()
-
-        conn.execute(
-            """
-            INSERT INTO cache_entries (fingerprint, result_json, created_at, accessed_at, hits)
-            VALUES (?, ?, ?, ?, 0)
-            ON CONFLICT(fingerprint) DO UPDATE SET
-                result_json = excluded.result_json,
-                created_at  = excluded.created_at,
-                accessed_at = excluded.accessed_at,
-                hits        = 0
-            """,
-            (fingerprint, result_json, now_iso, now_iso),
-        )
-        conn.commit()
+                """
+                INSERT INTO cache_entries (fingerprint, result_json, created_at, accessed_at, hits)
+                VALUES (?, ?, ?, ?, 0)
+                ON CONFLICT(fingerprint) DO UPDATE SET
+                    result_json = excluded.result_json,
+                    created_at  = excluded.created_at,
+                    accessed_at = excluded.accessed_at,
+                    hits        = 0
+                """,
+                (fingerprint, result_json, now_iso, now_iso),
+            )
+            conn.commit()
 
     def invalidate(self, fingerprint: str) -> None:
         """Remove the entry for *fingerprint* from the cache.
@@ -227,12 +245,13 @@ class AlertCache:
         if not self._config.enabled:
             return
 
-        conn = self._get_conn()
-        conn.execute(
-            "DELETE FROM cache_entries WHERE fingerprint = ?",
-            (fingerprint,),
-        )
-        conn.commit()
+        with self._lock:
+            conn = self._get_conn()
+            conn.execute(
+                "DELETE FROM cache_entries WHERE fingerprint = ?",
+                (fingerprint,),
+            )
+            conn.commit()
 
     def clear(self) -> None:
         """Remove **all** entries from the cache and reset in-process stats.
@@ -242,11 +261,12 @@ class AlertCache:
         if not self._config.enabled:
             return
 
-        conn = self._get_conn()
-        conn.execute("DELETE FROM cache_entries")
-        conn.commit()
-        self._hits = 0
-        self._misses = 0
+        with self._lock:
+            conn = self._get_conn()
+            conn.execute("DELETE FROM cache_entries")
+            conn.commit()
+            self._hits = 0
+            self._misses = 0
 
     def stats(self) -> dict:
         """Return a snapshot of cache statistics.
@@ -267,10 +287,11 @@ class AlertCache:
                 "size_bytes": 0,
             }
 
-        conn = self._get_conn()
-        entries: int = conn.execute(
-            "SELECT COUNT(*) FROM cache_entries"
-        ).fetchone()[0]
+        with self._lock:
+            conn = self._get_conn()
+            entries: int = conn.execute(
+                "SELECT COUNT(*) FROM cache_entries"
+            ).fetchone()[0]
 
         db_path = self._config.cache_dir / _DB_FILENAME
         size_bytes = db_path.stat().st_size if db_path.exists() else 0
@@ -333,15 +354,11 @@ class AlertCache:
         """
         resolved = cache_dir.resolve()
         for blocked in cls._BLOCKED_DIR_PREFIXES:
-            try:
-                resolved.relative_to(blocked.resolve())
+            if resolved.is_relative_to(blocked.resolve()):
                 raise ValueError(
                     f"cache_dir {cache_dir!r} resolves to a sensitive system directory "
                     f"({blocked}) — refusing to create SQLite files there."
                 )
-            except ValueError as exc:
-                if "resolves to a sensitive" in str(exc):
-                    raise
 
     def _ensure_db(self) -> None:
         """Create the cache directory and initialise the SQLite schema."""
@@ -352,7 +369,10 @@ class AlertCache:
         cache_dir.chmod(_DIR_MODE)
 
         db_path = cache_dir / _DB_FILENAME
-        conn = sqlite3.connect(str(db_path))
+        # ``check_same_thread=False`` lets the connection be shared across
+        # threads in the enrichment ThreadPoolExecutor; access is serialised
+        # via ``self._lock`` (see ``__init__``).
+        conn = sqlite3.connect(str(db_path), check_same_thread=False)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")
         conn.execute(
@@ -381,9 +401,19 @@ class AlertCache:
 
     def close(self) -> None:
         """Close the underlying database connection."""
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
+        with self._lock:
+            if self._conn is not None:
+                self._conn.close()
+                self._conn = None
 
     def __del__(self) -> None:
-        self.close()
+        # sqlite3 connections must be closed from the thread that created them.
+        # If the GC finalizes this object from a different thread (e.g. a
+        # daemon thread or the main thread during interpreter shutdown), silently
+        # skip — the OS will reclaim the file descriptor on process exit.
+        if self._conn is None:
+            return
+        try:
+            self.close()
+        except Exception:
+            pass

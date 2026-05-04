@@ -126,7 +126,7 @@ def _check_enrich_consent(yes: bool, cfg) -> bool:
 # Shared constants + path resolver
 # ---------------------------------------------------------------------------
 
-_SUPPORTED_SUFFIXES = {".json", ".csv", ".ndjson", ".log"}
+_SUPPORTED_SUFFIXES = {".json", ".csv", ".ndjson", ".jsonl", ".log"}
 
 
 def _resolve_paths(raw_paths: list[Path]) -> list[Path]:
@@ -289,9 +289,10 @@ def _help_all_callback(ctx: "typer.Context", param: "typer.CallbackParam", value
 def triage(
     files: Annotated[list[Path], typer.Argument(
         help=(
-            "Alert files or directories to triage (JSON, Splunk JSON, CSV). "
+            "Alert files or directories to triage (JSON, NDJSON, Splunk JSON or NDJSON, CSV, Sysmon CSV, .log). "
             "Pass multiple paths to correlate alerts across sources. "
-            "Use '-' for stdin. Directories are scanned for .json and .csv files."
+            "Use '-' for stdin. Directories are scanned for "
+            ".json, .ndjson, .jsonl, .csv, and .log files."
         ),
         show_default=False,
     )],
@@ -322,6 +323,11 @@ def triage(
         help="LLM provider: template (no key) | anthropic | openai | ollama",
         rich_help_panel="AI Summarization",
     )] = None,
+    no_llm: Annotated[bool, typer.Option(
+        "--no-llm",
+        help="Force template summarizer regardless of config (no LLM call, no API key required).",
+        rich_help_panel="AI Summarization",
+    )] = False,
     max_tokens: Annotated[Optional[int], typer.Option(
         "--max-tokens",
         help="Max output tokens for LLM summary (default: 4096). Raise for large multi-cluster reports.",
@@ -345,6 +351,16 @@ def triage(
         help="Fields to redact before AI submission (e.g. 'user,host,source_ip').",
         rich_help_panel="Privacy",
     )] = None,
+    include_raw_payload: Annotated[bool, typer.Option(
+        "--include-raw-payload",
+        help=(
+            "Include raw PowerShell-encoded base64 payloads in JSON / CSV / "
+            "ticket output. Default behaviour replaces them with a SHA-256 "
+            "stub to avoid leaking obfuscated payloads into downstream tools "
+            "and LLM-adjacent systems. Use only for forensic analysis."
+        ),
+        rich_help_panel="Privacy",
+    )] = False,
     # --- Options ---
     filter: Annotated[Optional[str], typer.Option(
         "--filter",
@@ -763,7 +779,7 @@ def triage(
                     if sub_reports:
                         source_labels.append(label)
                         detected_formats.append(fmt)
-                        file_report = merge_triage_reports(sub_reports)
+                        file_report = merge_triage_reports(sub_reports, cfg.scoring)
                         total_ingested += file_report.alerts_ingested
                         total_after_dedup += file_report.alerts_after_dedup
                         file_reports.append(file_report)
@@ -896,7 +912,7 @@ def triage(
                         clusters=_cls,
                         analyzed_at=datetime.now(tz=timezone.utc),
                     ))
-            file_report = merge_triage_reports(_chunk_reports)
+            file_report = merge_triage_reports(_chunk_reports, cfg.scoring)
         else:
             if file_dedup_count >= _PROGRESS_THRESHOLD and not _quiet_mode:
                 with _Status(
@@ -935,7 +951,7 @@ def triage(
         )
 
     # --- Merge per-file reports (IOC-overlap Union-Find restores cross-source clustering) ---
-    merged = merge_triage_reports(file_reports)
+    merged = merge_triage_reports(file_reports, cfg.scoring)
     del file_reports
     clusters = merged.clusters
 
@@ -979,6 +995,8 @@ def triage(
     )
 
     # --- Summarize ---
+    if no_llm:
+        provider = "template"
     if summarize or cfg.summarize.provider != "template":
         effective_provider = provider or cfg.summarize.provider
         if max_tokens is not None:
@@ -1027,7 +1045,14 @@ def triage(
             pass  # Cache write failure is non-blocking
 
     # --- Output ---
-    _render_output(report, format=format, output_path=output, cfg=cfg, quiet=quiet)
+    _render_output(
+        report,
+        format=format,
+        output_path=output,
+        cfg=cfg,
+        quiet=quiet,
+        include_raw_payload=include_raw_payload,
+    )
 
     # --- Ticketing (post-processing — failure never breaks triage exit code) ---
     if ticket or ticket_output:
@@ -1049,7 +1074,9 @@ def triage(
 
         for _tc in _ticket_clusters:
             try:
-                _draft = report_to_draft(report, _tc)
+                _draft = report_to_draft(
+                    report, _tc, include_raw_payload=include_raw_payload
+                )
                 _result = _ticket_provider.send(_draft)
                 if _result.ticket_url and _result.ticket_url.startswith("file://"):
                     _saved_path = _result.ticket_url[len("file://"):]
@@ -1076,7 +1103,15 @@ def triage(
 # Output rendering
 # ---------------------------------------------------------------------------
 
-def _render_output(report: TriageReport, *, format: str, output_path: Optional[Path], cfg, quiet: bool) -> None:
+def _render_output(
+    report: TriageReport,
+    *,
+    format: str,
+    output_path: Optional[Path],
+    cfg,
+    quiet: bool,
+    include_raw_payload: bool = False,
+) -> None:
     import json
 
     from .output.export import export_csv, export_json
@@ -1087,7 +1122,7 @@ def _render_output(report: TriageReport, *, format: str, output_path: Optional[P
     if fmt == "rich":
         format_report_rich(report)
         if output_path:
-            data = export_json(report)
+            data = export_json(report, include_raw_payload=include_raw_payload)
             output_path.write_text(data, encoding="utf-8")
             if not quiet:
                 console.print(f"[dim]Report saved → {output_path}[/dim]")
@@ -1103,12 +1138,16 @@ def _render_output(report: TriageReport, *, format: str, output_path: Optional[P
             output_path.write_text(buf.getvalue(), encoding="utf-8")
 
     elif fmt == "json":
-        data = export_json(report, output_path)
+        data = export_json(
+            report, output_path, include_raw_payload=include_raw_payload
+        )
         if not output_path:
             print(data)
 
     elif fmt == "csv":
-        data = export_csv(report, output_path)
+        data = export_csv(
+            report, output_path, include_raw_payload=include_raw_payload
+        )
         if not output_path:
             print(data)
 

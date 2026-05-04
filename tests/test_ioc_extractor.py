@@ -110,25 +110,25 @@ class TestExtractIocs:
 
     def test_md5_hash_extracted(self):
         """MD5 (32-char hex) is extracted."""
-        md5 = "d41d8cd98f00b204e9800998ecf8427e"
+        md5 = "5d41402abc4b2a76b9719d911017c592"
         result = extract_iocs(f"Hash: {md5}")
         assert md5 in result
 
     def test_sha256_hash_extracted(self):
         """SHA-256 (64-char hex) is extracted."""
-        sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        sha256 = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
         result = extract_iocs(f"Malware hash: {sha256}")
         assert sha256 in result
 
     def test_sha1_hash_extracted(self):
         """SHA-1 (40-char hex) is extracted."""
-        sha1 = "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+        sha1 = "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d"
         result = extract_iocs(f"File hash: {sha1}")
         assert sha1 in result
 
     def test_sha256_not_also_extracted_as_sha1_or_md5(self):
         """A SHA-256 hash must not be duplicated as a shorter hash type."""
-        sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        sha256 = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
         result = extract_iocs(sha256)
         # Only the full 64-char form should appear — no spurious 32/40-char substring.
         assert sha256 in result
@@ -148,12 +148,12 @@ class TestExtractIocs:
         """Several distinct IOC types in one text are all captured."""
         text = (
             "IP 185.220.101.47 contacted http://evil.phish.ru/drop "
-            "hash d41d8cd98f00b204e9800998ecf8427e"
+            "hash 5d41402abc4b2a76b9719d911017c592"
         )
         result = extract_iocs(text)
         assert "185.220.101.47" in result
         assert "http://evil.phish.ru/drop" in result
-        assert "d41d8cd98f00b204e9800998ecf8427e" in result
+        assert "5d41402abc4b2a76b9719d911017c592" in result
 
     def test_duplicates_removed(self):
         """The same IOC appearing twice produces only one entry."""
@@ -198,14 +198,14 @@ class TestDetectIocType:
         assert detect_ioc_type("evil.phish.ru") == "domain"
 
     def test_md5_returns_hash_md5(self):
-        assert detect_ioc_type("d41d8cd98f00b204e9800998ecf8427e") == "hash_md5"
+        assert detect_ioc_type("5d41402abc4b2a76b9719d911017c592") == "hash_md5"
 
     def test_sha1_returns_hash_sha1(self):
-        sha1 = "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+        sha1 = "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d"
         assert detect_ioc_type(sha1) == "hash_sha1"
 
     def test_sha256_returns_hash_sha256(self):
-        sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        sha256 = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
         assert detect_ioc_type(sha256) == "hash_sha256"
 
     def test_email_returns_email(self):
@@ -260,7 +260,7 @@ class TestEnrichAlertIocs:
 
     def test_hash_in_description_extracted(self):
         """Hash found in description ends up in iocs."""
-        md5 = "d41d8cd98f00b204e9800998ecf8427e"
+        md5 = "5d41402abc4b2a76b9719d911017c592"
         alert = make_alert(description=f"Dropped file hash: {md5}")
         enriched = enrich_alert_iocs(alert)
         assert md5 in enriched.iocs

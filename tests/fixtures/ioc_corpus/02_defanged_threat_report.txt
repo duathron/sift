@@ -1,0 +1,20 @@
+Threat Intel Report — APT-Volkov campaign
+
+The campaign uses C2 infrastructure at hxxps://evil[.]com/gate.php and
+backup at hxxp://malicious[dot]example-c2[.]net/x. Phishing emails
+originate from attacker[at]phish[dot]tld and reference invoice[.]docx
+attachments.
+
+DNS observations:
+- Primary: 8[.]8[.]8[.]8 was queried (likely DoH check)
+- Beacon resolved: payload-server(.)evil(.)com
+- Fullwidth obfuscation seen: badactor．com and bad＠domain．com
+
+IOC list:
+- SHA256: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
+- IPv4 c2: 198[.]51[.]100[.]42
+- Tunnel: payload-abc123[.]ngrok[.]io
+- Paste: hxxps://pastebin[.]com/raw/Xy12AbCd
+
+Vulnerabilities exploited: CVE-2024-3400 and CVE-2023-23397.
+Mapped to MITRE: T1059.001, T1190, T1566.001, T1071.001.

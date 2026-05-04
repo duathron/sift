@@ -30,7 +30,7 @@ def show_banner(
     """
     if quiet:
         return
-    if not sys.stdout.isatty():
+    if not sys.stderr.isatty():
         return
 
     print(_BANNER, file=sys.stderr)

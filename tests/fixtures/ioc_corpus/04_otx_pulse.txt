@@ -1,0 +1,31 @@
+AlienVault OTX Pulse: Lazarus Group infrastructure update (2026-04)
+
+Pulse author: AlienVault
+Adversary: G0032 (Lazarus Group)
+Industry: Defense, Aerospace
+Malware: BLINDINGCAN, COPPERHEDGE
+
+Indicators (defanged for safety):
+  IPs:
+    103[.]124[.]106[.]237
+    175[.]45[.]178[.]224
+    2606:4700:4700::1111  (Cloudflare DNS abuse, control plane)
+  Domains:
+    movie-asia[.]com
+    secsupport[.]net
+    update-service[.]online
+  URLs:
+    hxxps://movie-asia[.]com/script[.]aspx?id=42
+    hxxp://secsupport[.]net/collect[.]php
+  File hashes:
+    MD5: a4d25f10c81a956b0fd3b8bbb3aaeed1
+    SHA1: 0d11d8e63f7ab9d0eb83f5a93b1c0e0e7b6c4f93
+    SHA256: 7f0fbfae39e62ac8e8d21f72ddd3fbe9e9b9b2cf04c7b2e95e17bb3be9b6bab8
+
+Email lure:
+  Sender: hr-recruit@careers-aerospace[.]net
+  Subject: Senior Aerospace Engineer — Job Offer
+  Attachment: JobDescription.docm
+
+Vulnerabilities exploited: CVE-2025-12345
+Techniques: T1566.001 (Spearphishing Attachment), T1204.002 (User Execution: Malicious File), T1059.005 (Visual Basic), T1547.001 (Run Key Persistence)

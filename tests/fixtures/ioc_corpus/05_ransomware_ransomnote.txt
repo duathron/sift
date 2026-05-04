@@ -1,0 +1,25 @@
+!!! YOUR FILES HAVE BEEN ENCRYPTED !!!
+
+All your important documents, photos, databases, and other files
+have been encrypted with strong RSA-2048 + AES-256.
+
+To recover your files you must pay 0.5 BTC to the following address
+within 72 hours:
+
+    Bitcoin: bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh
+
+Alternative payment methods:
+    Ethereum: 0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe
+    Monero:   48daf1rG3hE7Eqv7KLRshGmLjpVH3SvhZpXwGqXwA8YpBz5fG9JkwzMnPqRsTuVwXyZaBcDeFgHiJkLmNoPq
+
+After payment, contact us via:
+    Email: ransom-decoder@protonmail[.]com
+    Telegram: t[.]me/ransom_support_bot
+
+DO NOT contact law enforcement.
+DO NOT attempt to decrypt files yourself.
+
+Your unique ID: a1b2c3d4e5f67890
+
+Encrypted file extensions: .docx, .xlsx, .pdf, .jpg, .png, .mp4, .zip
+Encryption tool used: ENCRYPTOR.exe (SHA256=cafebabe1234567890deadbeefabcdef1234567890fedcba0987654321feedfa)

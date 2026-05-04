@@ -25,7 +25,7 @@ from .validation import SummaryValidator
 if TYPE_CHECKING:
     pass
 
-_DEFAULT_MODEL = "claude-sonnet-4-20250514"
+_DEFAULT_MODEL = "claude-sonnet-4-6"
 
 
 # ---------------------------------------------------------------------------

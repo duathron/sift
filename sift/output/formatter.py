@@ -10,6 +10,9 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+import base64
+import hashlib
+
 from ..models import (
     AlertSeverity,
     Cluster,
@@ -17,6 +20,7 @@ from ..models import (
     ClusterSummary,
     TriageReport,
 )
+from ..pipeline.ioc_extractor import classify_severity_hint
 
 # ---------------------------------------------------------------------------
 # Style maps
@@ -112,6 +116,32 @@ def _fmt_techniques(cluster: Cluster) -> str:
     return result
 
 
+def _fmt_ps_encoded(ioc: str) -> str:
+    """Replace ps_encoded:<b64> with a short human-readable label."""
+    payload = ioc[len("ps_encoded:"):]
+    try:
+        raw = base64.b64decode(payload + "==")
+        n = len(raw)
+        digest = hashlib.sha256(raw).hexdigest()[:8]
+    except Exception:
+        digest = payload[:8]
+        n = 0
+    size_str = f"{n}B" if n else "?B"
+    return f"ps_encoded:{digest}… ({size_str})"
+
+
+def _cluster_severity_hint(cluster: Cluster) -> str | None:
+    """Return the highest severity hint across a cluster's IOCs."""
+    best: str | None = None
+    for ioc in cluster.iocs:
+        h = classify_severity_hint(ioc)
+        if h == "critical":
+            return "critical"
+        if h == "high":
+            best = "high"
+    return best
+
+
 def _sorted_clusters(clusters: list[Cluster]) -> list[Cluster]:
     return sorted(clusters, key=lambda c: _PRIORITY_ORDER[c.priority])
 
@@ -199,6 +229,7 @@ def _render_clusters_table(report: TriageReport, con: Console) -> None:
     table.add_column("Label", max_width=50)
     table.add_column("Alerts", justify="right", width=7)
     table.add_column("IOCs", justify="right", width=6)
+    table.add_column("Hint", width=8, no_wrap=True)
     table.add_column("ATT&CK", max_width=32)
     table.add_column("Time Range", min_width=20, no_wrap=True)
 
@@ -206,6 +237,13 @@ def _render_clusters_table(report: TriageReport, con: Console) -> None:
         row_style = "dim" if cluster.priority == ClusterPriority.NOISE else ""
         label = cluster.label[:50] if len(cluster.label) > 50 else cluster.label
         ioc_count = str(len(cluster.iocs)) if cluster.iocs else "–"
+        hint = _cluster_severity_hint(cluster)
+        if hint == "critical":
+            hint_cell = Text("critical", style="bold red")
+        elif hint == "high":
+            hint_cell = Text("high", style="red")
+        else:
+            hint_cell = Text("–", style="dim")
 
         table.add_row(
             _priority_label(cluster.priority),
@@ -213,6 +251,7 @@ def _render_clusters_table(report: TriageReport, con: Console) -> None:
             label,
             str(len(cluster.alerts)),
             ioc_count,
+            hint_cell,
             _fmt_techniques(cluster),
             _fmt_time_range(cluster),
             style=row_style,
@@ -267,7 +306,8 @@ def _render_cluster_detail(
     if cluster.iocs:
         lines.append("\n[bold cyan]IOCs[/bold cyan] [dim](top 5)[/dim]")
         for ioc in cluster.iocs[:5]:
-            lines.append(f"  [yellow]{ioc}[/yellow]")
+            display = _fmt_ps_encoded(ioc) if ioc.startswith("ps_encoded:") else ioc
+            lines.append(f"  [yellow]{display}[/yellow]")
         remaining = len(cluster.iocs) - 5
         if remaining > 0:
             lines.append(f"  [dim]… and {remaining} more[/dim]")

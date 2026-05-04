@@ -18,13 +18,13 @@ _ID_FIELDS = ["id", "alert_id", "event_id", "uid", "_id"]
 _TIMESTAMP_FIELDS = ["timestamp", "time", "event_time", "created_at", "@timestamp", "date"]
 _SEVERITY_FIELDS = ["severity", "priority", "level", "risk_level", "alert_level"]
 _TITLE_FIELDS = ["title", "name", "alert_name", "message", "msg", "description", "event_name", "label"]
-_DESC_FIELDS = ["description", "details", "message", "msg", "summary"]
-_SOURCE_FIELDS = ["source", "sensor", "detector", "product", "vendor"]
+_SOURCE_FIELDS = ["source", "sensor", "detector", "product", "vendor", "parentimage"]
 _SOURCE_IP_FIELDS = ["source_ip", "src_ip", "src", "sourceAddress", "source_address", "attacker_ip", "source ip", "src ip"]
 _DEST_IP_FIELDS = ["dest_ip", "dst_ip", "dst", "destAddress", "destination_ip", "target_ip", "destination ip", "dest ip", "dst ip"]
 _USER_FIELDS = ["user", "username", "user_name", "account", "actor"]
-_HOST_FIELDS = ["host", "hostname", "computer", "device", "endpoint", "machine"]
-_CATEGORY_FIELDS = ["category", "type", "alert_type", "event_type", "classification", "label"]
+_HOST_FIELDS = ["host", "hostname", "computer", "device", "endpoint", "machine", "image"]
+_CATEGORY_FIELDS = ["category", "type", "alert_type", "event_type", "classification", "label", "eventid"]
+_DESC_FIELDS = ["description", "details", "message", "msg", "summary", "commandline"]
 
 _SEVERITY_MAP = {
     "info": AlertSeverity.INFO,
@@ -70,12 +70,18 @@ def _parse_timestamp(value: Any) -> datetime | None:
     if isinstance(value, str):
         for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S%z"):
             try:
-                return datetime.strptime(value, fmt).replace(tzinfo=timezone.utc)
+                parsed = datetime.strptime(value, fmt)
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed
             except ValueError:
                 continue
         try:
             from datetime import datetime as dt
-            return dt.fromisoformat(value)
+            parsed = dt.fromisoformat(value)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed
         except Exception:
             return None
     return None

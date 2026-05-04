@@ -117,10 +117,10 @@ detector = PromptInjectionDetector(
 )
 ```
 
-Future (v0.6.0):
-```python
-config.summarize.injection_detection_enabled = True  # Default: True
-```
+As of v1.1.10 the detector also walks `cluster.iocs` (so PowerShell-encoded
+sentinels cannot bypass scanning), normalises text via NFKC before pattern
+matching, and skips the base-64 hex pattern on `ioc.*` fields to avoid
+false positives on legitimate hash IOCs.
 
 ## Logging Output
 
@@ -168,16 +168,10 @@ alert.description = "normal content"  # unchanged
 alert.raw["payload"] = "[REDACTED]"  # nested fields handled
 ```
 
-## Next Steps
-
-1. **Testing**: Run `pytest tests/test_injection_detector.py -v`
-2. **Commit**: `git commit -m "feat: add prompt injection detection"`
-3. **Monitor**: Check logs for injection pattern detections
-4. **Enhance**: Add config flag in v0.6.0 if needed
-
 ## References
 
 - **Module**: `sift.summarizers.injection_detector`
 - **Tests**: `tests/test_injection_detector.py`
-- **Docs**: `INJECTION_DETECTOR.md`, `IMPLEMENTATION_REPORT.md`
+- **CHANGELOG**: see `CHANGELOG.md` v1.1.10 entry for the IOC-list scan,
+  NFKC normalisation, and `ioc.*` field exemption.
 - **OWASP**: https://owasp.org/www-community/attacks/Prompt_Injection

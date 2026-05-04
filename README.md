@@ -16,18 +16,59 @@
 
 ## Features
 
-- Ingest alerts from generic JSON, Splunk exports, or CSV
-- Deduplicate noisy alert streams before analysis
-- Extract IOCs (IPs, domains, hashes, URLs) from alert fields automatically
-- Cluster related alerts by IOC overlap, category + time window, or IP-pair correlation
+- Ingest alerts from generic JSON, Splunk exports (including NDJSON forwarder
+  output), CSV, and Sysmon-format CSV (Image / CommandLine / EventID /
+  ParentImage aliases).
+- Deduplicate noisy alert streams before analysis (fingerprint includes
+  host and user so distinct endpoints stay distinct).
+- Extract a wide range of IOC types automatically:
+  - Network: IPv4, IPv6, domains, URLs, email addresses
+  - File hashes: MD5, SHA1, SHA256, SHA512, ssdeep, TLSH, JARM, JA3 / JA3S
+    (keyword-anchored), imphash
+  - File observables: Windows executables / scripts (`.exe`, `.dll`, `.ps1`,
+    `.docm`, …) including underscore-bearing malware names
+  - Vulnerability and framework references: CVE IDs, MITRE ATT&CK technique
+    IDs (T1xxx / T1xxx.yyy)
+  - Persistence indicators: Windows registry keys (`HKLM\…`, `HKCU\…`)
+  - Obfuscation indicators: PowerShell encoded blocks (`-enc <b64>`,
+    `FromBase64String("…")`) — surfaced as a SHA-256 stub, never as raw
+    base-64
+  - Tunnel and cloud-abuse domains: ngrok, serveo, trycloudflare,
+    Discord webhooks, Telegram bot URLs, paste sites — auto-tagged
+    `high` severity
+  - Defang refang preprocessor: `hxxp://`, `[.]`, `(.)`, `[at]`/`[dot]`,
+    fullwidth Unicode (`．`, `＠`), zero-width / BOM strips
+  - Null-hash sentinels (Sysmon empty `IMPHASH`, hashes-of-empty-bytestring)
+    are silently dropped
+- Severity-hint multipliers: PowerShell-encoded execution → `critical`,
+  persistence registry keys / tunnel domains / paste sites → `high`,
+  feeding directly into cluster prioritisation, Jira priority bumps,
+  TheHive tags, and STIX export.
+- Cluster related alerts by IOC overlap, category + time window, or IP-pair
+  correlation. Overflow alerts (when `max_clusters` is hit) land in an
+  explicit `Other` cluster instead of being silently dropped.
 - Score clusters across five priority tiers: NOISE / LOW / MEDIUM / HIGH / CRITICAL
-- AI summarization via Anthropic Claude, OpenAI, Ollama (local), or template-based with no LLM required
-- Rich terminal output with priority-colored cluster table
-- Export to JSON, CSV, or STIX 2.1 for downstream tooling
+- AI summarization via Anthropic Claude, OpenAI, Ollama (local), or
+  template-based with no LLM required. The `--no-llm` flag forces the
+  template provider for fully offline / keyless triage.
+- Rich terminal output with priority-colored cluster table and a
+  per-cluster severity-hint column.
+- Export to JSON, CSV, or STIX 2.1 for downstream tooling. PowerShell-encoded
+  payloads are sanitised in every export path by default; pass
+  `--include-raw-payload` for forensic-mode output.
 - Filter clusters using a boolean DSL (`--filter 'priority >= HIGH AND ...'`)
-- Enrich IOCs via barb (phishing URL analysis) and vex (VirusTotal reputation) with `--enrich`
-- Cache triage results by input fingerprint with `--cache` (opt-in, 1h TTL)
-- Validate LLM output schema and detect prompt injection attacks
+- Enrich IOCs via barb (phishing URL analysis) and vex (VirusTotal reputation)
+  with `--enrich`. Bridges run concurrently (`ThreadPoolExecutor`); IOCs are
+  case-normalised and refanged before the cache dedup pass to collapse
+  duplicate API calls.
+- Cache triage results by input fingerprint with `--cache` (opt-in, 1h TTL,
+  thread-safe SQLite).
+- Validate LLM output schema, normalize text via NFKC, and detect prompt
+  injection attacks. PowerShell-encoded payloads are sanitised before any
+  LLM submission.
+- Ticketing for TheHive 5 and Jira Service Management with severity-hint
+  aware priority promotion (e.g. a cluster containing PowerShell-encoded
+  IOCs goes straight to `Highest` in Jira).
 - `sift metrics <file>` command for cluster and IOC distribution statistics
 - `sift doctor` diagnostics to verify configuration, LLM connectivity, and dependencies
 - PyPI version check on startup
@@ -87,6 +128,16 @@ sift triage alerts.json --summarize --provider anthropic
 **Pipe from Splunk or another tool:**
 ```bash
 cat splunk_export.json | sift triage -
+```
+
+**Triage offline / without an LLM (template-only summary):**
+```bash
+sift triage alerts.json --no-llm
+```
+
+**Forensic-mode export (keep raw PowerShell base-64 payloads):**
+```bash
+sift triage alerts.json -f json --include-raw-payload -o forensic.json
 ```
 
 **Export triage report to JSON:**
@@ -300,7 +351,7 @@ sift config --provider anthropic --api-key sk-ant-...
 sift triage alerts.json --summarize
 ```
 
-Default model: `claude-sonnet-4-20250514`. Override with `--model`:
+Default model: `claude-sonnet-4-6`. Override with `--model`:
 
 ```bash
 sift triage alerts.json --summarize --provider anthropic --model claude-opus-4-6
@@ -362,7 +413,7 @@ Use this for air-gapped environments or to test the summarization pipeline witho
 |----------|--------------|-----------------|---------------------|---------------|
 | `template` | — | No | No | — |
 | `mock` | — | No | No | — (testing only) |
-| `anthropic` | `[llm]` | Yes | Yes (Anthropic API) | `claude-sonnet-4-20250514` |
+| `anthropic` | `[llm]` | Yes | Yes (Anthropic API) | `claude-sonnet-4-6` |
 | `openai` | `[llm]` | Yes | Yes (OpenAI API) | `gpt-4o-mini` |
 | `ollama` | — | No | No (local) | `llama3.2` |
 

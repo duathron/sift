@@ -68,7 +68,7 @@ def _splunk_record_to_alert(record: dict) -> Alert:
         timestamp=timestamp,
         severity=severity,
         title=str(title),
-        description=record.get("description") or record.get("rule_description"),
+        description=record.get("description") or record.get("rule_description") or record.get("_raw"),
         source=record.get("source") or record.get("sourcetype"),
         source_ip=record.get("src") or record.get("src_ip") or record.get("source_ip"),
         dest_ip=record.get("dest") or record.get("dest_ip") or record.get("destination_ip"),
@@ -79,6 +79,22 @@ def _splunk_record_to_alert(record: dict) -> Alert:
     )
 
 
+def _parse_ndjson(raw: str) -> list[dict]:
+    """Parse newline-delimited JSON; return only dict lines."""
+    records: list[dict] = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+            if isinstance(obj, dict):
+                records.append(obj)
+        except Exception:
+            pass
+    return records
+
+
 class SplunkNormalizer:
     """Normalizer for Splunk JSON export format."""
 
@@ -87,17 +103,30 @@ class SplunkNormalizer:
         return "splunk"
 
     def can_handle(self, raw: str) -> bool:
+        stripped = raw.strip()
+        # Standard Splunk export: {"results": [...]}
         try:
-            data = json.loads(raw.strip())
-            # Splunk search results have a "results" key
-            return isinstance(data, dict) and "results" in data
+            data = json.loads(stripped)
+            if isinstance(data, dict) and "results" in data:
+                return True
         except Exception:
-            return False
+            pass
+        # Splunk ndjson export: one JSON object per line
+        records = _parse_ndjson(stripped)
+        return len(records) > 0 and any(
+            "_time" in r or "urgency" in r or "rule_name" in r or "event_id" in r
+            for r in records
+        )
 
     def normalize(self, raw: str) -> list[Alert]:
+        stripped = raw.strip()
+        # Try standard {"results": [...]} first
         try:
-            data = json.loads(raw.strip())
-            results = data.get("results", [])
-            return [_splunk_record_to_alert(r) for r in results if isinstance(r, dict)]
+            data = json.loads(stripped)
+            if isinstance(data, dict) and "results" in data:
+                return [_splunk_record_to_alert(r) for r in data.get("results", []) if isinstance(r, dict)]
         except Exception:
-            return []
+            pass
+        # Fall back to ndjson
+        records = _parse_ndjson(stripped)
+        return [_splunk_record_to_alert(r) for r in records]
