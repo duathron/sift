@@ -66,13 +66,20 @@ def _normalize(raw: str) -> tuple[list, str]:
 # Helper: build summarizer
 # ---------------------------------------------------------------------------
 
-def _build_summarizer(provider: str, config):
+def _build_summarizer(
+    provider: str,
+    config,
+    injection_verbose: bool = False,
+    injection_log_file: Optional[Path] = None,
+):
     from .summarizers.template import TemplateSummarizer
 
-    # Attach injection whitelist patterns so build_cluster_prompt() can use them.
+    # Attach injection settings so build_cluster_prompt() can use them.
     # This bridges PromptInjectionConfig → SummarizeConfig without changing the schema.
     summarize_cfg = config.summarize
     summarize_cfg._injection_whitelist = config.injection.whitelist_patterns
+    summarize_cfg._injection_verbose = injection_verbose
+    summarize_cfg._injection_log_file = str(injection_log_file) if injection_log_file else None
 
     if provider == "template":
         return TemplateSummarizer()
@@ -361,6 +368,19 @@ def triage(
         ),
         rich_help_panel="Privacy",
     )] = False,
+    injection_detail: Annotated[bool, typer.Option(
+        "--injection-detail",
+        help=(
+            "Show a warning line per alert when injection patterns are detected. "
+            "Default: single summary line ('N pattern(s) across M alerts — redacted')."
+        ),
+        rich_help_panel="Privacy",
+    )] = False,
+    findings_file: Annotated[Optional[Path], typer.Option(
+        "--findings-file", "-F",
+        help="Write injection findings (alert_id, field, pattern_type, severity) to a JSON file.",
+        rich_help_panel="Privacy",
+    )] = None,
     # --- Options ---
     filter: Annotated[Optional[str], typer.Option(
         "--filter",
@@ -1004,7 +1024,12 @@ def triage(
             cfg = cfg.model_copy(
                 update={"summarize": cfg.summarize.model_copy(update={"max_tokens": max_tokens})}
             )
-        summarizer = _build_summarizer(effective_provider, cfg)
+        summarizer = _build_summarizer(
+            effective_provider,
+            cfg,
+            injection_verbose=injection_detail,
+            injection_log_file=findings_file,
+        )
         if summarize and effective_provider == "template" and cfg.summarize.api_key:
             _quiet_mode = quiet or cfg.output.quiet
             if not _quiet_mode:

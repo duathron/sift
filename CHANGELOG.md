@@ -11,6 +11,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.1.101] - 2026-05-12
+
+### Added
+- `--injection-detail` flag: show per-alert warning lines when injection patterns
+  are detected (default: off — single batched summary line instead)
+- `--findings-file / -F` flag: write full injection findings (alert_id, field,
+  pattern_type, severity, value_preview) to a JSON file for forensic review
+- `PromptInjectionConfig.verbose` and `PromptInjectionConfig.log_file` config
+  fields mirror the new CLI flags
+
+### Changed
+- Default injection scanner output reduced from one `WARNING` per alert to a
+  single summary line: `Injection scanner: N pattern(s) across M alert(s) — redacted`
+  Prevents log flooding on large alert sets (100+ alerts with JSON escape sequences)
+
+### Tests
+- 15 new tests in `tests/test_injection_prompt_logging.py` covering quiet/verbose
+  modes and file output
+
+---
+
 ## [1.1.10] - 2026-05-03
 
 This release is the culmination of an app-wide audit (see vault MeetUp log

@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import logging
+from pathlib import Path
+from typing import Optional
 
 from pydantic import BaseModel
 
 from sift.config import SummarizeConfig
 from sift.models import TriageReport
-from sift.summarizers.injection_detector import PromptInjectionDetector
+from sift.summarizers.injection_detector import InjectionFinding, PromptInjectionDetector
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +187,29 @@ PROVIDER_EXAMPLES: dict[str, list[PromptExample]] = {
 # Helper Functions
 # ---------------------------------------------------------------------------
 
+def _write_findings_log(
+    all_findings: list[tuple[str, list[InjectionFinding]]],
+    path: Path,
+) -> None:
+    """Write accumulated injection findings as a JSON array to *path*."""
+    records = []
+    for alert_id, findings in all_findings:
+        for f in findings:
+            records.append({
+                "alert_id": alert_id,
+                "field": f.field,
+                "pattern_type": f.pattern_type,
+                "severity": f.severity.value,
+                "value_preview": f.value_preview,
+            })
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(records, indent=2), encoding="utf-8")
+        logger.info(f"Injection findings written to {path} ({len(records)} record(s))")
+    except OSError as exc:
+        logger.warning(f"Could not write injection findings to {path}: {exc}")
+
+
 def _safe_ioc_for_prompt(ioc: str) -> str:
     """Replace ps_encoded raw base64 with a SHA-256 prefix + byte-length stub."""
     if not ioc.startswith("ps_encoded:"):
@@ -291,23 +317,42 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
     # Honour operator-defined whitelist_patterns from PromptInjectionConfig
     # (passed via the parent AppConfig → injected into SummarizeConfig callers).
     whitelist = getattr(config, "_injection_whitelist", None) or []
+    verbose_injection = getattr(config, "_injection_verbose", False)
+    findings_log_path: Optional[str] = getattr(config, "_injection_log_file", None)
+
     detector = PromptInjectionDetector(whitelist_patterns=whitelist)
     safe_clusters = []
+    # Accumulate for batch summary: list of (alert_id, findings)
+    all_findings: list[tuple[str, list[InjectionFinding]]] = []
     for cluster in report.clusters:
         safe_alerts = []
         for alert in cluster.alerts:
             findings = detector.detect(alert)
             if findings:
-                logger.warning(
-                    f"Injection pattern(s) detected in alert {alert.id}: "
-                    f"{', '.join(f.pattern_type for f in findings)} (severity: "
-                    f"{', '.join(str(f.severity.value) for f in findings)}) — redacting"
-                )
+                if verbose_injection:
+                    logger.warning(
+                        f"Injection pattern(s) detected in alert {alert.id}: "
+                        f"{', '.join(f.pattern_type for f in findings)} (severity: "
+                        f"{', '.join(str(f.severity.value) for f in findings)}) — redacting"
+                    )
+                all_findings.append((alert.id, findings))
                 alert = detector.redact_alert(alert, findings)
             safe_alerts.append(alert)
         safe_cluster = cluster.model_copy(update={"alerts": safe_alerts})
         safe_clusters.append(safe_cluster)
     report = report.model_copy(update={"clusters": safe_clusters})
+
+    # Emit batch summary (always, unless no findings)
+    if all_findings and not verbose_injection:
+        total_patterns = sum(len(f) for _, f in all_findings)
+        logger.warning(
+            f"Injection scanner: {total_patterns} pattern(s) across "
+            f"{len(all_findings)} alert(s) — redacted"
+        )
+
+    # Dump findings to file if requested
+    if all_findings and findings_log_path:
+        _write_findings_log(all_findings, Path(findings_log_path))
 
     redact: set[str] = set(config.redact_fields)
 

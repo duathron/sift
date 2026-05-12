@@ -87,6 +87,8 @@ class PromptInjectionConfig(BaseModel):
 
     enabled: bool = True              # Enable/disable injection detection
     whitelist_patterns: list[str] = []  # Optional regex patterns for safe content
+    verbose: bool = False             # Per-alert warning lines (default: quiet summary)
+    log_file: Optional[str] = None    # Dump findings JSON to this path if set
 
 
 class AlertRedactionConfig(BaseModel):
