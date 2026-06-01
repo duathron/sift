@@ -9,8 +9,8 @@ non-mutating fashion.
 
 v1.1.10 expansion (2026-05-01) covers:
 
-* Defang refang preprocessor (``hxxp://``, ``[.]``, ``(.)``, ``[at]``,
-  ``[dot]``, fullwidth ``．`` / ``＠``, zero-width strip).
+* Defang refang preprocessor (``hxxp://``, ``hxxp[://]``, ``[.]``, ``(.)``,
+  ``[at]``, ``[dot]``, ``(dot)``, fullwidth ``．`` / ``＠``, zero-width strip).
 * CVE IDs (``CVE-YYYY-NNNN``).
 * MITRE ATT&CK technique IDs (``T####`` / ``T####.###``).
 * PowerShell encoded blocks (``-enc <b64>`` / ``FromBase64String``).
@@ -194,6 +194,10 @@ _RE_MITRE = re.compile(r"\bT1\d{3}(?:\.\d{3})?\b")
 _AT_DOMAIN_LOOKAHEAD = r"(?=[A-Za-z0-9._\-]{1,60}(?:\[dot\]|\.))"
 
 _DEFANG_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    # Bracketed scheme separator — MUST run FIRST so that ``hxxps[://]evil.com``
+    # becomes ``hxxps://evil.com`` before the scheme patterns below fire.
+    # CyberChef and barb both emit this form.
+    (re.compile(r"\[://\]"), "://"),
     # Schemes
     (re.compile(r"\bhxxp(s?)://", re.IGNORECASE), r"http\1://"),
     (re.compile(r"\bhxtp(s?)://", re.IGNORECASE), r"http\1://"),
@@ -207,6 +211,7 @@ _DEFANG_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     # Word-form dot separators (rarely seen outside defang contexts).
     (re.compile(r"\[dot\]", re.IGNORECASE), "."),
     (re.compile(r"\{dot\}", re.IGNORECASE), "."),
+    (re.compile(r"\(dot\)", re.IGNORECASE), "."),
     # @ sign — only refang when domain-shape follows; avoids corrupting
     # prose like ``state[at]rest``.
     (re.compile(r"\[at\]" + _AT_DOMAIN_LOOKAHEAD, re.IGNORECASE), "@"),
@@ -298,7 +303,8 @@ _PERSISTENCE_REG_FRAGMENTS: tuple[str, ...] = (
 def _refang(text: str) -> str:
     """Return *text* with common defanging patterns reversed.
 
-    Handles ``hxxp://``, ``[.]``, ``(.)``, ``[at]``, ``[dot]``,
+    Handles ``hxxp://``, ``hxxp[://]`` (bracketed scheme separator),
+    ``[.]``, ``(.)``, ``[at]``, ``[dot]``, ``(dot)``,
     fullwidth Unicode lookalikes, and zero-width invisibles. Idempotent.
     """
     if not text:

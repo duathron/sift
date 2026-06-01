@@ -9,6 +9,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **Refang preprocessor — `[://]` bracketed scheme separator** (`hxxps[://]evil.com`
+  now refangs correctly to `https://evil.com`). The pattern is inserted as the first
+  entry in `_DEFANG_PATTERNS` so it fires before the `hxxp(s?)://` scheme substitution.
+  CyberChef and barb both emit this defang form; without this fix such URLs were silently
+  missed by IOC extraction.
+- **Refang preprocessor — `(dot)` word-form separator** added alongside the existing
+  `[dot]` and `{dot}` forms (case-insensitive). Parity with barb v1.5.1, which ported
+  sift's defang set and surfaced both gaps.
+
 ---
 
 ## [1.1.101] - 2026-05-12

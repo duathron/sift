@@ -8,6 +8,7 @@ Covers:
   - detect_ioc_type(ioc)     — IOC classification
   - enrich_alert_iocs(alert) — alert enrichment, immutability, merging
   - enrich_alerts_iocs(...)  — batch enrichment
+  - _refang(text)            — defang preprocessor (bracketed scheme, word-form dots)
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import uuid
 
 from sift.models import Alert, AlertSeverity
 from sift.pipeline.ioc_extractor import (
+    _refang,
     detect_ioc_type,
     enrich_alert_iocs,
     enrich_alerts_iocs,
@@ -351,3 +353,87 @@ class TestEnrichAlertsIocs:
         original_iocs = list(alert.iocs)
         enrich_alerts_iocs([alert])
         assert alert.iocs == original_iocs
+
+
+# ===========================================================================
+# _refang — defang preprocessor gaps (bracketed scheme separator + (dot))
+# ===========================================================================
+
+class TestRefang:
+    # ---- Bracketed scheme separator [://] -----------------------------------
+
+    def test_bracketed_scheme_https_refanged(self):
+        """hxxps[://] is refanged to https:// (full round-trip)."""
+        assert _refang("hxxps[://]evil[.]com/login") == "https://evil.com/login"
+
+    def test_bracketed_scheme_http_refanged(self):
+        """hxxp[://] is refanged to http:// (full round-trip)."""
+        assert _refang("hxxp[://]1[.]2[.]3[.]4") == "http://1.2.3.4"
+
+    def test_bracketed_scheme_extracted_as_url(self):
+        """IOC extraction recognises a hxxps[://] URL and restores it."""
+        result = extract_iocs("beacon to hxxps[://]evil[.]com/drop")
+        assert "https://evil.com/drop" in result
+
+    def test_bracketed_scheme_ip_extracted_as_url(self):
+        """hxxp[://] with a dotted-quad IP round-trips through extract_iocs."""
+        result = extract_iocs("hxxp[://]198.51.100.1/payload")
+        assert "http://198.51.100.1/payload" in result
+
+    # ---- (dot) word-form separator ------------------------------------------
+
+    def test_dot_paren_refanged(self):
+        """(dot) word form is converted to a literal dot."""
+        assert _refang("evil(dot)com") == "evil.com"
+
+    def test_dot_paren_case_insensitive(self):
+        """(DOT) and (Dot) are treated the same as (dot)."""
+        assert _refang("evil(DOT)com") == "evil.com"
+        assert _refang("evil(Dot)com") == "evil.com"
+
+    def test_dot_paren_extracted_as_domain(self):
+        """IOC extraction recognises a (dot)-defanged domain."""
+        result = extract_iocs("DNS query to evil(dot)phish(dot)ru")
+        assert "evil.phish.ru" in result
+
+    # ---- Existing forms still work (non-regression) -------------------------
+
+    def test_bracket_dot_still_refanged(self):
+        """[.] (original pattern) is still handled after adding (dot)."""
+        assert _refang("evil[.]com") == "evil.com"
+
+    def test_brace_dot_still_refanged(self):
+        """{.} is still handled."""
+        assert _refang("evil{.}com") == "evil.com"
+
+    def test_bracket_dot_word_still_refanged(self):
+        """[dot] word-form is still handled."""
+        assert _refang("evil[dot]com") == "evil.com"
+
+    # ---- IPv6 preserved (must not be corrupted by refang) -------------------
+
+    def test_ipv6_loopback_preserved(self):
+        """IPv6 literal ``http://[::1]/x`` passes through _refang unchanged."""
+        assert _refang("http://[::1]/x") == "http://[::1]/x"
+
+    def test_ipv6_full_address_preserved(self):
+        """A routable IPv6 address in a URL is not corrupted."""
+        url = "http://[2001:db8::1]/path"
+        assert _refang(url) == url
+
+    # ---- Idempotency --------------------------------------------------------
+
+    def test_idempotent_bracketed_scheme(self):
+        """Running _refang twice on hxxps[://] input equals running it once."""
+        inp = "hxxps[://]evil[.]com/login"
+        assert _refang(_refang(inp)) == _refang(inp)
+
+    def test_idempotent_dot_paren(self):
+        """Running _refang twice on (dot) input equals running it once."""
+        inp = "evil(dot)com"
+        assert _refang(_refang(inp)) == _refang(inp)
+
+    def test_idempotent_plain_url(self):
+        """Running _refang twice on an already-clean URL is a no-op."""
+        url = "https://google.com"
+        assert _refang(_refang(url)) == _refang(url) == url
