@@ -1,6 +1,6 @@
 """Detection-quality gate for sift's IOC classifier (detect_ioc_type).
 
-Binary eval (ioc / benign) against a labeled corpus, delegating to shipwright.eval.
+Binary eval (ioc / benign) against a labeled corpus, delegating to shipwright_kit.eval.
 A string is an IOC iff detect_ioc_type(s) != "unknown". The corpus covers all 16
 detected IOC types as positives + non-IOC strings as negatives.
 
@@ -16,9 +16,9 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from shipwright.eval.corpus import load_corpus
-from shipwright.eval.harness import EvalGateError, evaluate, gate
-from shipwright.eval.metrics import EvalResult
+from shipwright_kit.eval.corpus import load_corpus
+from shipwright_kit.eval.harness import EvalGateError, evaluate, gate
+from shipwright_kit.eval.metrics import EvalResult
 
 from sift.pipeline.ioc_extractor import detect_ioc_type
 

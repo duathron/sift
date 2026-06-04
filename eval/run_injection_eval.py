@@ -1,7 +1,7 @@
 """Detection-quality gate for sift's prompt-injection detector.
 
 Binary eval (injection / clean) against a labeled corpus, delegating the
-confusion tally + metrics + gate to shipwright.eval (the framework's shared eval
+confusion tally + metrics + gate to shipwright_kit.eval (the framework's shared eval
 runtime; sift is its 2nd consumer after barb).
 
 Usage:
@@ -18,9 +18,9 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from shipwright.eval.corpus import load_corpus
-from shipwright.eval.harness import EvalGateError, evaluate, gate
-from shipwright.eval.metrics import EvalResult
+from shipwright_kit.eval.corpus import load_corpus
+from shipwright_kit.eval.harness import EvalGateError, evaluate, gate
+from shipwright_kit.eval.metrics import EvalResult
 
 from sift.models import Alert
 from sift.summarizers.injection_detector import scan_alert
