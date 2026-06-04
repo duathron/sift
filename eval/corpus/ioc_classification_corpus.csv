@@ -1,0 +1,41 @@
+text,label
+# --- positives: one+ per detected IOC type (all verified != "unknown") ---
+8.8.8.8,ioc
+203.0.113.42,ioc
+evil-domain.com,ioc
+http://malware.test/payload,ioc
+user@phish.test,ioc
+5d41402abc4b2a76b9719d911017c592,ioc
+4835b19f14997673071435cb321f5445,ioc
+aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d,ioc
+2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824,ioc
+cafebabe1234567890deadbeefabcdef1234567890fedcba0987654321feedfa,ioc
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,ioc
+3:AXGBicFlgVNhBGcL6wCrFQEv:AXGHsNhxLsr2C,ioc
+T1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA,ioc
+07d14d16d21d21d07c42d41d00041d24a458a375eef0c576d23a7bab9a9fb1,ioc
+ps_encoded:VGhpcyBpcyBhIHRlc3Q=,ioc
+CVE-2024-3400,ioc
+T1566.001,ioc
+HKLM\Software\Microsoft\Windows\CurrentVersion\Run,ioc
+OUTSTANDING_GUTTER.exe,ioc
+malware.dll,ioc
+# --- negatives: genuinely non-IOC strings (all verified "unknown") ---
+Suspicious activity detected,benign
+Credential Dumping,benign
+Lateral Movement,benign
+hello world,benign
+the quick brown fox,benign
+admin,benign
+localhost,benign
+GET /api/v1/users,benign
+error code 0x80070005,benign
+session-id-12345,benign
+2026-04-20,benign
+SELECT * FROM logs,benign
+Multiple failed login attempts,benign
+Privilege escalation attempt,benign
+Network configuration change,benign
+Service initialization failure,benign
+Brute force detected,benign
+Unusual outbound traffic volume,benign
