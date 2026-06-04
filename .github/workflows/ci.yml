@@ -1,0 +1,26 @@
+name: CI
+on:
+  push:
+  pull_request:
+
+jobs:
+  # Standard lint + format + test + build via the Shipwright reusable workflow,
+  # matrixed across sift's supported Python versions.
+  ci:
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    uses: duathron/shipwright/.github/workflows/python-ci.yml@v0.1.0
+    with:
+      python-version: ${{ matrix.python-version }}
+
+  # Dogfood gate (offline) — enforce "no release without a dogfood pass" (G5),
+  # mirrors barb. SHA pins match barb's eval/dogfood jobs (G7).
+  dogfood:
+    name: Dogfood gate (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
+      - run: uv sync --dev
+      - run: uv run bash dogfood.sh   # SIFT_DOGFOOD_LLM unset → live skipped, exit 0
