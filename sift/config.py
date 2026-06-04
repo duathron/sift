@@ -179,7 +179,7 @@ def save_credentials(api_key: str) -> Path:
     """Store the LLM API key in ~/.sift/.env (mode 600, never in config.yaml)."""
     env_path = _ensure_app_dir() / ".env"
     lines = env_path.read_text().splitlines() if env_path.exists() else []
-    lines = [l for l in lines if not l.startswith("SIFT_LLM_KEY=")]
+    lines = [line for line in lines if not line.startswith("SIFT_LLM_KEY=")]
     lines.append(f"SIFT_LLM_KEY={api_key}")
     env_path.write_text("\n".join(lines) + "\n")
     env_path.chmod(_FILE_MODE)
@@ -195,7 +195,7 @@ def save_ticket_token(token: str, provider: str) -> Path:
     env_key = "SIFT_THEHIVE_TOKEN" if provider == "thehive" else "SIFT_JIRA_TOKEN"
     env_path = _ensure_app_dir() / ".env"
     lines = env_path.read_text().splitlines() if env_path.exists() else []
-    lines = [l for l in lines if not l.startswith(f"{env_key}=")]
+    lines = [line for line in lines if not line.startswith(f"{env_key}=")]
     lines.append(f"{env_key}={token}")
     env_path.write_text("\n".join(lines) + "\n")
     env_path.chmod(_FILE_MODE)
@@ -208,7 +208,7 @@ def clear_credentials() -> bool:
     if not env_path.exists():
         return False
     lines = env_path.read_text().splitlines()
-    new_lines = [l for l in lines if not l.startswith("SIFT_LLM_KEY=")]
+    new_lines = [line for line in lines if not line.startswith("SIFT_LLM_KEY=")]
     if len(new_lines) == len(lines):
         return False
     env_path.write_text("\n".join(new_lines) + "\n")

@@ -724,9 +724,7 @@ def test_banner_checks_stderr_isatty(monkeypatch):
     stderr_checked = []
     stdout_checked = []
 
-    original_stderr_isatty = sys.stderr.isatty
-    original_stdout_isatty = sys.stdout.isatty
-
+    # monkeypatch auto-restores isatty after the test — no manual save/restore needed.
     monkeypatch.setattr(sys.stderr, "isatty", lambda: stderr_checked.append(True) or False)
     monkeypatch.setattr(sys.stdout, "isatty", lambda: stdout_checked.append(True) or False)
 

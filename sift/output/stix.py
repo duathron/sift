@@ -220,7 +220,9 @@ class STIXExporter:
     def _create_grouping(self, cluster) -> dict[str, Any]:
         """Create a Grouping SDO for a cluster."""
         grouping_id = _deterministic_id("grouping", cluster.id)
-        severity = _priority_to_severity(cluster.priority)
+        # NB: STIX 2.1 Grouping SDO has no severity field; cluster.priority is
+        # surfaced on the related Indicator/Incident objects instead. (Previously
+        # a dead `severity = _priority_to_severity(...)` was computed and dropped.)
 
         return {
             "type": "grouping",

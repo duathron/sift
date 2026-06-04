@@ -523,7 +523,9 @@ def triage(
         bool,
         typer.Option(
             "--drop-raw",
-            help="Discard raw alert data after normalization — halves RAM for wide CSVs. Auto-enabled for files >500 MB.",
+            help=(
+                "Discard raw alert data after normalization — halves RAM for wide CSVs. Auto-enabled for files >500 MB."
+            ),
             hidden=True,
         ),
     ] = False,
@@ -1645,7 +1647,10 @@ def config_cmd(
         Optional[str],
         typer.Option(
             "--redact-fields",
-            help="Default fields to redact before AI submission (comma-separated, e.g. 'user,host,source_ip'). Use '' to clear.",
+            help=(
+                "Default fields to redact before AI submission "
+                "(comma-separated, e.g. 'user,host,source_ip'). Use '' to clear."
+            ),
             show_default=False,
         ),
     ] = None,

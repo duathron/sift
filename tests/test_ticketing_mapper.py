@@ -141,7 +141,7 @@ class TestBuildTimeline:
         alerts = [_alert(id=f"a{i}", timestamp=datetime(2026, 4, 20, i, 0, tzinfo=timezone.utc)) for i in range(12)]
         cluster = _cluster(alerts=alerts)
         lines = _build_timeline(cluster)
-        assert any("more alert" in l for l in lines)
+        assert any("more alert" in line for line in lines)
 
     def test_no_timestamp_shows_unknown(self):
         cluster = _cluster(alerts=[_alert(timestamp=None)])

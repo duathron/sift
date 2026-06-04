@@ -95,7 +95,7 @@ class TheHiveProvider:
         return {
             "type": "sift-triage",
             "source": "sift",
-            "sourceRef": f"sift-{draft.generated_at.strftime('%Y%m%dT%H%M%S')}-{draft.evidence.get('cluster_id', '')[:8]}",
+            "sourceRef": f"sift-{draft.generated_at.strftime('%Y%m%dT%H%M%S')}-{draft.evidence.get('cluster_id', '')[:8]}",  # noqa: E501
             "title": draft.title,
             "description": self._render_markdown(draft),
             "severity": self._severity_int(draft.severity),
