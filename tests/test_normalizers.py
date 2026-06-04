@@ -15,6 +15,7 @@ from sift.normalizers.splunk import SplunkNormalizer
 # Shared helpers
 # ---------------------------------------------------------------------------
 
+
 def _json_array(*records: dict) -> str:
     return json.dumps(list(records))
 
@@ -172,36 +173,42 @@ class TestGenericNormalizerFieldMapping:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("raw_severity,expected", [
-    ("critical",     AlertSeverity.CRITICAL),
-    ("CRITICAL",     AlertSeverity.CRITICAL),
-    ("informational", AlertSeverity.INFO),
-    ("info",         AlertSeverity.INFO),
-    ("low",          AlertSeverity.LOW),
-    ("medium",       AlertSeverity.MEDIUM),
-    ("moderate",     AlertSeverity.MEDIUM),
-    ("high",         AlertSeverity.HIGH),
-    ("emergency",    AlertSeverity.CRITICAL),
-    ("fatal",        AlertSeverity.CRITICAL),
-    ("1",            AlertSeverity.CRITICAL),
-    ("2",            AlertSeverity.HIGH),
-    ("3",            AlertSeverity.MEDIUM),
-    ("4",            AlertSeverity.LOW),
-    ("5",            AlertSeverity.INFO),
-])
+@pytest.mark.parametrize(
+    "raw_severity,expected",
+    [
+        ("critical", AlertSeverity.CRITICAL),
+        ("CRITICAL", AlertSeverity.CRITICAL),
+        ("informational", AlertSeverity.INFO),
+        ("info", AlertSeverity.INFO),
+        ("low", AlertSeverity.LOW),
+        ("medium", AlertSeverity.MEDIUM),
+        ("moderate", AlertSeverity.MEDIUM),
+        ("high", AlertSeverity.HIGH),
+        ("emergency", AlertSeverity.CRITICAL),
+        ("fatal", AlertSeverity.CRITICAL),
+        ("1", AlertSeverity.CRITICAL),
+        ("2", AlertSeverity.HIGH),
+        ("3", AlertSeverity.MEDIUM),
+        ("4", AlertSeverity.LOW),
+        ("5", AlertSeverity.INFO),
+    ],
+)
 def test_generic_severity_string_aliases(raw_severity, expected):
     norm = GenericNormalizer()
     raw = _json_object(title="t", severity=raw_severity)
     assert norm.normalize(raw)[0].severity == expected
 
 
-@pytest.mark.parametrize("raw_severity,expected", [
-    (1, AlertSeverity.CRITICAL),
-    (2, AlertSeverity.HIGH),
-    (3, AlertSeverity.MEDIUM),
-    (4, AlertSeverity.LOW),
-    (5, AlertSeverity.INFO),
-])
+@pytest.mark.parametrize(
+    "raw_severity,expected",
+    [
+        (1, AlertSeverity.CRITICAL),
+        (2, AlertSeverity.HIGH),
+        (3, AlertSeverity.MEDIUM),
+        (4, AlertSeverity.LOW),
+        (5, AlertSeverity.INFO),
+    ],
+)
 def test_generic_severity_integer(raw_severity, expected):
     norm = GenericNormalizer()
     raw = _json_object(title="t", severity=raw_severity)
@@ -261,7 +268,7 @@ class TestSplunkNormalizerNormalize:
     def test_parses_results_key(self):
         raw = self._wrap(
             {"rule_name": "Brute Force", "urgency": "high"},
-            {"rule_name": "Port Scan",   "urgency": "low"},
+            {"rule_name": "Port Scan", "urgency": "low"},
         )
         alerts = self.norm.normalize(raw)
         assert len(alerts) == 2
@@ -289,17 +296,19 @@ class TestSplunkNormalizerNormalize:
         assert self.norm.normalize(raw)[0].dest_ip == "172.16.0.1"
 
     def test_splunk_full_notable_event(self):
-        raw = self._wrap({
-            "event_id": "evt-001",
-            "rule_name": "Phishing Detected",
-            "urgency": "high",
-            "_time": "2026-03-22T09:00:00Z",
-            "src": "10.0.0.1",
-            "dest": "185.220.101.47",
-            "user": "jdoe",
-            "host": "WORKSTATION01",
-            "category": "Phishing",
-        })
+        raw = self._wrap(
+            {
+                "event_id": "evt-001",
+                "rule_name": "Phishing Detected",
+                "urgency": "high",
+                "_time": "2026-03-22T09:00:00Z",
+                "src": "10.0.0.1",
+                "dest": "185.220.101.47",
+                "user": "jdoe",
+                "host": "WORKSTATION01",
+                "category": "Phishing",
+            }
+        )
         alert = self.norm.normalize(raw)[0]
         assert alert.id == "evt-001"
         assert alert.title == "Phishing Detected"
@@ -310,13 +319,16 @@ class TestSplunkNormalizerNormalize:
         assert alert.host == "WORKSTATION01"
         assert alert.category == "Phishing"
 
-    @pytest.mark.parametrize("urgency,expected", [
-        ("critical",     AlertSeverity.CRITICAL),
-        ("high",         AlertSeverity.HIGH),
-        ("medium",       AlertSeverity.MEDIUM),
-        ("low",          AlertSeverity.LOW),
-        ("informational", AlertSeverity.INFO),
-    ])
+    @pytest.mark.parametrize(
+        "urgency,expected",
+        [
+            ("critical", AlertSeverity.CRITICAL),
+            ("high", AlertSeverity.HIGH),
+            ("medium", AlertSeverity.MEDIUM),
+            ("low", AlertSeverity.LOW),
+            ("informational", AlertSeverity.INFO),
+        ],
+    )
     def test_splunk_urgency_severity_map(self, urgency, expected):
         raw = self._wrap({"rule_name": "t", "urgency": urgency})
         assert self.norm.normalize(raw)[0].severity == expected
@@ -424,14 +436,17 @@ class TestCSVNormalizerNormalize:
         alerts = self.norm.normalize(csv)
         assert alerts == []
 
-    @pytest.mark.parametrize("severity_str,expected", [
-        ("critical",     AlertSeverity.CRITICAL),
-        ("high",         AlertSeverity.HIGH),
-        ("medium",       AlertSeverity.MEDIUM),
-        ("low",          AlertSeverity.LOW),
-        ("informational", AlertSeverity.INFO),
-        ("unknown_level", AlertSeverity.MEDIUM),
-    ])
+    @pytest.mark.parametrize(
+        "severity_str,expected",
+        [
+            ("critical", AlertSeverity.CRITICAL),
+            ("high", AlertSeverity.HIGH),
+            ("medium", AlertSeverity.MEDIUM),
+            ("low", AlertSeverity.LOW),
+            ("informational", AlertSeverity.INFO),
+            ("unknown_level", AlertSeverity.MEDIUM),
+        ],
+    )
     def test_csv_severity_values(self, severity_str, expected):
         csv = f"title,severity\nAlert,{severity_str}\n"
         assert self.norm.normalize(csv)[0].severity == expected

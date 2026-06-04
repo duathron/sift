@@ -7,10 +7,10 @@ import pytest
 from sift.config import AlertRedactionConfig, AppConfig
 from sift.models import Alert, AlertSeverity
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_alert(**kwargs) -> Alert:
     defaults = dict(
@@ -32,6 +32,7 @@ def _make_alert(**kwargs) -> Alert:
 # ---------------------------------------------------------------------------
 # String field redaction
 # ---------------------------------------------------------------------------
+
 
 class TestStringFieldRedaction:
     def test_redact_title(self):
@@ -69,6 +70,7 @@ class TestStringFieldRedaction:
 # Special-type field redaction
 # ---------------------------------------------------------------------------
 
+
 class TestSpecialFieldRedaction:
     def test_redact_iocs_returns_empty_list(self):
         alert = _make_alert()
@@ -84,6 +86,7 @@ class TestSpecialFieldRedaction:
 # ---------------------------------------------------------------------------
 # Multiple fields
 # ---------------------------------------------------------------------------
+
 
 class TestMultipleFieldRedaction:
     def test_redact_multiple_fields(self):
@@ -109,6 +112,7 @@ class TestMultipleFieldRedaction:
 # Error handling
 # ---------------------------------------------------------------------------
 
+
 class TestRedactionErrors:
     def test_unknown_field_raises_value_error(self):
         alert = _make_alert()
@@ -124,6 +128,7 @@ class TestRedactionErrors:
 # ---------------------------------------------------------------------------
 # Immutability
 # ---------------------------------------------------------------------------
+
 
 class TestRedactionImmutability:
     def test_redact_returns_copy_not_original(self):
@@ -144,6 +149,7 @@ class TestRedactionImmutability:
 # ---------------------------------------------------------------------------
 # AlertRedactionConfig
 # ---------------------------------------------------------------------------
+
 
 class TestAlertRedactionConfig:
     def test_defaults(self):
@@ -167,6 +173,7 @@ class TestAlertRedactionConfig:
 # ---------------------------------------------------------------------------
 # Regression tests — beta findings
 # ---------------------------------------------------------------------------
+
 
 class TestRedactionRegressions:
     """Regression tests for beta findings (F-01, F-03, F-04)."""

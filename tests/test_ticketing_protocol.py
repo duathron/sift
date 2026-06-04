@@ -83,4 +83,5 @@ class TestTicketResult:
 class TestTicketProviderProtocol:
     def test_dry_run_satisfies_protocol(self):
         from sift.ticketing.dry_run import DryRunProvider
+
         assert isinstance(DryRunProvider(), TicketProvider)

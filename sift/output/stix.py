@@ -17,7 +17,6 @@ from typing import Any
 from sift.models import ClusterPriority, TriageReport
 from sift.pipeline.ioc_extractor import detect_ioc_type
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -48,13 +47,13 @@ def _pattern_from_ioc(ioc: str, ioc_type: str | None = None) -> str:
 
     # ps_encoded: sanitise before emit — never expose raw base64 in STIX.
     if ioc_type_lower == "ps_encoded" or ioc.startswith("ps_encoded:"):
-        payload = ioc[len("ps_encoded:"):]
+        payload = ioc[len("ps_encoded:") :]
         try:
             decoded = base64.b64decode(payload)
             digest = hashlib.sha256(decoded).hexdigest()[:16]
             stub = f"ps_encoded:{digest} ({len(decoded)}b)"
         except Exception:
-            stub = f"ps_encoded:[decode-error]"
+            stub = "ps_encoded:[decode-error]"
         safe_stub = stub.replace("\\", "\\\\").replace("'", "\\'").replace("]", "\\]")
         return f"[artifact:payload_bin = '{safe_stub}']"
 
@@ -254,7 +253,7 @@ class STIXExporter:
             "created": self.now,
             "modified": self.now,
             "name": f"IOC: {ioc}",
-            "description": f"Indicator detected in cluster alerts",
+            "description": "Indicator detected in cluster alerts",
             "pattern": _pattern_from_ioc(ioc, detect_ioc_type(ioc)),
             "pattern_type": "stix",
             "valid_from": self.now,

@@ -4,10 +4,7 @@ from __future__ import annotations
 
 import logging
 
-import pytest
-
 from sift.pipeline.attck import (
-    TECHNIQUE_PATTERN,
     is_valid_technique_id,
     normalize_technique_id,
     validate_technique_ids,

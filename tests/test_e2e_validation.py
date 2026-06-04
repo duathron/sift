@@ -147,9 +147,7 @@ def realistic_triage_report() -> TriageReport:
 class TestE2EMockProviderValidation:
     """E2E validation using the deterministic MockSummarizer."""
 
-    def test_mock_summarizer_produces_valid_summary_result(
-        self, realistic_triage_report: TriageReport
-    ):
+    def test_mock_summarizer_produces_valid_summary_result(self, realistic_triage_report: TriageReport):
         """MockSummarizer output is a valid SummaryResult."""
         summarizer = MockSummarizer()
         result = summarizer.summarize(realistic_triage_report)
@@ -159,18 +157,13 @@ class TestE2EMockProviderValidation:
         assert len(result.executive_summary) > 0
         assert result.overall_priority == ClusterPriority.CRITICAL
 
-    def test_mock_summary_cluster_summaries_are_complete(
-        self, realistic_triage_report: TriageReport
-    ):
+    def test_mock_summary_cluster_summaries_are_complete(self, realistic_triage_report: TriageReport):
         """Each cluster summary has narrative and recommendations."""
         summarizer = MockSummarizer()
         result = summarizer.summarize(realistic_triage_report)
 
         # Filter out NOISE clusters
-        non_noise_clusters = [
-            c for c in realistic_triage_report.clusters
-            if c.priority != ClusterPriority.NOISE
-        ]
+        non_noise_clusters = [c for c in realistic_triage_report.clusters if c.priority != ClusterPriority.NOISE]
 
         assert len(result.cluster_summaries) == len(non_noise_clusters)
 
@@ -180,9 +173,7 @@ class TestE2EMockProviderValidation:
             assert len(summary.narrative) > 0
             assert isinstance(summary.recommendations, list)
 
-    def test_mock_summary_recommendations_are_valid(
-        self, realistic_triage_report: TriageReport
-    ):
+    def test_mock_summary_recommendations_are_valid(self, realistic_triage_report: TriageReport):
         """All recommendations have action, priority, and rationale."""
         summarizer = MockSummarizer()
         result = summarizer.summarize(realistic_triage_report)
@@ -208,9 +199,7 @@ class TestE2EMockProviderValidation:
 class TestE2EInjectionDetection:
     """E2E validation with prompt injection detection enabled."""
 
-    def test_clean_alert_passes_injection_detection(
-        self, injection_detector: PromptInjectionDetector
-    ):
+    def test_clean_alert_passes_injection_detection(self, injection_detector: PromptInjectionDetector):
         """An ordinary alert has no injection findings."""
         alert = Alert(
             id="test-001",
@@ -221,9 +210,7 @@ class TestE2EInjectionDetection:
         findings = injection_detector.detect(alert)
         assert len(findings) == 0
 
-    def test_instruction_override_pattern_detected(
-        self, injection_detector: PromptInjectionDetector
-    ):
+    def test_instruction_override_pattern_detected(self, injection_detector: PromptInjectionDetector):
         """Alerts containing 'ignore previous instructions' are flagged."""
         alert = Alert(
             id="test-injection-001",
@@ -235,9 +222,7 @@ class TestE2EInjectionDetection:
         assert len(findings) > 0
         assert any(f.pattern_type == "instruction_override" for f in findings)
 
-    def test_output_manipulation_pattern_detected(
-        self, injection_detector: PromptInjectionDetector
-    ):
+    def test_output_manipulation_pattern_detected(self, injection_detector: PromptInjectionDetector):
         """Alerts with 'output instead' patterns are flagged."""
         alert = Alert(
             id="test-injection-002",
@@ -249,9 +234,7 @@ class TestE2EInjectionDetection:
         assert len(findings) > 0
         assert any(f.pattern_type == "output_manipulation" for f in findings)
 
-    def test_shell_injection_pattern_detected(
-        self, injection_detector: PromptInjectionDetector
-    ):
+    def test_shell_injection_pattern_detected(self, injection_detector: PromptInjectionDetector):
         """Alerts with shell commands are flagged."""
         alert = Alert(
             id="test-injection-003",
@@ -263,9 +246,7 @@ class TestE2EInjectionDetection:
         assert len(findings) > 0
         assert any(f.pattern_type == "shell_injection" for f in findings)
 
-    def test_alert_redaction(
-        self, injection_detector: PromptInjectionDetector
-    ):
+    def test_alert_redaction(self, injection_detector: PromptInjectionDetector):
         """Malicious field content is properly redacted."""
         alert = Alert(
             id="test-injection-004",
@@ -289,21 +270,15 @@ class TestE2EInjectionDetection:
 class TestE2EConfigInjectionControl:
     """E2E validation respects PromptInjectionConfig settings."""
 
-    def test_injection_config_enabled_by_default(
-        self, config_with_injection: AppConfig
-    ):
+    def test_injection_config_enabled_by_default(self, config_with_injection: AppConfig):
         """PromptInjectionConfig is enabled by default."""
         assert config_with_injection.injection.enabled is True
 
-    def test_injection_config_can_be_disabled(
-        self, config_without_injection: AppConfig
-    ):
+    def test_injection_config_can_be_disabled(self, config_without_injection: AppConfig):
         """PromptInjectionConfig can be disabled via config."""
         assert config_without_injection.injection.enabled is False
 
-    def test_injection_config_accepts_whitelist_patterns(
-        self, config_with_injection: AppConfig
-    ):
+    def test_injection_config_accepts_whitelist_patterns(self, config_with_injection: AppConfig):
         """PromptInjectionConfig accepts whitelist patterns."""
         config_with_injection.injection.whitelist_patterns = [
             r"^\[SAFE\]",
@@ -320,9 +295,7 @@ class TestE2EConfigInjectionControl:
 class TestE2EValidationFallback:
     """E2E validation with automatic fallback to template summarizer."""
 
-    def test_invalid_summary_dict_falls_back_to_template(
-        self, realistic_triage_report: TriageReport
-    ):
+    def test_invalid_summary_dict_falls_back_to_template(self, realistic_triage_report: TriageReport):
         """SummaryValidator falls back to TemplateSummarizer on validation failure."""
         # Provide an invalid summary dict (missing executive_summary)
         invalid_data = {
@@ -338,9 +311,7 @@ class TestE2EValidationFallback:
         assert result.provider == "template"  # Fallback provider
         assert len(result.executive_summary) > 0
 
-    def test_malformed_cluster_summary_is_skipped(
-        self, realistic_triage_report: TriageReport
-    ):
+    def test_malformed_cluster_summary_is_skipped(self, realistic_triage_report: TriageReport):
         """SummaryValidator skips malformed cluster summaries during validation."""
         data = {
             "executive_summary": "Test summary",
@@ -392,9 +363,7 @@ class TestE2EValidateOnlyFlag:
 class TestE2ESummaryResultSchema:
     """E2E validation of SummaryResult schema compliance."""
 
-    def test_summary_result_has_all_required_fields(
-        self, realistic_triage_report: TriageReport
-    ):
+    def test_summary_result_has_all_required_fields(self, realistic_triage_report: TriageReport):
         """SummaryResult has all required fields populated."""
         summarizer = MockSummarizer()
         result = summarizer.summarize(realistic_triage_report)
@@ -411,9 +380,7 @@ class TestE2ESummaryResultSchema:
         assert isinstance(result.provider, str)
         assert isinstance(result.generated_at, datetime)
 
-    def test_summary_result_schema_validation_passes(
-        self, realistic_triage_report: TriageReport
-    ):
+    def test_summary_result_schema_validation_passes(self, realistic_triage_report: TriageReport):
         """A valid SummaryResult passes SummaryResultSchema validation."""
         summarizer = MockSummarizer()
         result = summarizer.summarize(realistic_triage_report)
@@ -439,9 +406,7 @@ class TestE2ESummaryResultSchema:
 class TestE2EClusterSummarySchema:
     """E2E validation of per-cluster summaries."""
 
-    def test_cluster_summaries_have_required_fields(
-        self, realistic_triage_report: TriageReport
-    ):
+    def test_cluster_summaries_have_required_fields(self, realistic_triage_report: TriageReport):
         """Each cluster summary has cluster_id, narrative, recommendations."""
         summarizer = MockSummarizer()
         result = summarizer.summarize(realistic_triage_report)
@@ -451,9 +416,7 @@ class TestE2EClusterSummarySchema:
             assert len(summary.narrative) > 0
             assert isinstance(summary.recommendations, list)
 
-    def test_cluster_summary_recommendations_have_all_fields(
-        self, realistic_triage_report: TriageReport
-    ):
+    def test_cluster_summary_recommendations_have_all_fields(self, realistic_triage_report: TriageReport):
         """Each recommendation has action, priority, rationale."""
         summarizer = MockSummarizer()
         result = summarizer.summarize(realistic_triage_report)
@@ -478,24 +441,19 @@ class TestE2EClusterSummarySchema:
 class TestE2ERecommendationActions:
     """E2E validation of recommendation actions."""
 
-    def test_critical_cluster_has_immediate_action(
-        self, realistic_triage_report: TriageReport
-    ):
+    def test_critical_cluster_has_immediate_action(self, realistic_triage_report: TriageReport):
         """CRITICAL clusters include IMMEDIATE priority recommendations."""
         summarizer = MockSummarizer()
         result = summarizer.summarize(realistic_triage_report)
 
         critical_summaries = [
-            s for s in result.cluster_summaries
-            if any(r.priority == "IMMEDIATE" for r in s.recommendations)
+            s for s in result.cluster_summaries if any(r.priority == "IMMEDIATE" for r in s.recommendations)
         ]
 
         # Should have at least one CRITICAL with IMMEDIATE action
         assert len(critical_summaries) > 0
 
-    def test_all_recommendations_have_sensible_actions(
-        self, realistic_triage_report: TriageReport
-    ):
+    def test_all_recommendations_have_sensible_actions(self, realistic_triage_report: TriageReport):
         """All recommendations contain concrete, sensible action text."""
         summarizer = MockSummarizer()
         result = summarizer.summarize(realistic_triage_report)
@@ -516,6 +474,4 @@ class TestE2ERecommendationActions:
                 action_lower = rec.action.lower()
                 # At least one sensible action word should appear
                 has_action = any(kw in action_lower for kw in action_keywords)
-                assert (
-                    has_action
-                ), f"Recommendation action lacks sensible verb: {rec.action}"
+                assert has_action, f"Recommendation action lacks sensible verb: {rec.action}"

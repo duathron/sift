@@ -28,6 +28,7 @@ from sift.pipeline.ioc_extractor import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_alert(
     title: str = "Test Alert",
     description: str | None = None,
@@ -52,6 +53,7 @@ def make_alert(
 # ===========================================================================
 # extract_iocs
 # ===========================================================================
+
 
 class TestExtractIocs:
     # ---- IPv4 ---------------------------------------------------------------
@@ -148,10 +150,7 @@ class TestExtractIocs:
 
     def test_multiple_iocs_all_extracted(self):
         """Several distinct IOC types in one text are all captured."""
-        text = (
-            "IP 185.220.101.47 contacted http://evil.phish.ru/drop "
-            "hash 5d41402abc4b2a76b9719d911017c592"
-        )
+        text = "IP 185.220.101.47 contacted http://evil.phish.ru/drop hash 5d41402abc4b2a76b9719d911017c592"
         result = extract_iocs(text)
         assert "185.220.101.47" in result
         assert "http://evil.phish.ru/drop" in result
@@ -181,6 +180,7 @@ class TestExtractIocs:
 # ===========================================================================
 # detect_ioc_type
 # ===========================================================================
+
 
 class TestDetectIocType:
     def test_public_ipv4_returns_ip(self):
@@ -228,6 +228,7 @@ class TestDetectIocType:
 # ===========================================================================
 # enrich_alert_iocs
 # ===========================================================================
+
 
 class TestEnrichAlertIocs:
     def test_public_source_ip_added_to_iocs(self):
@@ -324,6 +325,7 @@ class TestEnrichAlertIocs:
 # enrich_alerts_iocs  (batch)
 # ===========================================================================
 
+
 class TestEnrichAlertsIocs:
     def test_batch_returns_same_count(self):
         """One enriched alert is produced per input alert."""
@@ -358,6 +360,7 @@ class TestEnrichAlertsIocs:
 # ===========================================================================
 # _refang — defang preprocessor gaps (bracketed scheme separator + (dot))
 # ===========================================================================
+
 
 class TestRefang:
     # ---- Bracketed scheme separator [://] -----------------------------------

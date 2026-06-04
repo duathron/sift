@@ -22,7 +22,6 @@ import pytest
 
 from sift.config import SummarizeConfig
 from sift.models import Alert, AlertSeverity, Cluster, ClusterPriority, TriageReport
-
 from sift.summarizers.prompt import build_cluster_prompt
 
 # Path to the file under guard
@@ -35,6 +34,7 @@ _SHOW = 10
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def make_alert(title: str = "Generic Alert", severity: AlertSeverity = AlertSeverity.LOW) -> Alert:
     return Alert(id=str(uuid.uuid4()), title=title, severity=severity)
@@ -72,6 +72,7 @@ def build_prompt(alerts: list[Alert]) -> str:
 # Tier 1.1 — Severity coverage
 # ---------------------------------------------------------------------------
 
+
 class TestSeverityCoverage:
     """Every severity present in a cluster's alerts must appear in the prompt.
 
@@ -98,10 +99,9 @@ class TestSeverityCoverage:
 
     def test_critical_sorted_before_low_in_breakdown(self):
         """CRITICAL entry must appear before any LOW entry in the alert-type breakdown."""
-        alerts = (
-            [make_alert("Credential Dumping", AlertSeverity.CRITICAL)] +
-            [make_alert(f"Low Noise {i}", AlertSeverity.LOW) for i in range(50)]
-        )
+        alerts = [make_alert("Credential Dumping", AlertSeverity.CRITICAL)] + [
+            make_alert(f"Low Noise {i}", AlertSeverity.LOW) for i in range(50)
+        ]
         prompt = build_prompt(alerts)
         breakdown_start = prompt.find("Alert type breakdown")
         assert breakdown_start != -1, "Alert type breakdown section missing from prompt."
@@ -124,9 +124,7 @@ class TestSeverityCoverage:
         ]
         prompt = build_prompt(alerts)
         for sev in AlertSeverity:
-            assert sev.value in prompt, (
-                f"Severity {sev.value!r} missing from prompt despite being present in cluster."
-            )
+            assert sev.value in prompt, f"Severity {sev.value!r} missing from prompt despite being present in cluster."
 
     def test_critical_not_dropped_when_exactly_at_show_limit(self):
         """_SHOW distinct types with CRITICAL at position 0 — CRITICAL must still appear."""
@@ -153,6 +151,7 @@ class TestSeverityCoverage:
 # Tier 1.2 — Alert-type coverage
 # ---------------------------------------------------------------------------
 
+
 class TestAlertTypeCoverage:
     """Distinct alert titles must not be silently truncated from the prompt."""
 
@@ -162,9 +161,7 @@ class TestAlertTypeCoverage:
         alerts = [make_alert(t, AlertSeverity.MEDIUM) for t in types]
         prompt = build_prompt(alerts)
         for t in types:
-            assert t in prompt, (
-                f"Alert type {t!r} missing from prompt (exactly {_SHOW} types — all must appear)."
-            )
+            assert t in prompt, f"Alert type {t!r} missing from prompt (exactly {_SHOW} types — all must appear)."
 
     def test_overflow_count_shown_when_types_exceed_show_limit(self):
         """_SHOW + 1 distinct types → an overflow line with explicit count must be present."""
@@ -172,8 +169,7 @@ class TestAlertTypeCoverage:
         alerts = [make_alert(t, AlertSeverity.LOW) for t in types]
         prompt = build_prompt(alerts)
         assert "more type" in prompt, (
-            "Overflow types must be counted in the prompt, not silently dropped. "
-            "Add a '… (N more type(s))' line."
+            "Overflow types must be counted in the prompt, not silently dropped. Add a '… (N more type(s))' line."
         )
 
     def test_highest_severity_types_shown_when_overflow_occurs(self):
@@ -182,15 +178,13 @@ class TestAlertTypeCoverage:
         # sorted: 5 CRITICAL first → all 5 must be within first _SHOW
         critical_types = [f"Critical Attack {i}" for i in range(5)]
         low_types = [f"Low Noise {i}" for i in range(_SHOW)]
-        alerts = (
-            [make_alert(t, AlertSeverity.CRITICAL) for t in critical_types] +
-            [make_alert(t, AlertSeverity.LOW) for t in low_types]
-        )
+        alerts = [make_alert(t, AlertSeverity.CRITICAL) for t in critical_types] + [
+            make_alert(t, AlertSeverity.LOW) for t in low_types
+        ]
         prompt = build_prompt(alerts)
         for t in critical_types:
             assert t in prompt, (
-                f"CRITICAL type {t!r} missing from prompt. "
-                "HIGH-severity types must not be pushed out by LOW types."
+                f"CRITICAL type {t!r} missing from prompt. HIGH-severity types must not be pushed out by LOW types."
             )
 
     def test_overflow_count_is_arithmetically_correct(self):
@@ -200,8 +194,7 @@ class TestAlertTypeCoverage:
         alerts = [make_alert(t, AlertSeverity.MEDIUM) for t in types]
         prompt = build_prompt(alerts)
         assert "3 more type" in prompt, (
-            f"Expected '3 more type(s)' for {n_types} types with _SHOW={_SHOW}, "
-            "but got a different count."
+            f"Expected '3 more type(s)' for {n_types} types with _SHOW={_SHOW}, but got a different count."
         )
 
     def test_ioc_overflow_suffix_shown(self):
@@ -221,6 +214,7 @@ class TestAlertTypeCoverage:
 # ---------------------------------------------------------------------------
 # Tier 1.3 — Slice lint
 # ---------------------------------------------------------------------------
+
 
 class TestSliceLint:
     """Guard against unguarded [:N] slices that can silently drop high-severity data."""
@@ -256,26 +250,26 @@ class TestSliceLint:
 
 _REALISTIC_TYPES: list[tuple[str, AlertSeverity, int]] = [
     # title                                  severity               count
-    ("Credential Dumping Detected",          AlertSeverity.CRITICAL,   25),
-    ("Lateral Movement via SMB",             AlertSeverity.CRITICAL,   25),
-    ("Ransomware File Encryption",           AlertSeverity.CRITICAL,   25),
-    ("Outbound Data Transfer Detected",       AlertSeverity.HIGH,       50),
-    ("Privilege Escalation Attempt",         AlertSeverity.HIGH,       50),
-    ("C2 Beacon Detected",                   AlertSeverity.HIGH,       50),
-    ("Suspicious PowerShell Execution",      AlertSeverity.MEDIUM,     25),
-    ("Brute Force Login Attempt",            AlertSeverity.MEDIUM,     25),
-    ("Unusual Network Scan",                 AlertSeverity.MEDIUM,     25),
-    ("DNS Query to Known Malicious Domain",  AlertSeverity.MEDIUM,     25),
-    ("File Downloaded from Untrusted Source",AlertSeverity.LOW,        15),
-    ("Firewall Rule Modified",               AlertSeverity.LOW,        15),
-    ("New Admin Account Created",            AlertSeverity.LOW,        15),
-    ("Service Installed on Host",            AlertSeverity.LOW,        15),
-    ("USB Device Inserted",                  AlertSeverity.LOW,        15),
-    ("Failed Login Attempt",                 AlertSeverity.INFO,       20),
-    ("Port Scan from Internal Host",         AlertSeverity.INFO,       20),
-    ("Antivirus Definition Update",          AlertSeverity.INFO,       20),
-    ("Scheduled Task Created",               AlertSeverity.INFO,       20),
-    ("Network Policy Change Detected",        AlertSeverity.INFO,       20),
+    ("Credential Dumping Detected", AlertSeverity.CRITICAL, 25),
+    ("Lateral Movement via SMB", AlertSeverity.CRITICAL, 25),
+    ("Ransomware File Encryption", AlertSeverity.CRITICAL, 25),
+    ("Outbound Data Transfer Detected", AlertSeverity.HIGH, 50),
+    ("Privilege Escalation Attempt", AlertSeverity.HIGH, 50),
+    ("C2 Beacon Detected", AlertSeverity.HIGH, 50),
+    ("Suspicious PowerShell Execution", AlertSeverity.MEDIUM, 25),
+    ("Brute Force Login Attempt", AlertSeverity.MEDIUM, 25),
+    ("Unusual Network Scan", AlertSeverity.MEDIUM, 25),
+    ("DNS Query to Known Malicious Domain", AlertSeverity.MEDIUM, 25),
+    ("File Downloaded from Untrusted Source", AlertSeverity.LOW, 15),
+    ("Firewall Rule Modified", AlertSeverity.LOW, 15),
+    ("New Admin Account Created", AlertSeverity.LOW, 15),
+    ("Service Installed on Host", AlertSeverity.LOW, 15),
+    ("USB Device Inserted", AlertSeverity.LOW, 15),
+    ("Failed Login Attempt", AlertSeverity.INFO, 20),
+    ("Port Scan from Internal Host", AlertSeverity.INFO, 20),
+    ("Antivirus Definition Update", AlertSeverity.INFO, 20),
+    ("Scheduled Task Created", AlertSeverity.INFO, 20),
+    ("Network Policy Change Detected", AlertSeverity.INFO, 20),
 ]
 
 _CRITICAL_TITLES = [t for t, s, _ in _REALISTIC_TYPES if s == AlertSeverity.CRITICAL]
@@ -349,17 +343,13 @@ class TestRealisticLargeCluster:
     @pytest.mark.parametrize("title", _HIGH_TITLES)
     def test_high_type_appears_in_prompt(self, prompt: str, title: str):
         """Each HIGH alert type must be explicitly named in the prompt."""
-        assert title in prompt, (
-            f"HIGH type {title!r} missing from 500-alert cluster prompt."
-        )
+        assert title in prompt, f"HIGH type {title!r} missing from 500-alert cluster prompt."
 
     # --- Overflow handling ---
 
     def test_overflow_line_shows_ten_more_types(self, prompt: str):
         """20 types − _SHOW=10 shown = 10 overflow → '… (10 more type(s))'."""
-        assert "10 more type" in prompt, (
-            "Expected '10 more type(s)' overflow line for 20-type cluster with _SHOW=10."
-        )
+        assert "10 more type" in prompt, "Expected '10 more type(s)' overflow line for 20-type cluster with _SHOW=10."
 
     def test_breakdown_header_present(self, prompt: str):
         assert "Alert type breakdown" in prompt

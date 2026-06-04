@@ -23,6 +23,7 @@ def _normalize_ioc(ioc: str) -> str:
         return ioc.lower()
     if _SCHEME_PREFIX.match(ioc):
         from sift.pipeline.ioc_extractor import _refang
+
         return _refang(ioc)
     return ioc
 
@@ -73,6 +74,7 @@ class EnrichmentRunner:
 
         if self.mode is EnrichmentMode.LOCAL:
             from sift.enrichers.local_heuristics import analyze
+
             local_results = [analyze(ioc) for ioc in unique_iocs]
             # Surface local results as barb_results so downstream rendering works
             return EnrichmentContext(barb_results=local_results, vex_results=[])

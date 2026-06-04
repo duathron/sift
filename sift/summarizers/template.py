@@ -40,6 +40,7 @@ def _higher_priority(a: ClusterPriority, b: ClusterPriority) -> ClusterPriority:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _dominant_severity_label(cluster: Cluster) -> str:
     """Return the most common alert severity value in *cluster* as a string."""
     if not cluster.alerts:
@@ -72,10 +73,7 @@ def _build_narrative(cluster: Cluster) -> str:
     reason = cluster.cluster_reason or "shared attributes"
     ioc_part = _ioc_summary(cluster)
     tech_part = _technique_summary(cluster)
-    return (
-        f"{count} {sev_label} alert(s) grouped by {reason}. "
-        f"{ioc_part}. {tech_part}."
-    )
+    return f"{count} {sev_label} alert(s) grouped by {reason}. {ioc_part}. {tech_part}."
 
 
 def _build_recommendations(cluster: Cluster) -> list[Recommendation]:
@@ -133,6 +131,7 @@ def _build_recommendations(cluster: Cluster) -> list[Recommendation]:
 # TemplateSummarizer
 # ---------------------------------------------------------------------------
 
+
 class TemplateSummarizer:
     """Deterministic, no-LLM summarizer implementing :class:`~sift.summarizers.protocol.SummarizerProtocol`.
 
@@ -171,9 +170,7 @@ class TemplateSummarizer:
         n = report.alerts_ingested
         dedup_count = report.alerts_after_dedup
         cluster_count = len(clusters)
-        critical_count = sum(
-            1 for c in clusters if c.priority == ClusterPriority.CRITICAL
-        )
+        critical_count = sum(1 for c in clusters if c.priority == ClusterPriority.CRITICAL)
 
         if critical_count > 0:
             exec_summary = (

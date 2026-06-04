@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from sift.config import ClusteringConfig
-from sift.tuning import TuneResult, auto_tune
+from sift.tuning import auto_tune
 
 _MB = 1024 * 1024
 _GB = 1024 * _MB

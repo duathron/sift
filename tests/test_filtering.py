@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 
 import pytest
 
@@ -13,7 +12,6 @@ from sift.filtering import (
     FilterSyntaxError,
 )
 from sift.models import Alert, AlertSeverity, Cluster, ClusterPriority
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -303,8 +301,15 @@ class TestBooleanLogic:
 
     def test_priority_all_levels(self):
         """Test priority ordering: NOISE < LOW < MEDIUM < HIGH < CRITICAL."""
-        for i, prio in enumerate([ClusterPriority.NOISE, ClusterPriority.LOW, ClusterPriority.MEDIUM,
-                                   ClusterPriority.HIGH, ClusterPriority.CRITICAL]):
+        for i, prio in enumerate(
+            [
+                ClusterPriority.NOISE,
+                ClusterPriority.LOW,
+                ClusterPriority.MEDIUM,
+                ClusterPriority.HIGH,
+                ClusterPriority.CRITICAL,
+            ]
+        ):
             cluster = make_cluster(priority=prio)
 
             # priority >= MEDIUM should match MEDIUM and above

@@ -96,8 +96,8 @@ _RE_DOMAIN = re.compile(
 # Order matters at extraction time: longest first to suppress prefix matches.
 _RE_SHA512 = re.compile(r"\b[0-9a-fA-F]{128}\b")
 _RE_SHA256 = re.compile(r"\b[0-9a-fA-F]{64}\b")
-_RE_SHA1   = re.compile(r"\b[0-9a-fA-F]{40}\b")
-_RE_MD5    = re.compile(r"\b[0-9a-fA-F]{32}\b")
+_RE_SHA1 = re.compile(r"\b[0-9a-fA-F]{40}\b")
+_RE_MD5 = re.compile(r"\b[0-9a-fA-F]{32}\b")
 
 # JARM is a 62-char hex fingerprint — unique size, no collision risk.
 # Case-insensitive for vendor feeds that emit uppercase variants.
@@ -107,9 +107,7 @@ _RE_JARM = re.compile(r"\b[0-9a-fA-F]{62}\b")
 _RE_TLSH = re.compile(r"\bT?1?[A-F0-9]{70,72}\b", re.IGNORECASE)
 
 # ssdeep: ``<blocksize>:<hash1>:<hash2>``
-_RE_SSDEEP = re.compile(
-    r"\b\d{1,8}:[A-Za-z0-9+/]{3,128}:[A-Za-z0-9+/]{3,128}\b"
-)
+_RE_SSDEEP = re.compile(r"\b\d{1,8}:[A-Za-z0-9+/]{3,128}:[A-Za-z0-9+/]{3,128}\b")
 
 # Keyword-anchored hashes — same byte-size as MD5 so we only extract the hex
 # blob when we see an unambiguous label first. Matches:
@@ -142,9 +140,7 @@ _RE_FILENAME = re.compile(
 )
 
 # Email addresses (RFC 5321-ish, intentionally loose)
-_RE_EMAIL = re.compile(
-    r"\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b"
-)
+_RE_EMAIL = re.compile(r"\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b")
 
 # Windows registry keys. Lookahead ensures we stop at whitespace, quotes, or
 # common delimiters. Captures full path including value name when present.
@@ -218,10 +214,10 @@ _DEFANG_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\(at\)" + _AT_DOMAIN_LOOKAHEAD, re.IGNORECASE), "@"),
     (re.compile(r"\{at\}" + _AT_DOMAIN_LOOKAHEAD, re.IGNORECASE), "@"),
     # Fullwidth Unicode lookalikes
-    (re.compile("．"), "."),   # FULLWIDTH FULL STOP
-    (re.compile("＠"), "@"),   # FULLWIDTH COMMERCIAL AT
-    (re.compile("："), ":"),   # FULLWIDTH COLON
-    (re.compile("／"), "/"),   # FULLWIDTH SOLIDUS
+    (re.compile("．"), "."),  # FULLWIDTH FULL STOP
+    (re.compile("＠"), "@"),  # FULLWIDTH COMMERCIAL AT
+    (re.compile("："), ":"),  # FULLWIDTH COLON
+    (re.compile("／"), "/"),  # FULLWIDTH SOLIDUS
 ]
 
 # Zero-width / BOM characters stripped before matching.
@@ -244,25 +240,38 @@ _PRIVATE_NETS = [
     ipaddress.ip_network("172.16.0.0/12"),
     ipaddress.ip_network("192.168.0.0/16"),
     ipaddress.ip_network("127.0.0.0/8"),
-    ipaddress.ip_network("169.254.0.0/16"),   # link-local
-    ipaddress.ip_network("100.64.0.0/10"),    # shared address space
+    ipaddress.ip_network("169.254.0.0/16"),  # link-local
+    ipaddress.ip_network("100.64.0.0/10"),  # shared address space
 ]
 
 # TLD suffixes that are internal/non-routable and therefore not IOCs.
 _NON_IOC_TLDS: frozenset[str] = frozenset(
     {
-        "local", "internal", "corp", "test", "example", "invalid",
-        "localhost", "lan", "home", "intranet", "localdomain",
-        "domain", "arpa",
+        "local",
+        "internal",
+        "corp",
+        "test",
+        "example",
+        "invalid",
+        "localhost",
+        "lan",
+        "home",
+        "intranet",
+        "localdomain",
+        "domain",
+        "arpa",
     }
 )
 
 # Tunnel / cloud-abuse hostname suffixes — auto-tagged as HIGH severity.
 _TUNNEL_SUFFIXES: tuple[str, ...] = (
-    ".ngrok.io", ".ngrok.app", ".ngrok-free.app",
+    ".ngrok.io",
+    ".ngrok.app",
+    ".ngrok-free.app",
     ".serveo.net",
     ".trycloudflare.com",
-    ".loca.lt", ".localtunnel.me",
+    ".loca.lt",
+    ".localtunnel.me",
     ".pagekite.me",
     ".tunnelmole.com",
     ".bore.pub",
@@ -271,17 +280,20 @@ _TUNNEL_SUFFIXES: tuple[str, ...] = (
 # Paste / dump host suffixes — auto-tagged as HIGH severity.
 _PASTE_HOSTS: frozenset[str] = frozenset(
     {
-        "pastebin.com", "paste.ee", "ghostbin.co", "hastebin.com",
-        "rentry.co", "controlc.com", "dpaste.com",
+        "pastebin.com",
+        "paste.ee",
+        "ghostbin.co",
+        "hastebin.com",
+        "rentry.co",
+        "controlc.com",
+        "dpaste.com",
     }
 )
 
 # C2-abuse hostnames (legitimate services frequently abused as command
 # channels). Matched against full hostname plus URL-path heuristics in
 # :func:`classify_severity_hint`.
-_C2_ABUSE_HOSTS: frozenset[str] = frozenset(
-    {"discord.com", "discordapp.com", "t.me", "api.telegram.org"}
-)
+_C2_ABUSE_HOSTS: frozenset[str] = frozenset({"discord.com", "discordapp.com", "t.me", "api.telegram.org"})
 
 # Registry keys whose presence implies persistence (auto-HIGH).
 _PERSISTENCE_REG_FRAGMENTS: tuple[str, ...] = (
@@ -299,6 +311,7 @@ _PERSISTENCE_REG_FRAGMENTS: tuple[str, ...] = (
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
+
 
 def _refang(text: str) -> str:
     """Return *text* with common defanging patterns reversed.
@@ -318,11 +331,13 @@ def _refang(text: str) -> str:
 
 # Hashes of the empty byte string (``""``) — emitted by tools that compute a
 # digest of a missing/zero-length file. These are pure noise in IOC lists.
-_EMPTY_STRING_HASHES: frozenset[str] = frozenset({
-    "d41d8cd98f00b204e9800998ecf8427e",                                    # MD5("")
-    "da39a3ee5e6b4b0d3255bfef95601890afd80709",                            # SHA1("")
-    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",    # SHA256("")
-})
+_EMPTY_STRING_HASHES: frozenset[str] = frozenset(
+    {
+        "d41d8cd98f00b204e9800998ecf8427e",  # MD5("")
+        "da39a3ee5e6b4b0d3255bfef95601890afd80709",  # SHA1("")
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",  # SHA256("")
+    }
+)
 
 
 def _is_null_hash(h: str) -> bool:
@@ -440,6 +455,7 @@ def _extract_strings_from_list(lst: list) -> list[str]:
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def detect_ioc_type(ioc: str) -> str:
     """
     Classify a single IOC string into a type label.
@@ -548,9 +564,7 @@ def classify_severity_hint(ioc: str) -> str | None:
             return "high"
         # C2-abuse host: only flag for URLs that look like webhook / bot paths.
         if host in _C2_ABUSE_HOSTS:
-            if ioc_type == "url" and re.search(
-                r"/(?:api/webhooks|bot[0-9]+:)", ioc, re.IGNORECASE
-            ):
+            if ioc_type == "url" and re.search(r"/(?:api/webhooks|bot[0-9]+:)", ioc, re.IGNORECASE):
                 return "high"
 
     return None
@@ -632,40 +646,28 @@ def extract_iocs(text: str) -> list[str]:
         h = m.group().lower()
         if _is_null_hash(h):
             continue
-        if not any(
-            existing.startswith(h) and len(existing) > len(h)
-            for existing in candidates
-        ):
+        if not any(existing.startswith(h) and len(existing) > len(h) for existing in candidates):
             candidates.add(h)
 
     for m in _RE_JARM.finditer(text):
         h = m.group().lower()
         if _is_null_hash(h):
             continue
-        if not any(
-            existing.startswith(h) and len(existing) > len(h)
-            for existing in candidates
-        ):
+        if not any(existing.startswith(h) and len(existing) > len(h) for existing in candidates):
             candidates.add(h)
 
     for m in _RE_SHA1.finditer(text):
         h = m.group().lower()
         if _is_null_hash(h):
             continue
-        if not any(
-            existing.startswith(h) and len(existing) > len(h)
-            for existing in candidates
-        ):
+        if not any(existing.startswith(h) and len(existing) > len(h) for existing in candidates):
             candidates.add(h)
 
     for m in _RE_MD5.finditer(text):
         h = m.group().lower()
         if _is_null_hash(h):
             continue
-        if not any(
-            existing.startswith(h) and len(existing) > len(h)
-            for existing in candidates
-        ):
+        if not any(existing.startswith(h) and len(existing) > len(h) for existing in candidates):
             candidates.add(h)
 
     # --- Keyword-anchored fingerprints (JA3 / JA3S / imphash) ---

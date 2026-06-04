@@ -51,8 +51,7 @@ class BarbBridge:
         # Accept URLs *first* — URLs may legitimately contain ``@`` in
         # userinfo (``http://user:pass@host/...``), so the URL check has
         # to run before the bare ``@`` rejection or those URLs are lost.
-        if ioc.lower().startswith(("http://", "https://", "ftp://",
-                                   "hxxp://", "hxxps://")):
+        if ioc.lower().startswith(("http://", "https://", "ftp://", "hxxp://", "hxxps://")):
             return True
         # Exclude email addresses (after URL acceptance).
         if "@" in ioc:
@@ -85,6 +84,7 @@ class BarbBridge:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _call_barb_cli(ioc: str, barb_bin: str | None = None) -> dict:
     bin_path = barb_bin or shutil.which("barb")
@@ -122,9 +122,7 @@ def _looks_like_ip(value: str) -> bool:
 def _looks_like_hash(value: str) -> bool:
     """MD5 (32), SHA-1 (40), SHA-256 (64), SHA-512 (128) hex strings."""
     stripped = value.strip()
-    return len(stripped) in (32, 40, 64, 128) and all(
-        c in "0123456789abcdefABCDEF" for c in stripped
-    )
+    return len(stripped) in (32, 40, 64, 128) and all(c in "0123456789abcdefABCDEF" for c in stripped)
 
 
 def _is_non_enrichable_type(value: str) -> bool:
@@ -147,22 +145,15 @@ def _is_non_enrichable_type(value: str) -> bool:
         and (len(v) == 5 or (len(v) == 9 and v[5] == "." and v[6:].isdigit()))
     ):
         return True
-    if upper.startswith(("HKLM\\", "HKCU\\", "HKCR\\", "HKU\\", "HKCC\\",
-                         "HKEY_")):
+    if upper.startswith(("HKLM\\", "HKCU\\", "HKCR\\", "HKU\\", "HKCC\\", "HKEY_")):
         return True
     if v.startswith("ps_encoded:"):
         return True
     if v.count(":") == 2:
         parts = v.split(":")
-        if (
-            parts[0].isdigit()
-            and len(parts[1]) >= 3
-            and len(parts[2]) >= 3
-        ):
+        if parts[0].isdigit() and len(parts[1]) >= 3 and len(parts[2]) >= 3:
             return True
-    if upper.startswith("T1") and len(v) in (70, 72) and all(
-        c in "0123456789ABCDEFabcdef" for c in v[2:]
-    ):
+    if upper.startswith("T1") and len(v) in (70, 72) and all(c in "0123456789ABCDEFabcdef" for c in v[2:]):
         return True
     return False
 
@@ -180,14 +171,53 @@ def _looks_like_filename(value: str) -> bool:
 # ---------------------------------------------------------------------------
 
 # TLDs that indicate non-routable / internal domains — mirror ioc_extractor._NON_IOC_TLDS
-_NON_IOC_TLDS = frozenset({
-    "local", "internal", "corp", "test", "example", "invalid",
-    "localhost", "lan", "home", "intranet", "localdomain", "domain", "arpa",
-})
+_NON_IOC_TLDS = frozenset(
+    {
+        "local",
+        "internal",
+        "corp",
+        "test",
+        "example",
+        "invalid",
+        "localhost",
+        "lan",
+        "home",
+        "intranet",
+        "localdomain",
+        "domain",
+        "arpa",
+    }
+)
 
-_FILE_EXTENSIONS = frozenset({
-    ".exe", ".dll", ".sys", ".ps1", ".bat", ".cmd", ".vbs", ".js",
-    ".log", ".ldb", ".sst", ".tmp", ".mca", ".inf", ".msi", ".jar",
-    ".zip", ".rar", ".7z", ".tar", ".gz", ".iso", ".img",
-    ".py", ".sh", ".rb", ".pl", ".php",
-})
+_FILE_EXTENSIONS = frozenset(
+    {
+        ".exe",
+        ".dll",
+        ".sys",
+        ".ps1",
+        ".bat",
+        ".cmd",
+        ".vbs",
+        ".js",
+        ".log",
+        ".ldb",
+        ".sst",
+        ".tmp",
+        ".mca",
+        ".inf",
+        ".msi",
+        ".jar",
+        ".zip",
+        ".rar",
+        ".7z",
+        ".tar",
+        ".gz",
+        ".iso",
+        ".img",
+        ".py",
+        ".sh",
+        ".rb",
+        ".pl",
+        ".php",
+    }
+)

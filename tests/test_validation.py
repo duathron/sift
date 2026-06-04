@@ -177,9 +177,7 @@ class TestSummaryResultSchemaValidation:
         data = make_valid_raw_dict()
         schema = SummaryResultSchema(**data)
         assert isinstance(schema.cluster_summaries[0].recommendations[0], Recommendation)
-        assert (
-            schema.cluster_summaries[0].recommendations[0].action == "Block sender domain"
-        )
+        assert schema.cluster_summaries[0].recommendations[0].action == "Block sender domain"
 
     def test_extra_fields_ignored(self):
         """Extra unknown fields in the input dict are ignored per model_config."""
@@ -251,9 +249,7 @@ class TestSummaryValidator:
             {
                 "cluster_id": "c1",
                 "narrative": "Narrative 1",
-                "recommendations": [
-                    {"action": "Action 1", "priority": "IMMEDIATE", "rationale": "Reason 1"}
-                ],
+                "recommendations": [{"action": "Action 1", "priority": "IMMEDIATE", "rationale": "Reason 1"}],
             },
             {
                 "cluster_id": "c2",

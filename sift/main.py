@@ -34,6 +34,7 @@ console = Console(stderr=True)
 # Format enum
 # ---------------------------------------------------------------------------
 
+
 class OutputFormat(str):
     RICH = "rich"
     CONSOLE = "console"
@@ -45,6 +46,7 @@ class OutputFormat(str):
 # ---------------------------------------------------------------------------
 # Helper: resolve normalizer
 # ---------------------------------------------------------------------------
+
 
 def _normalize(raw: str) -> tuple[list, str]:
     """Auto-detect format and return (alerts, format_name)."""
@@ -66,6 +68,7 @@ def _normalize(raw: str) -> tuple[list, str]:
 # Helper: build summarizer
 # ---------------------------------------------------------------------------
 
+
 def _build_summarizer(
     provider: str,
     config,
@@ -86,11 +89,13 @@ def _build_summarizer(
 
     if provider == "mock":
         from .summarizers.mock import MockSummarizer
+
         return MockSummarizer()
 
     if provider == "anthropic":
         try:
             from .summarizers.anthropic import AnthropicSummarizer
+
             return AnthropicSummarizer(config.summarize)
         except ImportError as e:
             console.print(f"[yellow]Warning:[/yellow] {_markup_escape(str(e))}")
@@ -100,6 +105,7 @@ def _build_summarizer(
     if provider == "openai":
         try:
             from .summarizers.openai import OpenAISummarizer
+
             return OpenAISummarizer(config.summarize)
         except ImportError as e:
             console.print(f"[yellow]Warning:[/yellow] {_markup_escape(str(e))}")
@@ -108,6 +114,7 @@ def _build_summarizer(
 
     if provider == "ollama":
         from .summarizers.ollama import OllamaSummarizer
+
         return OllamaSummarizer(config.summarize)
 
     console.print(f"[yellow]Unknown provider '{provider}', using template.[/yellow]")
@@ -117,6 +124,7 @@ def _build_summarizer(
 # ---------------------------------------------------------------------------
 # Helper: enrichment consent
 # ---------------------------------------------------------------------------
+
 
 def _check_enrich_consent(yes: bool, cfg) -> bool:
     """Returns True if consent is given for external API calls."""
@@ -143,9 +151,7 @@ def _resolve_paths(raw_paths: list[Path]) -> list[Path]:
         if str(p) == "-":
             resolved.append(p)
         elif p.is_dir():
-            found = sorted(
-                f for f in p.rglob("*") if f.is_file() and f.suffix.lower() in _SUPPORTED_SUFFIXES
-            )
+            found = sorted(f for f in p.rglob("*") if f.is_file() and f.suffix.lower() in _SUPPORTED_SUFFIXES)
             if not found:
                 console.print(f"[yellow]Warning:[/yellow] No supported files found in directory: {p}")
             else:
@@ -161,6 +167,7 @@ def _resolve_paths(raw_paths: list[Path]) -> list[Path]:
 # ---------------------------------------------------------------------------
 # Helper: triage --help status panel + callbacks
 # ---------------------------------------------------------------------------
+
 
 def _print_triage_config_panel(
     *,
@@ -182,7 +189,7 @@ def _print_triage_config_panel(
     from rich.panel import Panel
     from rich.text import Text
 
-    _LBL = 10    # fixed label column width → values always start at the same offset
+    _LBL = 10  # fixed label column width → values always start at the same offset
 
     def row(label: str, value: str) -> str:
         return f"{label:<{_LBL}}{value}\n"
@@ -194,9 +201,10 @@ def _print_triage_config_panel(
     size_str = _fmt_size(total_bytes) if total_bytes > 0 else "?"
     input_val = (
         f"{file_count} file{'s' if file_count != 1 else ''} ({size_str})"
-        if not stdin_count else
-        f"stdin" if named_count == 0 else
-        f"{named_count} file{'s' if named_count != 1 else ''} + stdin ({size_str})"
+        if not stdin_count
+        else "stdin"
+        if named_count == 0
+        else f"{named_count} file{'s' if named_count != 1 else ''} + stdin ({size_str})"
     )
 
     # --- Summarize ---
@@ -222,7 +230,11 @@ def _print_triage_config_panel(
         chunk_val = "[dim]off[/dim] (small input)"
 
     # --- Dedup ---
-    dedup_val = "[dim]off[/dim]  [yellow](--no-dedup)[/yellow]" if no_dedup else f"[green]on[/green]  [dim]({time_window} min window)[/dim]"
+    dedup_val = (
+        "[dim]off[/dim]  [yellow](--no-dedup)[/yellow]"
+        if no_dedup
+        else f"[green]on[/green]  [dim]({time_window} min window)[/dim]"
+    )
 
     body = Text.from_markup(
         row("Input", input_val)
@@ -235,9 +247,8 @@ def _print_triage_config_panel(
     )
 
     from rich.console import Console as _RichConsole
-    _RichConsole(stderr=True).print(
-        Panel(body, title="[bold]Triage Config[/bold]", expand=False, padding=(0, 2))
-    )
+
+    _RichConsole(stderr=True).print(Panel(body, title="[bold]Triage Config[/bold]", expand=False, padding=(0, 2)))
 
 
 def _print_triage_setup_status() -> None:
@@ -246,11 +257,16 @@ def _print_triage_setup_status() -> None:
         from rich.console import Console as _Console
         from rich.panel import Panel
         from rich.text import Text
+
         _c = _Console()
         cfg = load_config()
 
         key = cfg.summarize.api_key or ""
-        key_line = f"[green]✓[/green] set (via ~/.sift/.env)" if key else "[yellow]✗[/yellow] not set  (run: sift config --api-key <key>)"
+        key_line = (
+            "[green]✓[/green] set (via ~/.sift/.env)"
+            if key
+            else "[yellow]✗[/yellow] not set  (run: sift config --api-key <key>)"
+        )
         provider_line = cfg.summarize.provider
         cache_line = "on  [dim](--no-cache to disable)[/dim]" if cfg.cache_enabled else "off [dim](default)[/dim]"
         redact_fields = cfg.redaction.fields if hasattr(cfg, "redaction") else []
@@ -272,6 +288,7 @@ def _triage_help_callback(ctx: "typer.Context", param: "typer.CallbackParam", va
     if not value or ctx.resilient_parsing:
         return
     import click
+
     click.echo(ctx.get_help())
     _print_triage_setup_status()
     raise typer.Exit()
@@ -283,6 +300,7 @@ def _help_all_callback(ctx: "typer.Context", param: "typer.CallbackParam", value
     for p in ctx.command.params:
         p.hidden = False
     import click
+
     click.echo(ctx.get_help())
     _print_triage_setup_status()
     raise typer.Exit()
@@ -292,167 +310,256 @@ def _help_all_callback(ctx: "typer.Context", param: "typer.CallbackParam", value
 # triage command
 # ---------------------------------------------------------------------------
 
+
 @app.command(context_settings={"help_option_names": []})
 def triage(
-    files: Annotated[list[Path], typer.Argument(
-        help=(
-            "Alert files or directories to triage (JSON, NDJSON, Splunk JSON or NDJSON, CSV, Sysmon CSV, .log). "
-            "Pass multiple paths to correlate alerts across sources. "
-            "Use '-' for stdin. Directories are scanned for "
-            ".json, .ndjson, .jsonl, .csv, and .log files."
+    files: Annotated[
+        list[Path],
+        typer.Argument(
+            help=(
+                "Alert files or directories to triage (JSON, NDJSON, Splunk JSON or NDJSON, CSV, Sysmon CSV, .log). "
+                "Pass multiple paths to correlate alerts across sources. "
+                "Use '-' for stdin. Directories are scanned for "
+                ".json, .ndjson, .jsonl, .csv, and .log files."
+            ),
+            show_default=False,
         ),
-        show_default=False,
-    )],
+    ],
     # --- Output ---
-    format: Annotated[str, typer.Option(
-        "--format", "-f",
-        help="Output format: rich | console | json | csv | stix",
-        rich_help_panel="Output",
-    )] = "rich",
-    output: Annotated[Optional[Path], typer.Option(
-        "--output", "-o",
-        help="Save output to file.",
-        rich_help_panel="Output",
-    )] = None,
-    quiet: Annotated[bool, typer.Option(
-        "--quiet", "-q",
-        help="Suppress banner and status lines.",
-        rich_help_panel="Output",
-    )] = False,
+    format: Annotated[
+        str,
+        typer.Option(
+            "--format",
+            "-f",
+            help="Output format: rich | console | json | csv | stix",
+            rich_help_panel="Output",
+        ),
+    ] = "rich",
+    output: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--output",
+            "-o",
+            help="Save output to file.",
+            rich_help_panel="Output",
+        ),
+    ] = None,
+    quiet: Annotated[
+        bool,
+        typer.Option(
+            "--quiet",
+            "-q",
+            help="Suppress banner and status lines.",
+            rich_help_panel="Output",
+        ),
+    ] = False,
     # --- AI Summarization ---
-    summarize: Annotated[bool, typer.Option(
-        "--summarize", "-s",
-        help="Generate AI summary. Uses --provider (template requires no key).",
-        rich_help_panel="AI Summarization",
-    )] = False,
-    provider: Annotated[Optional[str], typer.Option(
-        "--provider",
-        help="LLM provider: template (no key) | anthropic | openai | ollama",
-        rich_help_panel="AI Summarization",
-    )] = None,
-    no_llm: Annotated[bool, typer.Option(
-        "--no-llm",
-        help="Force template summarizer regardless of config (no LLM call, no API key required).",
-        rich_help_panel="AI Summarization",
-    )] = False,
-    max_tokens: Annotated[Optional[int], typer.Option(
-        "--max-tokens",
-        help="Max output tokens for LLM summary (default: 4096). Raise for large multi-cluster reports.",
-        rich_help_panel="AI Summarization",
-        hidden=True,
-    )] = None,
+    summarize: Annotated[
+        bool,
+        typer.Option(
+            "--summarize",
+            "-s",
+            help="Generate AI summary. Uses --provider (template requires no key).",
+            rich_help_panel="AI Summarization",
+        ),
+    ] = False,
+    provider: Annotated[
+        Optional[str],
+        typer.Option(
+            "--provider",
+            help="LLM provider: template (no key) | anthropic | openai | ollama",
+            rich_help_panel="AI Summarization",
+        ),
+    ] = None,
+    no_llm: Annotated[
+        bool,
+        typer.Option(
+            "--no-llm",
+            help="Force template summarizer regardless of config (no LLM call, no API key required).",
+            rich_help_panel="AI Summarization",
+        ),
+    ] = False,
+    max_tokens: Annotated[
+        Optional[int],
+        typer.Option(
+            "--max-tokens",
+            help="Max output tokens for LLM summary (default: 4096). Raise for large multi-cluster reports.",
+            rich_help_panel="AI Summarization",
+            hidden=True,
+        ),
+    ] = None,
     # --- IOC Enrichment ---
-    enrich: Annotated[Optional[str], typer.Option(
-        "--enrich",
-        help="Enrich IOCs: local (no API) | barb | vex | all (external, requires consent).",
-        rich_help_panel="IOC Enrichment",
-    )] = None,
-    yes: Annotated[bool, typer.Option(
-        "--yes", "-y",
-        help="Skip consent prompt for external enrichment API calls.",
-        rich_help_panel="IOC Enrichment",
-    )] = False,
+    enrich: Annotated[
+        Optional[str],
+        typer.Option(
+            "--enrich",
+            help="Enrich IOCs: local (no API) | barb | vex | all (external, requires consent).",
+            rich_help_panel="IOC Enrichment",
+        ),
+    ] = None,
+    yes: Annotated[
+        bool,
+        typer.Option(
+            "--yes",
+            "-y",
+            help="Skip consent prompt for external enrichment API calls.",
+            rich_help_panel="IOC Enrichment",
+        ),
+    ] = False,
     # --- Privacy ---
-    redact_fields: Annotated[Optional[str], typer.Option(
-        "--redact-fields",
-        help="Fields to redact before AI submission (e.g. 'user,host,source_ip').",
-        rich_help_panel="Privacy",
-    )] = None,
-    include_raw_payload: Annotated[bool, typer.Option(
-        "--include-raw-payload",
-        help=(
-            "Include raw PowerShell-encoded base64 payloads in JSON / CSV / "
-            "ticket output. Default behaviour replaces them with a SHA-256 "
-            "stub to avoid leaking obfuscated payloads into downstream tools "
-            "and LLM-adjacent systems. Use only for forensic analysis."
+    redact_fields: Annotated[
+        Optional[str],
+        typer.Option(
+            "--redact-fields",
+            help="Fields to redact before AI submission (e.g. 'user,host,source_ip').",
+            rich_help_panel="Privacy",
         ),
-        rich_help_panel="Privacy",
-    )] = False,
-    injection_detail: Annotated[bool, typer.Option(
-        "--injection-detail",
-        help=(
-            "Show a warning line per alert when injection patterns are detected. "
-            "Default: single summary line ('N pattern(s) across M alerts — redacted')."
+    ] = None,
+    include_raw_payload: Annotated[
+        bool,
+        typer.Option(
+            "--include-raw-payload",
+            help=(
+                "Include raw PowerShell-encoded base64 payloads in JSON / CSV / "
+                "ticket output. Default behaviour replaces them with a SHA-256 "
+                "stub to avoid leaking obfuscated payloads into downstream tools "
+                "and LLM-adjacent systems. Use only for forensic analysis."
+            ),
+            rich_help_panel="Privacy",
         ),
-        rich_help_panel="Privacy",
-    )] = False,
-    findings_file: Annotated[Optional[Path], typer.Option(
-        "--findings-file", "-F",
-        help="Write injection findings (alert_id, field, pattern_type, severity) to a JSON file.",
-        rich_help_panel="Privacy",
-    )] = None,
+    ] = False,
+    injection_detail: Annotated[
+        bool,
+        typer.Option(
+            "--injection-detail",
+            help=(
+                "Show a warning line per alert when injection patterns are detected. "
+                "Default: single summary line ('N pattern(s) across M alerts — redacted')."
+            ),
+            rich_help_panel="Privacy",
+        ),
+    ] = False,
+    findings_file: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--findings-file",
+            "-F",
+            help="Write injection findings (alert_id, field, pattern_type, severity) to a JSON file.",
+            rich_help_panel="Privacy",
+        ),
+    ] = None,
     # --- Options ---
-    filter: Annotated[Optional[str], typer.Option(
-        "--filter",
-        help="Filter clusters (e.g. 'priority >= HIGH').",
-    )] = None,
-    no_cache: Annotated[bool, typer.Option(
-        "--no-cache",
-        help="Disable result caching for this run.",
-    )] = False,
+    filter: Annotated[
+        Optional[str],
+        typer.Option(
+            "--filter",
+            help="Filter clusters (e.g. 'priority >= HIGH').",
+        ),
+    ] = None,
+    no_cache: Annotated[
+        bool,
+        typer.Option(
+            "--no-cache",
+            help="Disable result caching for this run.",
+        ),
+    ] = False,
     # --- Help ---
-    help_flag: Annotated[Optional[bool], typer.Option(
-        "--help", "-h",
-        help="Show this message and exit.",
-        is_eager=True,
-        callback=_triage_help_callback,
-        expose_value=False,
-    )] = None,
-    help_all: Annotated[Optional[bool], typer.Option(
-        "--help-all",
-        help="Show all options including expert flags.",
-        is_eager=True,
-        callback=_help_all_callback,
-        expose_value=False,
-    )] = None,
+    help_flag: Annotated[
+        Optional[bool],
+        typer.Option(
+            "--help",
+            "-h",
+            help="Show this message and exit.",
+            is_eager=True,
+            callback=_triage_help_callback,
+            expose_value=False,
+        ),
+    ] = None,
+    help_all: Annotated[
+        Optional[bool],
+        typer.Option(
+            "--help-all",
+            help="Show all options including expert flags.",
+            is_eager=True,
+            callback=_help_all_callback,
+            expose_value=False,
+        ),
+    ] = None,
     # --- Expert / hidden flags (sift triage --help-all to reveal) ---
-    config_path: Annotated[Optional[Path], typer.Option(
-        "--config",
-        help="Path to a custom config.yaml (default: ~/.sift/config.yaml).",
-        show_default=False,
-        hidden=True,
-    )] = None,
-    no_dedup: Annotated[bool, typer.Option(
-        "--no-dedup",
-        help="Skip alert deduplication. Use only for testing or when your SIEM already deduplicates.",
-        hidden=True,
-    )] = False,
-    validate_only: Annotated[bool, typer.Option(
-        "--validate-only",
-        help="[Deprecated] Use 'sift validate <file>' instead. Parse and validate without producing output.",
-        hidden=True,
-    )] = False,
-    chunk_size: Annotated[int, typer.Option(
-        "--chunk-size",
-        help="Override auto-tuned chunk size for clustering (0 = auto). Use when auto-tuning picks wrong size.",
-        hidden=True,
-    )] = 0,
-    drop_raw: Annotated[bool, typer.Option(
-        "--drop-raw",
-        help="Discard raw alert data after normalization — halves RAM for wide CSVs. Auto-enabled for files >500 MB.",
-        hidden=True,
-    )] = False,
-    enrich_mode: Annotated[Optional[str], typer.Option(
-        "--enrich-mode",
-        help="[Deprecated] Use --enrich MODE instead (e.g. --enrich local).",
-        hidden=True,
-    )] = None,
+    config_path: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--config",
+            help="Path to a custom config.yaml (default: ~/.sift/config.yaml).",
+            show_default=False,
+            hidden=True,
+        ),
+    ] = None,
+    no_dedup: Annotated[
+        bool,
+        typer.Option(
+            "--no-dedup",
+            help="Skip alert deduplication. Use only for testing or when your SIEM already deduplicates.",
+            hidden=True,
+        ),
+    ] = False,
+    validate_only: Annotated[
+        bool,
+        typer.Option(
+            "--validate-only",
+            help="[Deprecated] Use 'sift validate <file>' instead. Parse and validate without producing output.",
+            hidden=True,
+        ),
+    ] = False,
+    chunk_size: Annotated[
+        int,
+        typer.Option(
+            "--chunk-size",
+            help="Override auto-tuned chunk size for clustering (0 = auto). Use when auto-tuning picks wrong size.",
+            hidden=True,
+        ),
+    ] = 0,
+    drop_raw: Annotated[
+        bool,
+        typer.Option(
+            "--drop-raw",
+            help="Discard raw alert data after normalization — halves RAM for wide CSVs. Auto-enabled for files >500 MB.",
+            hidden=True,
+        ),
+    ] = False,
+    enrich_mode: Annotated[
+        Optional[str],
+        typer.Option(
+            "--enrich-mode",
+            help="[Deprecated] Use --enrich MODE instead (e.g. --enrich local).",
+            hidden=True,
+        ),
+    ] = None,
     # --- Ticketing ---
-    ticket: Annotated[Optional[str], typer.Option(
-        "--ticket",
-        help="Create ticket from triage result: thehive | jira | dry-run",
-        rich_help_panel="Ticketing",
-    )] = None,
-    ticket_output: Annotated[Optional[Path], typer.Option(
-        "--ticket-output",
-        help="Save ticket JSON to file (implies --ticket dry-run if --ticket not set).",
-        rich_help_panel="Ticketing",
-    )] = None,
-    ticket_all: Annotated[bool, typer.Option(
-        "--ticket-all",
-        help="Create one ticket per HIGH/CRITICAL cluster (default: top cluster only).",
-        rich_help_panel="Ticketing",
-    )] = False,
+    ticket: Annotated[
+        Optional[str],
+        typer.Option(
+            "--ticket",
+            help="Create ticket from triage result: thehive | jira | dry-run",
+            rich_help_panel="Ticketing",
+        ),
+    ] = None,
+    ticket_output: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--ticket-output",
+            help="Save ticket JSON to file (implies --ticket dry-run if --ticket not set).",
+            rich_help_panel="Ticketing",
+        ),
+    ] = None,
+    ticket_all: Annotated[
+        bool,
+        typer.Option(
+            "--ticket-all",
+            help="Create one ticket per HIGH/CRITICAL cluster (default: top cluster only).",
+            rich_help_panel="Ticketing",
+        ),
+    ] = False,
 ) -> None:
     """Triage alerts from one or more FILES or directories.
 
@@ -470,8 +577,7 @@ def triage(
     # --- Backward compat: --enrich-mode (deprecated) merged into --enrich ---
     if enrich_mode and enrich is None:
         console.print(
-            "[yellow]Note:[/yellow] --enrich-mode is deprecated. Use --enrich MODE instead "
-            "(e.g. --enrich local)."
+            "[yellow]Note:[/yellow] --enrich-mode is deprecated. Use --enrich MODE instead (e.g. --enrich local)."
         )
         enrich = enrich_mode
 
@@ -487,8 +593,8 @@ def triage(
     )
 
     # --- Resolve input paths (expand directories, validate files) ---
-    _LARGE_FILE_THRESHOLD_BYTES = 50 * 1024 * 1024   # 50 MB
-    _STREAM_BATCH_LINES = 5_000                        # normalize this many lines at a time
+    _LARGE_FILE_THRESHOLD_BYTES = 50 * 1024 * 1024  # 50 MB
+    _STREAM_BATCH_LINES = 5_000  # normalize this many lines at a time
 
     def _stream_alerts(path: Path, hasher, show_progress: bool, *, sub_chunk: bool = False) -> tuple[list, str]:
         """Read a large file line-by-line in batches with optional progress bar.
@@ -517,8 +623,8 @@ def triage(
         _sub_chunk_size = cfg.clustering.sub_chunk_size  # default 100_000
 
         file_size = path.stat().st_size
-        all_source_alerts: list = []   # Alert list (sub_chunk=False) or TriageReport list (sub_chunk=True)
-        _pending_alerts: list = []     # buffer for sub-chunk accumulation
+        all_source_alerts: list = []  # Alert list (sub_chunk=False) or TriageReport list (sub_chunk=True)
+        _pending_alerts: list = []  # buffer for sub-chunk accumulation
         detected_fmt = "generic"
         buffer: list[str] = []
         _csv_header: str | None = None  # preserved CSV header for subsequent batches
@@ -530,6 +636,7 @@ def triage(
                 return
             from .pipeline.dedup import DeduplicatorConfig, deduplicate
             from .pipeline.ioc_extractor import enrich_alerts_iocs
+
             _dedup_cfg = DeduplicatorConfig(time_window_minutes=cfg.clustering.time_window_minutes)
             _deduped, _ = deduplicate(_pending_alerts, _dedup_cfg)
             if _effective_redact:
@@ -540,13 +647,15 @@ def triage(
             _deduped = enrich_alerts_iocs(_deduped)
             _cls = cluster_alerts(_deduped, cfg.clustering)
             _cls = prioritize_all(_cls, cfg.scoring)
-            all_source_alerts.append(TriageReport(
-                input_file=str(path),
-                alerts_ingested=len(_pending_alerts),
-                alerts_after_dedup=len(_deduped),
-                clusters=_cls,
-                analyzed_at=datetime.now(tz=timezone.utc),
-            ))
+            all_source_alerts.append(
+                TriageReport(
+                    input_file=str(path),
+                    alerts_ingested=len(_pending_alerts),
+                    alerts_after_dedup=len(_deduped),
+                    clusters=_cls,
+                    analyzed_at=datetime.now(tz=timezone.utc),
+                )
+            )
             _pending_alerts = []
 
         def _flush_buffer() -> None:
@@ -645,21 +754,30 @@ def triage(
 
     import hashlib as _hashlib
 
-    from .pipeline.chunker import chunk_alerts, merge_triage_reports
-    from .pipeline.clusterer import cluster_alerts
-    from .pipeline.prioritizer import prioritize_all
     from rich.progress import (
-        BarColumn, MofNCompleteColumn, Progress as _Progress,
-        SpinnerColumn, TaskProgressColumn, TextColumn as _TextColumn,
-        TimeElapsedColumn, TimeRemainingColumn,
+        BarColumn,
+        MofNCompleteColumn,
+        SpinnerColumn,
+        TaskProgressColumn,
+        TimeElapsedColumn,
+        TimeRemainingColumn,
+    )
+    from rich.progress import (
+        Progress as _Progress,
+    )
+    from rich.progress import (
+        TextColumn as _TextColumn,
     )
     from rich.status import Status as _Status
 
+    from .pipeline.chunker import chunk_alerts, merge_triage_reports
+    from .pipeline.clusterer import cluster_alerts
+    from .pipeline.prioritizer import prioritize_all
+
     # --- Auto-tuning: compute total + largest file sizes for tuning engine ---
     from .tuning import auto_tune
-    _total_bytes_estimate = sum(
-        p.stat().st_size for p in resolved_paths if str(p) != "-" and p.exists()
-    )
+
+    _total_bytes_estimate = sum(p.stat().st_size for p in resolved_paths if str(p) != "-" and p.exists())
     _largest_file_estimate = max(
         (p.stat().st_size for p in resolved_paths if str(p) != "-" and p.exists()),
         default=0,
@@ -725,6 +843,7 @@ def triage(
                         raise typer.Exit(2)
 
         from .cache import AlertCache, CacheConfig
+
         _cache_key = _fp_hasher.hexdigest()
         _alert_cache = AlertCache(CacheConfig(enabled=True))
         _cached_raw = _alert_cache.get(_cache_key)
@@ -790,7 +909,7 @@ def triage(
                     # mini-pipeline (dedup → IOC → cluster) per batch internally.
                     # Returns a list of TriageReport objects, NOT Alert objects.
                     if not _quiet_mode:
-                        _size_gb = file_size / (1024 ** 3)
+                        _size_gb = file_size / (1024**3)
                         console.print(
                             f"[dim]  {path.name} ({_size_gb:.1f} GB) — sub-file chunking "
                             f"(batches of {cfg.clustering.sub_chunk_size:,} alerts)[/dim]"
@@ -832,10 +951,16 @@ def triage(
 
         # F-10: filter phantom alerts
         source_alerts = [
-            a for a in source_alerts
+            a
+            for a in source_alerts
             if a.title not in ("Unknown Alert", "Unknown", "")
-            or a.description or a.source_ip or a.dest_ip
-            or a.user or a.host or a.iocs or a.raw
+            or a.description
+            or a.source_ip
+            or a.dest_ip
+            or a.user
+            or a.host
+            or a.iocs
+            or a.raw
         ]
         if not source_alerts:
             console.print(f"[yellow]Warning:[/yellow] All alerts from {label} were empty/phantom.")
@@ -852,6 +977,7 @@ def triage(
             file_dedup_count = file_ingested
         else:
             from .pipeline.dedup import DeduplicatorConfig, deduplicate
+
             _dedup_cfg = DeduplicatorConfig(time_window_minutes=cfg.clustering.time_window_minutes)
             if file_ingested >= _PROGRESS_THRESHOLD and not _quiet_mode:
                 with _Status(
@@ -883,6 +1009,7 @@ def triage(
 
         # --- IOC extraction ---
         from .pipeline.ioc_extractor import enrich_alerts_iocs
+
         alerts_for_clustering = enrich_alerts_iocs(alerts_for_clustering)
 
         # --- Cluster + Prioritize ---
@@ -913,25 +1040,29 @@ def triage(
                     for _chk in chunks:
                         _cls = cluster_alerts(_chk, cfg.clustering)
                         _cls = prioritize_all(_cls, cfg.scoring)
-                        _chunk_reports.append(TriageReport(
-                            input_file=label,
-                            alerts_ingested=len(_chk),
-                            alerts_after_dedup=len(_chk),
-                            clusters=_cls,
-                            analyzed_at=datetime.now(tz=timezone.utc),
-                        ))
+                        _chunk_reports.append(
+                            TriageReport(
+                                input_file=label,
+                                alerts_ingested=len(_chk),
+                                alerts_after_dedup=len(_chk),
+                                clusters=_cls,
+                                analyzed_at=datetime.now(tz=timezone.utc),
+                            )
+                        )
                         prog.advance(task)
             else:
                 for _chk in chunks:
                     _cls = cluster_alerts(_chk, cfg.clustering)
                     _cls = prioritize_all(_cls, cfg.scoring)
-                    _chunk_reports.append(TriageReport(
-                        input_file=label,
-                        alerts_ingested=len(_chk),
-                        alerts_after_dedup=len(_chk),
-                        clusters=_cls,
-                        analyzed_at=datetime.now(tz=timezone.utc),
-                    ))
+                    _chunk_reports.append(
+                        TriageReport(
+                            input_file=label,
+                            alerts_ingested=len(_chk),
+                            alerts_after_dedup=len(_chk),
+                            clusters=_cls,
+                            analyzed_at=datetime.now(tz=timezone.utc),
+                        )
+                    )
             file_report = merge_triage_reports(_chunk_reports, cfg.scoring)
         else:
             if file_dedup_count >= _PROGRESS_THRESHOLD and not _quiet_mode:
@@ -961,7 +1092,9 @@ def triage(
         console.print("[yellow]Warning:[/yellow] No alerts could be parsed from any input source.")
         raise typer.Exit(0)
 
-    input_file_str = ", ".join(source_labels) if len(source_labels) > 1 else (source_labels[0] if source_labels else "<unknown>")
+    input_file_str = (
+        ", ".join(source_labels) if len(source_labels) > 1 else (source_labels[0] if source_labels else "<unknown>")
+    )
 
     if len(source_labels) > 1 and not _quiet_mode:
         console.print(
@@ -979,20 +1112,24 @@ def triage(
     enrichment = None
     if _enrich_active:
         from .enrichers.runner import EnrichmentMode, EnrichmentRunner
-        mode_map = {"barb": EnrichmentMode.BARB, "vex": EnrichmentMode.VEX, "all": EnrichmentMode.ALL, "local": EnrichmentMode.LOCAL}
+
+        mode_map = {
+            "barb": EnrichmentMode.BARB,
+            "vex": EnrichmentMode.VEX,
+            "all": EnrichmentMode.ALL,
+            "local": EnrichmentMode.LOCAL,
+        }
         eff_mode = mode_map.get(_enrich_mode_str, EnrichmentMode.ALL)
         # LOCAL mode skips consent prompt — no data leaves the system
         consent = (eff_mode is EnrichmentMode.LOCAL) or _check_enrich_consent(yes, cfg)
         if consent:
             runner = EnrichmentRunner(mode=eff_mode)
-            all_iocs = runner.collect_iocs_from_report(
-                type("R", (), {"clusters": clusters})()
-            )
+            all_iocs = runner.collect_iocs_from_report(type("R", (), {"clusters": clusters})())
             if all_iocs:
                 if not _quiet_mode:
                     console.print(f"  [dim]Enriching {len(all_iocs)} IOC(s) via {eff_mode.value}...[/dim]")
                 try:
-                    max_ioc_limit = getattr(cfg.enrich, 'max_iocs', 20)
+                    max_ioc_limit = getattr(cfg.enrich, "max_iocs", 20)
                     enrichment = runner.enrich(all_iocs, max_iocs=max_ioc_limit)
                 except Exception as e:
                     console.print(f"[yellow]Warning:[/yellow] Enrichment failed: {_markup_escape(str(e))}")
@@ -1021,9 +1158,7 @@ def triage(
         effective_provider = provider or cfg.summarize.provider
         if max_tokens is not None:
             # Use model_copy to avoid mutating the live cfg object (prevents accidental persist)
-            cfg = cfg.model_copy(
-                update={"summarize": cfg.summarize.model_copy(update={"max_tokens": max_tokens})}
-            )
+            cfg = cfg.model_copy(update={"summarize": cfg.summarize.model_copy(update={"max_tokens": max_tokens})})
         summarizer = _build_summarizer(
             effective_provider,
             cfg,
@@ -1052,6 +1187,7 @@ def triage(
     if filter:
         try:
             from .filtering import FilterParser
+
             filter_obj = FilterParser.parse(filter)
             before = len(report.clusters)
             filtered = [c for c in report.clusters if filter_obj.matches(c)]
@@ -1099,12 +1235,10 @@ def triage(
 
         for _tc in _ticket_clusters:
             try:
-                _draft = report_to_draft(
-                    report, _tc, include_raw_payload=include_raw_payload
-                )
+                _draft = report_to_draft(report, _tc, include_raw_payload=include_raw_payload)
                 _result = _ticket_provider.send(_draft)
                 if _result.ticket_url and _result.ticket_url.startswith("file://"):
-                    _saved_path = _result.ticket_url[len("file://"):]
+                    _saved_path = _result.ticket_url[len("file://") :]
                     console.print(f"[green]✓[/green] Ticket saved: {_markup_escape(_saved_path)}")
                 elif _result.ticket_url:
                     console.print(
@@ -1113,11 +1247,10 @@ def triage(
                         f"({_ticket_provider_name})"
                     )
                 else:
-                    console.print(f"[green]✓[/green] Ticket output generated (dry-run → stdout)")
+                    console.print("[green]✓[/green] Ticket output generated (dry-run → stdout)")
             except Exception as exc:
                 console.print(
-                    f"[red]✗[/red] Ticket failed "
-                    f"({_markup_escape(_tc.label[:40])}): {_markup_escape(str(exc))}"
+                    f"[red]✗[/red] Ticket failed ({_markup_escape(_tc.label[:40])}): {_markup_escape(str(exc))}"
                 )
 
     # --- Exit code ---
@@ -1127,6 +1260,7 @@ def triage(
 # ---------------------------------------------------------------------------
 # Output rendering
 # ---------------------------------------------------------------------------
+
 
 def _render_output(
     report: TriageReport,
@@ -1157,28 +1291,26 @@ def _render_output(
         if output_path:
             import contextlib
             import io
+
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
                 format_report_console(report)
             output_path.write_text(buf.getvalue(), encoding="utf-8")
 
     elif fmt == "json":
-        data = export_json(
-            report, output_path, include_raw_payload=include_raw_payload
-        )
+        data = export_json(report, output_path, include_raw_payload=include_raw_payload)
         if not output_path:
             print(data)
 
     elif fmt == "csv":
-        data = export_csv(
-            report, output_path, include_raw_payload=include_raw_payload
-        )
+        data = export_csv(report, output_path, include_raw_payload=include_raw_payload)
         if not output_path:
             print(data)
 
     elif fmt == "stix":
         try:
             from .output.stix import STIXExporter
+
             exporter = STIXExporter(report)
             stix_bundle = exporter.to_stix_bundle()
             stix_json = json.dumps(stix_bundle, indent=2, default=str)
@@ -1197,8 +1329,7 @@ def _render_output(
 
     else:
         console.print(
-            f"[red]Error:[/red] Unknown output format '{format}'. "
-            "Valid formats: rich | console | json | csv | stix"
+            f"[red]Error:[/red] Unknown output format '{format}'. Valid formats: rich | console | json | csv | stix"
         )
         raise typer.Exit(2)
 
@@ -1207,22 +1338,33 @@ def _render_output(
 # validate command
 # ---------------------------------------------------------------------------
 
+
 @app.command()
 def validate(
-    files: Annotated[list[Path], typer.Argument(
-        help="Alert files or directories to validate (JSON, Splunk JSON, CSV). Use '-' for stdin.",
-        show_default=False,
-    )],
-    quiet: Annotated[bool, typer.Option(
-        "--quiet", "-q",
-        help="Suppress banner.",
-    )] = False,
-    config_path: Annotated[Optional[Path], typer.Option(
-        "--config",
-        help="Path to a custom config.yaml.",
-        show_default=False,
-        hidden=True,
-    )] = None,
+    files: Annotated[
+        list[Path],
+        typer.Argument(
+            help="Alert files or directories to validate (JSON, Splunk JSON, CSV). Use '-' for stdin.",
+            show_default=False,
+        ),
+    ],
+    quiet: Annotated[
+        bool,
+        typer.Option(
+            "--quiet",
+            "-q",
+            help="Suppress banner.",
+        ),
+    ] = False,
+    config_path: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--config",
+            help="Path to a custom config.yaml.",
+            show_default=False,
+            hidden=True,
+        ),
+    ] = None,
 ) -> None:
     """Validate alert files — parse and report format/count without running the full pipeline."""
     cfg = load_config(config_path)
@@ -1276,6 +1418,7 @@ def validate(
 # doctor command
 # ---------------------------------------------------------------------------
 
+
 @app.command()
 def doctor() -> None:
     """Run diagnostics — check dependencies, config, and LLM connectivity."""
@@ -1290,25 +1433,39 @@ def doctor() -> None:
 # metrics command
 # ---------------------------------------------------------------------------
 
+
 @app.command()
 def metrics(
-    file: Annotated[Path, typer.Argument(
-        help="Alert file to analyze (JSON, Splunk JSON, CSV). Use '-' for stdin.",
-        show_default=False,
-    )],
-    quiet: Annotated[bool, typer.Option(
-        "--quiet", "-q",
-        help="Suppress banner.",
-    )] = False,
-    no_dedup: Annotated[bool, typer.Option(
-        "--no-dedup",
-        help="Skip alert deduplication.",
-    )] = False,
-    config_path: Annotated[Optional[Path], typer.Option(
-        "--config",
-        help="Path to config.yaml",
-        show_default=False,
-    )] = None,
+    file: Annotated[
+        Path,
+        typer.Argument(
+            help="Alert file to analyze (JSON, Splunk JSON, CSV). Use '-' for stdin.",
+            show_default=False,
+        ),
+    ],
+    quiet: Annotated[
+        bool,
+        typer.Option(
+            "--quiet",
+            "-q",
+            help="Suppress banner.",
+        ),
+    ] = False,
+    no_dedup: Annotated[
+        bool,
+        typer.Option(
+            "--no-dedup",
+            help="Skip alert deduplication.",
+        ),
+    ] = False,
+    config_path: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--config",
+            help="Path to config.yaml",
+            show_default=False,
+        ),
+    ] = None,
 ) -> None:
     """Show metrics for alerts: cluster count, IOC distribution, etc."""
     from .metrics import MetricsCollector
@@ -1361,6 +1518,7 @@ def metrics(
         dedup_count = alerts_ingested
     else:
         from .pipeline.dedup import DeduplicatorConfig, deduplicate
+
         alerts_after_dedup, dedup_stats = deduplicate(
             alerts,
             DeduplicatorConfig(time_window_minutes=cfg.clustering.time_window_minutes),
@@ -1369,14 +1527,17 @@ def metrics(
 
     # --- IOC extraction ---
     from .pipeline.ioc_extractor import enrich_alerts_iocs
+
     alerts_after_dedup = enrich_alerts_iocs(alerts_after_dedup)
 
     # --- Cluster ---
     from .pipeline.clusterer import cluster_alerts
+
     clusters = cluster_alerts(alerts_after_dedup, cfg.clustering)
 
     # --- Prioritize ---
     from .pipeline.prioritizer import prioritize_all
+
     clusters = prioritize_all(clusters, cfg.scoring)
 
     # --- Build minimal report ---
@@ -1401,86 +1562,134 @@ def metrics(
 # config command
 # ---------------------------------------------------------------------------
 
+
 @app.command(name="config")
 def config_cmd(
     show: Annotated[bool, typer.Option("--show", help="Print current configuration as YAML.")] = False,
-    config_path: Annotated[Optional[Path], typer.Option("--config", show_default=False, help="Path to config.yaml.")] = None,
+    config_path: Annotated[
+        Optional[Path], typer.Option("--config", show_default=False, help="Path to config.yaml.")
+    ] = None,
     # --- Credentials (stored in ~/.sift/.env, never in config.yaml) ---
-    api_key: Annotated[Optional[str], typer.Option(
-        "--api-key",
-        help="Set LLM API key (stored in ~/.sift/.env as SIFT_LLM_KEY, never in config.yaml).",
-        show_default=False,
-    )] = None,
-    unset_api_key: Annotated[bool, typer.Option(
-        "--unset-api-key",
-        help="Remove the LLM API key from ~/.sift/.env.",
-    )] = False,
+    api_key: Annotated[
+        Optional[str],
+        typer.Option(
+            "--api-key",
+            help="Set LLM API key (stored in ~/.sift/.env as SIFT_LLM_KEY, never in config.yaml).",
+            show_default=False,
+        ),
+    ] = None,
+    unset_api_key: Annotated[
+        bool,
+        typer.Option(
+            "--unset-api-key",
+            help="Remove the LLM API key from ~/.sift/.env.",
+        ),
+    ] = False,
     # --- Summarization ---
-    provider: Annotated[Optional[str], typer.Option(
-        "--provider",
-        help="Default LLM provider: template | anthropic | openai | ollama.",
-        show_default=False,
-    )] = None,
-    model: Annotated[Optional[str], typer.Option(
-        "--model",
-        help="Default LLM model name (e.g. claude-opus-4-6, gpt-4o). None = auto-select.",
-        show_default=False,
-    )] = None,
+    provider: Annotated[
+        Optional[str],
+        typer.Option(
+            "--provider",
+            help="Default LLM provider: template | anthropic | openai | ollama.",
+            show_default=False,
+        ),
+    ] = None,
+    model: Annotated[
+        Optional[str],
+        typer.Option(
+            "--model",
+            help="Default LLM model name (e.g. claude-opus-4-6, gpt-4o). None = auto-select.",
+            show_default=False,
+        ),
+    ] = None,
     # --- Output defaults ---
-    quiet: Annotated[Optional[bool], typer.Option(
-        "--quiet/--no-quiet",
-        help="Set quiet mode as default (suppresses banner and status lines).",
-    )] = None,
-    default_format: Annotated[Optional[str], typer.Option(
-        "--default-format",
-        help="Default output format: rich | console | json | csv | stix.",
-        show_default=False,
-    )] = None,
+    quiet: Annotated[
+        Optional[bool],
+        typer.Option(
+            "--quiet/--no-quiet",
+            help="Set quiet mode as default (suppresses banner and status lines).",
+        ),
+    ] = None,
+    default_format: Annotated[
+        Optional[str],
+        typer.Option(
+            "--default-format",
+            help="Default output format: rich | console | json | csv | stix.",
+            show_default=False,
+        ),
+    ] = None,
     # --- Pipeline defaults ---
-    chunk_size: Annotated[Optional[int], typer.Option(
-        "--chunk-size",
-        help="Default chunk size for large alert batches (0 = no chunking).",
-        show_default=False,
-    )] = None,
-    cache: Annotated[Optional[bool], typer.Option(
-        "--cache/--no-cache",
-        help="Enable or disable result caching by default (opt-in, TTL 1h).",
-    )] = None,
-    enrich_consent: Annotated[Optional[bool], typer.Option(
-        "--enrich-consent/--no-enrich-consent",
-        help="Pre-approve enrichment consent (skips interactive prompt for --enrich).",
-    )] = None,
-    redact_fields_default: Annotated[Optional[str], typer.Option(
-        "--redact-fields",
-        help="Default fields to redact before AI submission (comma-separated, e.g. 'user,host,source_ip'). Use '' to clear.",
-        show_default=False,
-    )] = None,
+    chunk_size: Annotated[
+        Optional[int],
+        typer.Option(
+            "--chunk-size",
+            help="Default chunk size for large alert batches (0 = no chunking).",
+            show_default=False,
+        ),
+    ] = None,
+    cache: Annotated[
+        Optional[bool],
+        typer.Option(
+            "--cache/--no-cache",
+            help="Enable or disable result caching by default (opt-in, TTL 1h).",
+        ),
+    ] = None,
+    enrich_consent: Annotated[
+        Optional[bool],
+        typer.Option(
+            "--enrich-consent/--no-enrich-consent",
+            help="Pre-approve enrichment consent (skips interactive prompt for --enrich).",
+        ),
+    ] = None,
+    redact_fields_default: Annotated[
+        Optional[str],
+        typer.Option(
+            "--redact-fields",
+            help="Default fields to redact before AI submission (comma-separated, e.g. 'user,host,source_ip'). Use '' to clear.",
+            show_default=False,
+        ),
+    ] = None,
     # --- Ticketing ---
-    ticket_provider: Annotated[Optional[str], typer.Option(
-        "--ticket-provider",
-        help="Default ticket provider: thehive | jira | dry-run.",
-        show_default=False,
-    )] = None,
-    ticket_url: Annotated[Optional[str], typer.Option(
-        "--ticket-url",
-        help="Ticket provider base URL (e.g. https://thehive.example.com).",
-        show_default=False,
-    )] = None,
-    ticket_project: Annotated[Optional[str], typer.Option(
-        "--ticket-project",
-        help="Jira project key (e.g. SOC).",
-        show_default=False,
-    )] = None,
-    ticket_jira_email: Annotated[Optional[str], typer.Option(
-        "--ticket-jira-email",
-        help="Jira account email for Basic Auth.",
-        show_default=False,
-    )] = None,
-    ticket_token: Annotated[Optional[str], typer.Option(
-        "--ticket-token",
-        help="Store API token for ticket provider (TheHive or Jira). Saved to ~/.sift/.env.",
-        show_default=False,
-    )] = None,
+    ticket_provider: Annotated[
+        Optional[str],
+        typer.Option(
+            "--ticket-provider",
+            help="Default ticket provider: thehive | jira | dry-run.",
+            show_default=False,
+        ),
+    ] = None,
+    ticket_url: Annotated[
+        Optional[str],
+        typer.Option(
+            "--ticket-url",
+            help="Ticket provider base URL (e.g. https://thehive.example.com).",
+            show_default=False,
+        ),
+    ] = None,
+    ticket_project: Annotated[
+        Optional[str],
+        typer.Option(
+            "--ticket-project",
+            help="Jira project key (e.g. SOC).",
+            show_default=False,
+        ),
+    ] = None,
+    ticket_jira_email: Annotated[
+        Optional[str],
+        typer.Option(
+            "--ticket-jira-email",
+            help="Jira account email for Basic Auth.",
+            show_default=False,
+        ),
+    ] = None,
+    ticket_token: Annotated[
+        Optional[str],
+        typer.Option(
+            "--ticket-token",
+            help="Store API token for ticket provider (TheHive or Jira). Saved to ~/.sift/.env.",
+            show_default=False,
+        ),
+    ] = None,
 ) -> None:
     """Show or set sift configuration.
 
@@ -1497,10 +1706,10 @@ def config_cmd(
       sift config --redact-fields user,host,source_ip
       sift config --unset-api-key
     """
-    from sift.config import clear_credentials, save_credentials
-
     import yaml
     from rich.syntax import Syntax
+
+    from sift.config import clear_credentials, save_credentials
 
     _VALID_PROVIDERS = {"template", "mock", "anthropic", "openai", "ollama"}
     _VALID_FORMATS = {"rich", "console", "json", "csv", "stix"}
@@ -1514,7 +1723,9 @@ def config_cmd(
         console.print(f"[red]Error:[/red] Invalid provider {provider!r}. Valid: {', '.join(sorted(_VALID_PROVIDERS))}")
         raise typer.Exit(2)
     if default_format is not None and default_format not in _VALID_FORMATS:
-        console.print(f"[red]Error:[/red] Invalid format {default_format!r}. Valid: {', '.join(sorted(_VALID_FORMATS))}")
+        console.print(
+            f"[red]Error:[/red] Invalid format {default_format!r}. Valid: {', '.join(sorted(_VALID_FORMATS))}"
+        )
         raise typer.Exit(2)
     if chunk_size is not None and chunk_size < 0:
         console.print("[red]Error:[/red] --chunk-size must be >= 0.")
@@ -1561,6 +1772,7 @@ def config_cmd(
     # --- Ticketing credentials (stored in ~/.sift/.env, never config.yaml) ---
     if ticket_token is not None:
         from sift.config import save_ticket_token
+
         _tp_name = ticket_provider or cfg.ticketing.provider
         if not _tp_name or _tp_name == "dry-run":
             console.print(
@@ -1587,6 +1799,7 @@ def config_cmd(
 
     if cfg_changed:
         from sift.config import save_config as _save_config
+
         saved_path = _save_config(cfg, config_path)
         console.print(f"[green]✓[/green] Config saved to {saved_path}")
 
@@ -1616,6 +1829,7 @@ def config_cmd(
 # version command
 # ---------------------------------------------------------------------------
 
+
 @app.command()
 def version() -> None:
     """Print sift version and exit."""
@@ -1625,6 +1839,7 @@ def version() -> None:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     app()

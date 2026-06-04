@@ -192,8 +192,7 @@ def deduplicate(
             if fp in seen_ts and use_window:
                 # Check whether this alert falls within the window of any
                 # previously retained alert with the same fingerprint.
-                if any(abs((ts - prev).total_seconds()) <= window.total_seconds()
-                       for prev in seen_ts[fp]):
+                if any(abs((ts - prev).total_seconds()) <= window.total_seconds() for prev in seen_ts[fp]):
                     continue
                 # Outside all windows — treat as a new distinct occurrence.
                 seen_ts[fp].append(ts)

@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 # Pydantic Models for Few-Shot Examples
 # ---------------------------------------------------------------------------
 
+
 class PromptExample(BaseModel):
     """A single few-shot example for in-context learning."""
 
@@ -112,7 +113,8 @@ SYSTEM_PROMPT: str = _BASE_SYSTEM_PROMPT
 # Provider-specific system prompts
 SYSTEM_PROMPTS: dict[str, str] = {
     "template": _BASE_SYSTEM_PROMPT,
-    "anthropic": _BASE_SYSTEM_PROMPT + """\
+    "anthropic": _BASE_SYSTEM_PROMPT
+    + """\
 
 ## Additional guidance for Claude
 - Use your understanding of SOC workflows to inform narrative structure.
@@ -120,7 +122,8 @@ SYSTEM_PROMPTS: dict[str, str] = {
 - If cluster data is ambiguous, state assumptions clearly in recommendations.
 - Leverage JSON schema validation to ensure output compliance.
 """,
-    "openai": _BASE_SYSTEM_PROMPT + """\
+    "openai": _BASE_SYSTEM_PROMPT
+    + """\
 
 ## Additional guidance for GPT
 - Structure recommendations as discrete, implementable steps.
@@ -128,7 +131,8 @@ SYSTEM_PROMPTS: dict[str, str] = {
 - Ensure all fields are populated; use placeholder strings if data is insufficient.
 - Validate JSON compliance before output completion.
 """,
-    "ollama": _BASE_SYSTEM_PROMPT + """\
+    "ollama": _BASE_SYSTEM_PROMPT
+    + """\
 
 ## Additional guidance for local models
 - Keep narratives concise (< 100 tokens per summary).
@@ -187,6 +191,7 @@ PROVIDER_EXAMPLES: dict[str, list[PromptExample]] = {
 # Helper Functions
 # ---------------------------------------------------------------------------
 
+
 def _write_findings_log(
     all_findings: list[tuple[str, list[InjectionFinding]]],
     path: Path,
@@ -195,13 +200,15 @@ def _write_findings_log(
     records = []
     for alert_id, findings in all_findings:
         for f in findings:
-            records.append({
-                "alert_id": alert_id,
-                "field": f.field,
-                "pattern_type": f.pattern_type,
-                "severity": f.severity.value,
-                "value_preview": f.value_preview,
-            })
+            records.append(
+                {
+                    "alert_id": alert_id,
+                    "field": f.field,
+                    "pattern_type": f.pattern_type,
+                    "severity": f.severity.value,
+                    "value_preview": f.value_preview,
+                }
+            )
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(records, indent=2), encoding="utf-8")
@@ -214,10 +221,11 @@ def _safe_ioc_for_prompt(ioc: str) -> str:
     """Replace ps_encoded raw base64 with a SHA-256 prefix + byte-length stub."""
     if not ioc.startswith("ps_encoded:"):
         return ioc
-    payload = ioc[len("ps_encoded:"):]
+    payload = ioc[len("ps_encoded:") :]
     try:
         decoded = base64.b64decode(payload)
-        digest = hashlib.sha256(decoded).hexdigest()[:16]  # SAFE-SLICE: 16-char prefix for stub label only; full hash not needed
+        full_hash = hashlib.sha256(decoded).hexdigest()
+        digest = full_hash[:16]  # SAFE-SLICE: 16-char prefix for stub label only; full hash not needed
         return f"ps_encoded:{digest} ({len(decoded)}b)"
     except Exception:
         return f"ps_encoded:[decode-error] ({len(payload)}b)"
@@ -292,6 +300,7 @@ def build_cluster_prompt_with_examples(
 # User prompt builder
 # ---------------------------------------------------------------------------
 
+
 def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
     """Build the user-turn prompt from *report*, respecting redaction rules.
 
@@ -345,10 +354,7 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
     # Emit batch summary (always, unless no findings)
     if all_findings and not verbose_injection:
         total_patterns = sum(len(f) for _, f in all_findings)
-        logger.warning(
-            f"Injection scanner: {total_patterns} pattern(s) across "
-            f"{len(all_findings)} alert(s) — redacted"
-        )
+        logger.warning(f"Injection scanner: {total_patterns} pattern(s) across {len(all_findings)} alert(s) — redacted")
 
     # Dump findings to file if requested
     if all_findings and findings_log_path:
@@ -381,7 +387,10 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
 
         # IOCs
         if cluster.iocs and "iocs" not in redact:
-            ioc_preview = [_safe_ioc_for_prompt(ioc) for ioc in cluster.iocs[:5]]  # SAFE-SLICE: IOC preview only; sanitised before LLM; remaining count shown in suffix
+            preview_iocs = cluster.iocs[
+                :5
+            ]  # SAFE-SLICE: IOC preview only; sanitised before LLM; remaining count shown in suffix
+            ioc_preview = [_safe_ioc_for_prompt(ioc) for ioc in preview_iocs]
             suffix = f" (+{len(cluster.iocs) - 5} more)" if len(cluster.iocs) > 5 else ""
             lines.append(f"- IOCs        : {', '.join(ioc_preview)}{suffix}")
         elif "iocs" in redact:
@@ -391,10 +400,7 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
 
         # ATT&CK techniques
         if cluster.techniques:
-            tech_strs = [
-                f"{t.technique_id} ({t.technique_name}, {t.tactic})"
-                for t in cluster.techniques
-            ]
+            tech_strs = [f"{t.technique_id} ({t.technique_name}, {t.tactic})" for t in cluster.techniques]
             lines.append(f"- Techniques  : {'; '.join(tech_strs)}")
         else:
             lines.append("- Techniques  : none mapped")
@@ -423,10 +429,10 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
             _SHOW = 10
             n_types = len(sorted_types)
             n_total = len(cluster.alerts)
-            lines.append(
-                f"- Alert type breakdown ({n_types} distinct type(s), {n_total} total):"
-            )
-            for title_key, (count, max_sev, rep) in sorted_types[:_SHOW]:  # SAFE-SLICE: severity-sorted; highest-severity types shown first; overflow count shown below
+            lines.append(f"- Alert type breakdown ({n_types} distinct type(s), {n_total} total):")
+            for title_key, (count, max_sev, rep) in sorted_types[
+                :_SHOW
+            ]:  # SAFE-SLICE: severity-sorted; highest-severity types shown first; overflow count shown below
                 optional_fields: list[tuple[str, str | None]] = [
                     ("source_ip", rep.source_ip),
                     ("dest_ip", rep.dest_ip),

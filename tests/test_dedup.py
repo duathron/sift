@@ -168,7 +168,7 @@ def test_time_window_zero_drops_repeated_fingerprint_regardless_of_gap() -> None
 def test_removed_pct_correct_calculation() -> None:
     # 2 out of 4 removed → 50.0 %
     a1 = make_alert(id="a1", timestamp=ts(0))
-    a2 = make_alert(id="a2", timestamp=ts(1))   # dup of a1
+    a2 = make_alert(id="a2", timestamp=ts(1))  # dup of a1
     a3 = make_alert(id="a3", title="Other Alert", source_ip="9.9.9.9", timestamp=ts(0))
     a4 = make_alert(id="a4", title="Other Alert", source_ip="9.9.9.9", timestamp=ts(2))  # dup of a3
 
@@ -254,7 +254,7 @@ def test_very_large_window_behaves_like_pure_fingerprint_dedup() -> None:
     config = DeduplicatorConfig(time_window_minutes=99_999)
 
     a1 = make_alert(id="a1", timestamp=ts(0))
-    a2 = make_alert(id="a2", timestamp=ts(500))   # far apart but same fingerprint
+    a2 = make_alert(id="a2", timestamp=ts(500))  # far apart but same fingerprint
     a3 = make_alert(id="a3", title="Different", source_ip="2.2.2.2", timestamp=ts(0))
 
     alerts, stats = deduplicate([a1, a2, a3], config=config)
@@ -286,9 +286,9 @@ def test_first_occurrence_by_list_order_is_kept() -> None:
 def test_dedupstats_counts_sum_correctly() -> None:
     # 3 unique, 2 removed from 5 total
     a1 = make_alert(id="a1", title="A", timestamp=ts(0))
-    a2 = make_alert(id="a2", title="A", timestamp=ts(1))   # dup
+    a2 = make_alert(id="a2", title="A", timestamp=ts(1))  # dup
     a3 = make_alert(id="a3", title="B", source_ip="2.2.2.2", timestamp=ts(0))
-    a4 = make_alert(id="a4", title="B", source_ip="2.2.2.2", timestamp=ts(2))   # dup
+    a4 = make_alert(id="a4", title="B", source_ip="2.2.2.2", timestamp=ts(2))  # dup
     a5 = make_alert(id="a5", title="C", source_ip="3.3.3.3", timestamp=ts(0))
 
     _, stats = deduplicate([a1, a2, a3, a4, a5])
@@ -336,7 +336,7 @@ def test_custom_narrow_window_keeps_alert_outside_window() -> None:
 def test_default_config_applied_when_none_passed() -> None:
     """Passing config=None should use a 5-minute window (the default)."""
     a1 = make_alert(id="a1", timestamp=ts(0))
-    a2 = make_alert(id="a2", timestamp=ts(4))   # 4 min — inside default 5-min window
+    a2 = make_alert(id="a2", timestamp=ts(4))  # 4 min — inside default 5-min window
 
     alerts, stats = deduplicate([a1, a2], config=None)
 

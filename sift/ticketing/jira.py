@@ -16,6 +16,7 @@ _DEFAULT_ISSUE_TYPE = "Task"
 # Minimal Atlassian Document Format (ADF) builder
 # ---------------------------------------------------------------------------
 
+
 def _text(content: str) -> dict:
     return {"type": "text", "text": content}
 
@@ -74,11 +75,9 @@ def _build_adf(draft: TicketDraft) -> dict:
 
     content.append(_heading(2, "Summary"))
     content.append(_paragraph(draft.summary))
-    content.append(_paragraph(
-        f"Severity: {draft.severity}  |  "
-        f"Priority: {draft.priority}  |  "
-        f"Confidence: {draft.confidence:.0%}"
-    ))
+    content.append(
+        _paragraph(f"Severity: {draft.severity}  |  Priority: {draft.priority}  |  Confidence: {draft.confidence:.0%}")
+    )
 
     if draft.timeline:
         content.append(_rule())
@@ -112,6 +111,7 @@ def _build_adf(draft: TicketDraft) -> dict:
 # ---------------------------------------------------------------------------
 # Provider
 # ---------------------------------------------------------------------------
+
 
 class JiraProvider:
     """Send sift TicketDrafts to Jira Service Management as Issues.
@@ -189,10 +189,9 @@ class JiraProvider:
     # ------------------------------------------------------------------
 
     def _build_payload(self, draft: TicketDraft) -> dict:
-        labels = (
-            ["sift", f"sift-{draft.severity.lower()}", f"confidence-{int(draft.confidence * 100)}"]
-            + [t.replace(".", "-") for t in draft.technique_ids[:5]]
-        )
+        labels = ["sift", f"sift-{draft.severity.lower()}", f"confidence-{int(draft.confidence * 100)}"] + [
+            t.replace(".", "-") for t in draft.technique_ids[:5]
+        ]
         # Boost priority when any IOC carries a critical severity hint.
         if draft.severity_hint == "critical":
             priority_name = "Highest"

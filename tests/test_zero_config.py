@@ -7,7 +7,6 @@ If this test breaks, the basic user experience is broken.
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -26,32 +25,34 @@ def _parse_json_output(output: str) -> dict:
     raise ValueError(f"No JSON found in output:\n{output}")
 
 
-_SAMPLE_ALERTS = json.dumps([
-    {
-        "id": "a1",
-        "title": "Brute Force Login",
-        "severity": "high",
-        "source_ip": "192.168.1.100",
-        "timestamp": "2024-01-15T10:00:00Z",
-        "category": "authentication",
-    },
-    {
-        "id": "a2",
-        "title": "Suspicious PowerShell",
-        "severity": "critical",
-        "host": "WORKSTATION-01",
-        "timestamp": "2024-01-15T10:05:00Z",
-        "category": "execution",
-    },
-    {
-        "id": "a3",
-        "title": "Brute Force Login",
-        "severity": "high",
-        "source_ip": "192.168.1.100",
-        "timestamp": "2024-01-15T10:01:00Z",
-        "category": "authentication",
-    },
-])
+_SAMPLE_ALERTS = json.dumps(
+    [
+        {
+            "id": "a1",
+            "title": "Brute Force Login",
+            "severity": "high",
+            "source_ip": "192.168.1.100",
+            "timestamp": "2024-01-15T10:00:00Z",
+            "category": "authentication",
+        },
+        {
+            "id": "a2",
+            "title": "Suspicious PowerShell",
+            "severity": "critical",
+            "host": "WORKSTATION-01",
+            "timestamp": "2024-01-15T10:05:00Z",
+            "category": "execution",
+        },
+        {
+            "id": "a3",
+            "title": "Brute Force Login",
+            "severity": "high",
+            "source_ip": "192.168.1.100",
+            "timestamp": "2024-01-15T10:01:00Z",
+            "category": "authentication",
+        },
+    ]
+)
 
 _SAMPLE_CSV = """\
 timestamp,title,severity,source_ip,category

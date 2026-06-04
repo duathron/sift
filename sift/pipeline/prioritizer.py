@@ -26,9 +26,7 @@ def score_cluster(cluster: Cluster, weights: SeverityWeights) -> float:
         The final score, rounded to two decimal places.
     """
     # Base score: sum of severity weights across every alert in the cluster.
-    base: float = sum(
-        getattr(weights, alert.severity.value) for alert in cluster.alerts
-    )
+    base: float = sum(getattr(weights, alert.severity.value) for alert in cluster.alerts)
 
     multiplier: float = 1.0
 
@@ -109,9 +107,7 @@ def prioritize(
     computed_score = score_cluster(cluster, config.weights)
     computed_priority = _priority_from_score(computed_score, config)
 
-    return cluster.model_copy(
-        update={"score": computed_score, "priority": computed_priority}
-    )
+    return cluster.model_copy(update={"score": computed_score, "priority": computed_priority})
 
 
 def prioritize_all(

@@ -13,8 +13,8 @@ class TicketDraft(BaseModel):
 
     title: str
     summary: str
-    severity: str                                    # CRITICAL | HIGH | MEDIUM | LOW | INFO
-    priority: str                                    # IMMEDIATE | WITHIN_1H | WITHIN_24H | MONITOR
+    severity: str  # CRITICAL | HIGH | MEDIUM | LOW | INFO
+    priority: str  # IMMEDIATE | WITHIN_1H | WITHIN_24H | MONITOR
     confidence: float = Field(ge=0.0, le=1.0)
     timeline: list[str] = Field(default_factory=list)
     iocs: list[str] = Field(default_factory=list)
@@ -25,10 +25,10 @@ class TicketDraft(BaseModel):
     generated_at: datetime
     sift_version: str
     # IOC-type metadata (populated by mapper.report_to_draft)
-    severity_hint: str | None = None                         # "critical" | "high" | None
-    ioc_types: list[str] = Field(default_factory=list)       # distinct IOC type labels
-    cve_ids: list[str] = Field(default_factory=list)         # CVE-YYYY-NNNNN IOCs
-    mitre_ids: list[str] = Field(default_factory=list)       # T1xxx technique IOCs
+    severity_hint: str | None = None  # "critical" | "high" | None
+    ioc_types: list[str] = Field(default_factory=list)  # distinct IOC type labels
+    cve_ids: list[str] = Field(default_factory=list)  # CVE-YYYY-NNNNN IOCs
+    mitre_ids: list[str] = Field(default_factory=list)  # T1xxx technique IOCs
 
 
 class TicketResult(BaseModel):

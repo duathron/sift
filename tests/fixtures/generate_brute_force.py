@@ -25,10 +25,10 @@ END_DATE = datetime(2026, 3, 28, 23, 59, 59, tzinfo=timezone.utc)
 
 # Attacker IPs (rotating through these)
 ATTACKER_IPS = [
-    "185.220.101.47",   # Tor exit node
-    "193.42.33.18",     # Bulletproof hosting
-    "45.155.205.99",    # VPS provider
-    "91.240.118.204",   # Known scanner
+    "185.220.101.47",  # Tor exit node
+    "193.42.33.18",  # Bulletproof hosting
+    "45.155.205.99",  # VPS provider
+    "91.240.118.204",  # Known scanner
 ]
 
 # Internal network
@@ -59,52 +59,238 @@ TARGETS = {
 
 # Common brute-force usernames
 BRUTE_USERNAMES = [
-    "admin", "administrator", "root", "test", "user", "guest",
-    "service", "backup", "sa", "oracle", "postgres", "mysql",
-    "ftp", "www-data", "info", "support", "helpdesk",
-    "svc_backup", "svc_sql", "svc_web", "deploy", "jenkins",
+    "admin",
+    "administrator",
+    "root",
+    "test",
+    "user",
+    "guest",
+    "service",
+    "backup",
+    "sa",
+    "oracle",
+    "postgres",
+    "mysql",
+    "ftp",
+    "www-data",
+    "info",
+    "support",
+    "helpdesk",
+    "svc_backup",
+    "svc_sql",
+    "svc_web",
+    "deploy",
+    "jenkins",
 ]
 
 # ── Employee Generation ────────────────────────────────────────────────────
 
 FIRST_NAMES_DE = [
-    "Anna", "Ben", "Clara", "David", "Elena", "Felix", "Greta", "Hans",
-    "Ida", "Jan", "Katrin", "Lukas", "Marie", "Nico", "Olivia", "Paul",
-    "Rita", "Stefan", "Tanja", "Uwe", "Vera", "Werner", "Xenia", "Yusuf",
-    "Zara", "Andreas", "Birgit", "Christian", "Daniela", "Erik",
-    "Franziska", "Georg", "Hanna", "Igor", "Julia", "Karl", "Lisa",
-    "Markus", "Nadine", "Otto", "Petra", "Robert", "Sabine", "Thomas",
-    "Ursula", "Viktor", "Waltraud", "Alexander", "Barbara", "Carsten",
-    "Doris", "Emil", "Fatima", "Gustav", "Helena", "Ibrahim", "Johanna",
-    "Klaus", "Lena", "Matthias", "Nina", "Olaf", "Patricia", "Ralf",
-    "Silke", "Thorsten", "Ulrike", "Volker", "Yvonne", "Maximilian",
-    "Sophie", "Leon", "Mia", "Finn", "Emma", "Noah", "Lina", "Elias",
-    "Emilia", "Jonas", "Charlotte", "Luis", "Amelie", "Henry", "Lea",
-    "Moritz", "Maja", "Oskar", "Laura", "Philipp", "Sarah", "Tim",
-    "Hannah", "Tobias", "Sophia", "Florian", "Nele", "Sebastian", "Klara",
+    "Anna",
+    "Ben",
+    "Clara",
+    "David",
+    "Elena",
+    "Felix",
+    "Greta",
+    "Hans",
+    "Ida",
+    "Jan",
+    "Katrin",
+    "Lukas",
+    "Marie",
+    "Nico",
+    "Olivia",
+    "Paul",
+    "Rita",
+    "Stefan",
+    "Tanja",
+    "Uwe",
+    "Vera",
+    "Werner",
+    "Xenia",
+    "Yusuf",
+    "Zara",
+    "Andreas",
+    "Birgit",
+    "Christian",
+    "Daniela",
+    "Erik",
+    "Franziska",
+    "Georg",
+    "Hanna",
+    "Igor",
+    "Julia",
+    "Karl",
+    "Lisa",
+    "Markus",
+    "Nadine",
+    "Otto",
+    "Petra",
+    "Robert",
+    "Sabine",
+    "Thomas",
+    "Ursula",
+    "Viktor",
+    "Waltraud",
+    "Alexander",
+    "Barbara",
+    "Carsten",
+    "Doris",
+    "Emil",
+    "Fatima",
+    "Gustav",
+    "Helena",
+    "Ibrahim",
+    "Johanna",
+    "Klaus",
+    "Lena",
+    "Matthias",
+    "Nina",
+    "Olaf",
+    "Patricia",
+    "Ralf",
+    "Silke",
+    "Thorsten",
+    "Ulrike",
+    "Volker",
+    "Yvonne",
+    "Maximilian",
+    "Sophie",
+    "Leon",
+    "Mia",
+    "Finn",
+    "Emma",
+    "Noah",
+    "Lina",
+    "Elias",
+    "Emilia",
+    "Jonas",
+    "Charlotte",
+    "Luis",
+    "Amelie",
+    "Henry",
+    "Lea",
+    "Moritz",
+    "Maja",
+    "Oskar",
+    "Laura",
+    "Philipp",
+    "Sarah",
+    "Tim",
+    "Hannah",
+    "Tobias",
+    "Sophia",
+    "Florian",
+    "Nele",
+    "Sebastian",
+    "Klara",
 ]
 
 LAST_NAMES_DE = [
-    "Mueller", "Schmidt", "Schneider", "Fischer", "Weber", "Meyer",
-    "Wagner", "Becker", "Schulz", "Hoffmann", "Koch", "Richter",
-    "Wolf", "Schroeder", "Neumann", "Schwarz", "Zimmermann", "Braun",
-    "Krueger", "Hofmann", "Hartmann", "Lange", "Schmitt", "Werner",
-    "Krause", "Meier", "Lehmann", "Schmid", "Schulze", "Maier",
-    "Koehler", "Herrmann", "Koenig", "Walter", "Mayer", "Huber",
-    "Kaiser", "Fuchs", "Peters", "Lang", "Scholz", "Moeller",
-    "Weiss", "Jung", "Hahn", "Schubert", "Vogel", "Friedrich",
-    "Keller", "Guenther", "Frank", "Berger", "Winkler", "Roth",
-    "Beck", "Lorenz", "Baumann", "Franke", "Albrecht", "Schuster",
-    "Simon", "Ludwig", "Boehm", "Winter", "Kraus", "Martin",
-    "Schumacher", "Vogt", "Jansen", "Otto", "Stein", "Gross",
-    "Sommer", "Haas", "Graf", "Heinrich", "Seidel", "Brandt",
-    "Schreiber", "Dietrich", "Engel", "Kuhn", "Pohl", "Horn",
-    "Busch", "Bergmann", "Pfeiffer", "Voigt", "Sauer", "Arnold",
+    "Mueller",
+    "Schmidt",
+    "Schneider",
+    "Fischer",
+    "Weber",
+    "Meyer",
+    "Wagner",
+    "Becker",
+    "Schulz",
+    "Hoffmann",
+    "Koch",
+    "Richter",
+    "Wolf",
+    "Schroeder",
+    "Neumann",
+    "Schwarz",
+    "Zimmermann",
+    "Braun",
+    "Krueger",
+    "Hofmann",
+    "Hartmann",
+    "Lange",
+    "Schmitt",
+    "Werner",
+    "Krause",
+    "Meier",
+    "Lehmann",
+    "Schmid",
+    "Schulze",
+    "Maier",
+    "Koehler",
+    "Herrmann",
+    "Koenig",
+    "Walter",
+    "Mayer",
+    "Huber",
+    "Kaiser",
+    "Fuchs",
+    "Peters",
+    "Lang",
+    "Scholz",
+    "Moeller",
+    "Weiss",
+    "Jung",
+    "Hahn",
+    "Schubert",
+    "Vogel",
+    "Friedrich",
+    "Keller",
+    "Guenther",
+    "Frank",
+    "Berger",
+    "Winkler",
+    "Roth",
+    "Beck",
+    "Lorenz",
+    "Baumann",
+    "Franke",
+    "Albrecht",
+    "Schuster",
+    "Simon",
+    "Ludwig",
+    "Boehm",
+    "Winter",
+    "Kraus",
+    "Martin",
+    "Schumacher",
+    "Vogt",
+    "Jansen",
+    "Otto",
+    "Stein",
+    "Gross",
+    "Sommer",
+    "Haas",
+    "Graf",
+    "Heinrich",
+    "Seidel",
+    "Brandt",
+    "Schreiber",
+    "Dietrich",
+    "Engel",
+    "Kuhn",
+    "Pohl",
+    "Horn",
+    "Busch",
+    "Bergmann",
+    "Pfeiffer",
+    "Voigt",
+    "Sauer",
+    "Arnold",
 ]
 
 DEPARTMENTS = [
-    "IT", "HR", "Finance", "Sales", "Marketing", "Engineering",
-    "Legal", "Operations", "Support", "Management",
+    "IT",
+    "HR",
+    "Finance",
+    "Sales",
+    "Marketing",
+    "Engineering",
+    "Legal",
+    "Operations",
+    "Support",
+    "Management",
 ]
 
 
@@ -129,16 +315,18 @@ def generate_employees(rng: random.Random, count: int = 200) -> list[dict]:
         prefix = rng.choice(["WS", "LAPTOP", "DESKTOP", "NB"])
         host = f"{prefix}-{first[0].upper()}{last[:3].upper()}{rng.randint(1, 9):02d}"
 
-        employees.append({
-            "username": username,
-            "first": first,
-            "last": last,
-            "department": dept,
-            "ip": ip,
-            "host": host,
-            "is_admin": dept == "IT" and rng.random() < 0.3,
-            "is_remote": rng.random() < 0.15,
-        })
+        employees.append(
+            {
+                "username": username,
+                "first": first,
+                "last": last,
+                "department": dept,
+                "ip": ip,
+                "host": host,
+                "is_admin": dept == "IT" and rng.random() < 0.3,
+                "is_remote": rng.random() < 0.15,
+            }
+        )
     return employees
 
 
@@ -308,18 +496,21 @@ def gen_account_lockout(rng: random.Random, emp: dict, day: int) -> dict:
 
 def gen_badge_access(rng: random.Random, emp: dict, day: int) -> dict:
     t = business_hours_time(rng, day)
-    door = rng.choice([
-        "Main Entrance", "Server Room", "Parking Garage",
-        f"Floor {rng.randint(1, 5)} - {rng.choice(['North', 'South'])}",
-    ])
+    door = rng.choice(
+        [
+            "Main Entrance",
+            "Server Room",
+            "Parking Garage",
+            f"Floor {rng.randint(1, 5)} - {rng.choice(['North', 'South'])}",
+        ]
+    )
     return {
         "id": next_id(),
         "timestamp": ts(t),
         "severity": "INFO",
         "title": "Physical Badge Access",
         "description": (
-            f"Badge scan for '{emp['username']}' at {door}. "
-            f"Access: Granted. Badge ID: B-{rng.randint(10000, 99999)}."
+            f"Badge scan for '{emp['username']}' at {door}. Access: Granted. Badge ID: B-{rng.randint(10000, 99999)}."
         ),
         "source": "Physical Access Control (Lenel)",
         "source_ip": None,
@@ -735,18 +926,27 @@ def generate_log(seed: int = SEED) -> list[dict]:
     target_owa = TARGETS["web"][1]  # OWA
     attacker_ip = ATTACKER_IPS[2]
 
-    events.append(gen_compromise_success(
-        compromise_time, attacker_ip, target_owa, compromised_user,
-    ))
+    events.append(
+        gen_compromise_success(
+            compromise_time,
+            attacker_ip,
+            target_owa,
+            compromised_user,
+        )
+    )
 
     # ── Phase 6: Post-Exploitation (Day 6-7) ──────────────────────────
     post_base = compromise_time + timedelta(minutes=15)
     first_host = {"ip": "10.10.3.5", "host": "SRV-APP01"}
 
     # Credential dump on first accessed server
-    events.append(gen_credential_dump(
-        post_base, compromised_user, first_host,
-    ))
+    events.append(
+        gen_credential_dump(
+            post_base,
+            compromised_user,
+            first_host,
+        )
+    )
 
     # Lateral movement to multiple servers
     lateral_targets = [
@@ -758,17 +958,26 @@ def generate_log(seed: int = SEED) -> list[dict]:
 
     for dest, method, minutes_offset in lateral_targets:
         t = post_base + timedelta(minutes=minutes_offset)
-        events.append(gen_lateral_movement(
-            rng, t, compromised_user, first_host["ip"], dest, method,
-        ))
+        events.append(
+            gen_lateral_movement(
+                rng,
+                t,
+                compromised_user,
+                first_host["ip"],
+                dest,
+                method,
+            )
+        )
 
     # Data staging on file server
-    events.append(gen_data_staging(
-        rng,
-        post_base + timedelta(minutes=90),
-        compromised_user,
-        {"ip": "10.10.2.10", "host": "SRV-FILE01"},
-    ))
+    events.append(
+        gen_data_staging(
+            rng,
+            post_base + timedelta(minutes=90),
+            compromised_user,
+            {"ip": "10.10.2.10", "host": "SRV-FILE01"},
+        )
+    )
 
     # Sort all events by timestamp
     events.sort(key=lambda e: e["timestamp"])
@@ -779,7 +988,8 @@ def generate_log(seed: int = SEED) -> list[dict]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate brute-force scenario log for sift")
     parser.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         default=str(Path(__file__).parent / "brute_force_scenario.json"),
         help="Output file path (default: brute_force_scenario.json in fixtures dir)",
     )
@@ -802,11 +1012,11 @@ def main() -> None:
 
     print(f"Generated {len(events)} events → {output_path}")
     print(f"File size: {output_path.stat().st_size / 1024:.1f} KB")
-    print(f"\nSeverity distribution:")
+    print("\nSeverity distribution:")
     for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]:
         if sev in severities:
             print(f"  {sev:10s}: {severities[sev]:5d}")
-    print(f"\nCategory distribution:")
+    print("\nCategory distribution:")
     for cat, count in sorted(categories.items(), key=lambda x: -x[1]):
         print(f"  {cat:25s}: {count:5d}")
 

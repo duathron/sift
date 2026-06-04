@@ -12,25 +12,19 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
-
-import pytest
 
 from sift.config import SummarizeConfig
 from sift.models import Alert, AlertSeverity, Cluster, ClusterPriority, TriageReport
 from sift.summarizers.prompt import build_cluster_prompt
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 def _make_report(alert_titles: list[str]) -> TriageReport:
     """Build a minimal TriageReport with one cluster."""
-    alerts = [
-        Alert(id=f"a-{i}", title=t, severity=AlertSeverity.MEDIUM)
-        for i, t in enumerate(alert_titles)
-    ]
+    alerts = [Alert(id=f"a-{i}", title=t, severity=AlertSeverity.MEDIUM) for i, t in enumerate(alert_titles)]
     cluster = Cluster(
         id="c-0",
         label="test",
@@ -66,6 +60,7 @@ DIRTY_TITLES = [
 # ---------------------------------------------------------------------------
 # Default (quiet) mode
 # ---------------------------------------------------------------------------
+
 
 class TestQuietMode:
     def test_emits_single_summary_warning(self, caplog):
@@ -108,6 +103,7 @@ class TestQuietMode:
 # Verbose (--injection-detail) mode
 # ---------------------------------------------------------------------------
 
+
 class TestVerboseMode:
     def test_emits_per_alert_warnings(self, caplog):
         report = _make_report(DIRTY_TITLES)
@@ -130,9 +126,7 @@ class TestVerboseMode:
         with caplog.at_level(logging.WARNING, logger="sift.summarizers.prompt"):
             build_cluster_prompt(report, _cfg(verbose=True))
 
-        per_alert_msgs = " ".join(
-            r.message for r in caplog.records if "detected in alert" in r.message
-        )
+        per_alert_msgs = " ".join(r.message for r in caplog.records if "detected in alert" in r.message)
         assert "a-0" in per_alert_msgs
 
     def test_no_warning_when_clean_verbose(self, caplog):
@@ -146,6 +140,7 @@ class TestVerboseMode:
 # ---------------------------------------------------------------------------
 # --findings-file
 # ---------------------------------------------------------------------------
+
 
 class TestFindingsFile:
     def test_file_created(self, tmp_path):

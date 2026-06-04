@@ -15,6 +15,7 @@ from sift.models import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_alert(severity: AlertSeverity = AlertSeverity.MEDIUM) -> Alert:
     return Alert(id=str(uuid.uuid4()), title="Test Alert", severity=severity)
 
@@ -42,6 +43,7 @@ def make_report(clusters: list[Cluster], alerts_ingested: int = 10, alerts_after
 # AlertSeverity.score
 # ---------------------------------------------------------------------------
 
+
 class TestAlertSeverityScore:
     def test_info_score(self):
         assert AlertSeverity.INFO.score == 1
@@ -62,6 +64,7 @@ class TestAlertSeverityScore:
 # ---------------------------------------------------------------------------
 # ClusterPriority.exit_code
 # ---------------------------------------------------------------------------
+
 
 class TestClusterPriorityExitCode:
     def test_critical_exit_code_is_1(self):
@@ -84,6 +87,7 @@ class TestClusterPriorityExitCode:
 # ClusterPriority.icon
 # ---------------------------------------------------------------------------
 
+
 class TestClusterPriorityIcon:
     def test_critical_icon(self):
         assert ClusterPriority.CRITICAL.icon == "!"
@@ -104,6 +108,7 @@ class TestClusterPriorityIcon:
 # ---------------------------------------------------------------------------
 # Alert defaults
 # ---------------------------------------------------------------------------
+
 
 class TestAlertDefaults:
     def test_iocs_defaults_to_empty_list(self):
@@ -138,6 +143,7 @@ class TestAlertDefaults:
 # Alert serialization
 # ---------------------------------------------------------------------------
 
+
 class TestAlertSerialization:
     def test_model_dump_includes_all_fields(self):
         alert = Alert(
@@ -161,16 +167,19 @@ class TestAlertSerialization:
 # TriageReport.has_critical
 # ---------------------------------------------------------------------------
 
+
 class TestTriageReportHasCritical:
     def test_has_critical_true_when_critical_cluster_present(self):
         report = make_report([make_cluster(ClusterPriority.CRITICAL)])
         assert report.has_critical is True
 
     def test_has_critical_false_when_no_critical_cluster(self):
-        report = make_report([
-            make_cluster(ClusterPriority.HIGH),
-            make_cluster(ClusterPriority.MEDIUM),
-        ])
+        report = make_report(
+            [
+                make_cluster(ClusterPriority.HIGH),
+                make_cluster(ClusterPriority.MEDIUM),
+            ]
+        )
         assert report.has_critical is False
 
     def test_has_critical_false_with_empty_clusters(self):
@@ -181,6 +190,7 @@ class TestTriageReportHasCritical:
 # ---------------------------------------------------------------------------
 # TriageReport.exit_code
 # ---------------------------------------------------------------------------
+
 
 class TestTriageReportExitCode:
     def test_exit_code_1_with_critical_cluster(self):
@@ -205,11 +215,13 @@ class TestTriageReportExitCode:
 
     def test_exit_code_1_when_high_mixed_with_lower(self):
         """A single HIGH cluster among MEDIUM/LOW/NOISE clusters triggers exit_code=1."""
-        report = make_report([
-            make_cluster(ClusterPriority.MEDIUM),
-            make_cluster(ClusterPriority.HIGH),
-            make_cluster(ClusterPriority.NOISE),
-        ])
+        report = make_report(
+            [
+                make_cluster(ClusterPriority.MEDIUM),
+                make_cluster(ClusterPriority.HIGH),
+                make_cluster(ClusterPriority.NOISE),
+            ]
+        )
         assert report.exit_code == 1
 
     def test_exit_code_0_with_empty_clusters(self):
@@ -220,6 +232,7 @@ class TestTriageReportExitCode:
 # ---------------------------------------------------------------------------
 # TriageReport.alerts_after_dedup
 # ---------------------------------------------------------------------------
+
 
 class TestTriageReportAlertsAfterDedup:
     def test_alerts_after_dedup_stores_correct_value(self):

@@ -21,6 +21,7 @@ from sift.pipeline.clusterer import cluster_alerts
 # Alert factory
 # ---------------------------------------------------------------------------
 
+
 def make_alert(
     id: str,
     title: str = "Alert",
@@ -51,6 +52,7 @@ _T0 = datetime(2026, 3, 22, 10, 0, 0, tzinfo=timezone.utc)
 # Basic clustering
 # ---------------------------------------------------------------------------
 
+
 class TestBasicClustering:
     def test_empty_input_returns_empty_list(self):
         """Empty alert list → empty cluster list."""
@@ -77,6 +79,7 @@ class TestBasicClustering:
 # ---------------------------------------------------------------------------
 # Pass 1 — IOC overlap
 # ---------------------------------------------------------------------------
+
 
 class TestIOCOverlap:
     def test_two_alerts_sharing_one_ioc_merge(self):
@@ -112,6 +115,7 @@ class TestIOCOverlap:
 # Pass 2 — Same category + time window
 # ---------------------------------------------------------------------------
 
+
 class TestCategoryTimeWindow:
     def test_same_category_within_window_grouped(self):
         """Two alerts with the same category 10 min apart group under a 30-min window."""
@@ -143,13 +147,13 @@ class TestCategoryTimeWindow:
 # Pass 3 — IP-pair + time window
 # ---------------------------------------------------------------------------
 
+
 class TestIPPairTimeWindow:
     def test_same_ip_pair_within_window_grouped(self):
         """Two alerts with identical (source_ip, dest_ip) within time window are grouped."""
         cfg = ClusteringConfig(time_window_minutes=30)
         a1 = make_alert("a1", source_ip="10.0.0.5", dest_ip="198.51.100.1", timestamp=_T0)
-        a2 = make_alert("a2", source_ip="10.0.0.5", dest_ip="198.51.100.1",
-                         timestamp=_T0 + timedelta(minutes=5))
+        a2 = make_alert("a2", source_ip="10.0.0.5", dest_ip="198.51.100.1", timestamp=_T0 + timedelta(minutes=5))
         clusters = cluster_alerts([a1, a2], cfg)
         sizes = [len(c.alerts) for c in clusters]
         assert 2 in sizes
@@ -166,6 +170,7 @@ class TestIPPairTimeWindow:
 # ---------------------------------------------------------------------------
 # Cluster properties
 # ---------------------------------------------------------------------------
+
 
 class TestClusterProperties:
     def test_cluster_iocs_are_union_of_member_iocs(self):
@@ -228,6 +233,7 @@ class TestClusterProperties:
 # Sort order
 # ---------------------------------------------------------------------------
 
+
 class TestSortOrder:
     def test_clusters_sorted_by_score_descending(self):
         """Higher-severity clusters must appear before lower-severity ones in the result."""
@@ -236,10 +242,10 @@ class TestSortOrder:
 
         # High-score cluster: two CRITICAL alerts sharing an IOC (score = 40)
         shared_ioc = "campaign.c2.bad"
-        hi_a = make_alert("hi1", severity=AlertSeverity.CRITICAL,
-                           iocs=[shared_ioc], timestamp=_T0)
-        hi_b = make_alert("hi2", severity=AlertSeverity.CRITICAL,
-                           iocs=[shared_ioc], timestamp=_T0 + timedelta(minutes=1))
+        hi_a = make_alert("hi1", severity=AlertSeverity.CRITICAL, iocs=[shared_ioc], timestamp=_T0)
+        hi_b = make_alert(
+            "hi2", severity=AlertSeverity.CRITICAL, iocs=[shared_ioc], timestamp=_T0 + timedelta(minutes=1)
+        )
 
         clusters = cluster_alerts([low_a, hi_a, hi_b])
         assert len(clusters) == 2
@@ -248,10 +254,8 @@ class TestSortOrder:
     def test_scores_are_non_increasing(self):
         """For any result list, each cluster's score is >= the next one's score."""
         a1 = make_alert("a1", severity=AlertSeverity.LOW, timestamp=_T0)
-        a2 = make_alert("a2", severity=AlertSeverity.HIGH,
-                         iocs=["link"], timestamp=_T0)
-        a3 = make_alert("a3", severity=AlertSeverity.HIGH,
-                         iocs=["link"], timestamp=_T0 + timedelta(minutes=1))
+        a2 = make_alert("a2", severity=AlertSeverity.HIGH, iocs=["link"], timestamp=_T0)
+        a3 = make_alert("a3", severity=AlertSeverity.HIGH, iocs=["link"], timestamp=_T0 + timedelta(minutes=1))
         a4 = make_alert("a4", severity=AlertSeverity.MEDIUM, timestamp=_T0)
         clusters = cluster_alerts([a1, a2, a3, a4])
         scores = [c.score for c in clusters]

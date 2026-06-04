@@ -22,6 +22,7 @@ from sift.output.export import export_cluster_csv, export_csv, export_json
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_alert(severity: AlertSeverity = AlertSeverity.HIGH, iocs: list[str] | None = None) -> Alert:
     return Alert(
         id=str(uuid.uuid4()),
@@ -61,6 +62,7 @@ def make_report(clusters: list[Cluster]) -> TriageReport:
 # export_json tests
 # ---------------------------------------------------------------------------
 
+
 class TestExportJson:
     """export_json produces valid, correct JSON."""
 
@@ -93,6 +95,7 @@ class TestExportJson:
 # ---------------------------------------------------------------------------
 # export_csv tests
 # ---------------------------------------------------------------------------
+
 
 class TestExportCsv:
     """export_csv produces a flat per-alert CSV."""
@@ -140,6 +143,7 @@ class TestExportCsv:
 # ---------------------------------------------------------------------------
 # export_cluster_csv tests
 # ---------------------------------------------------------------------------
+
 
 class TestExportClusterCsv:
     """export_cluster_csv produces a per-cluster summary CSV."""

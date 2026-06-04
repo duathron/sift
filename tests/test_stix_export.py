@@ -6,8 +6,6 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-import pytest
-
 from sift.models import (
     Alert,
     AlertSeverity,
@@ -26,7 +24,6 @@ from sift.output.stix import (
     to_stix_bundle,
     to_stix_bundle_string,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -445,7 +442,8 @@ class TestRelationshipObjects:
         report = make_report([cluster])
         bundle = to_stix_bundle(report)
         aggregates_rels = [
-            obj for obj in bundle["objects"]
+            obj
+            for obj in bundle["objects"]
             if obj["type"] == "relationship" and obj["relationship_type"] == "aggregates"
         ]
         assert len(aggregates_rels) >= len(iocs)

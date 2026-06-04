@@ -16,6 +16,7 @@ from sift.pipeline.prioritizer import prioritize, prioritize_all
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_alert(
     title="Test Alert",
     severity=AlertSeverity.MEDIUM,
@@ -41,6 +42,7 @@ def make_alert(
 # Dedup
 # ---------------------------------------------------------------------------
 
+
 class TestDedup:
     def test_no_duplicates(self):
         alerts = [make_alert("Alert A"), make_alert("Alert B")]
@@ -51,8 +53,9 @@ class TestDedup:
     def test_identical_fingerprint_within_window(self):
         now = datetime.now(tz=timezone.utc)
         a1 = make_alert("Phishing Detected", source_ip="10.0.0.1", dest_ip="8.8.8.8", timestamp=now)
-        a2 = make_alert("Phishing Detected", source_ip="10.0.0.1", dest_ip="8.8.8.8",
-                        timestamp=now + timedelta(minutes=2))
+        a2 = make_alert(
+            "Phishing Detected", source_ip="10.0.0.1", dest_ip="8.8.8.8", timestamp=now + timedelta(minutes=2)
+        )
         result, stats = deduplicate([a1, a2], DeduplicatorConfig(time_window_minutes=5))
         assert stats.deduplicated_count == 1
         assert stats.removed_count == 1
@@ -94,6 +97,7 @@ class TestDedup:
 # ---------------------------------------------------------------------------
 # IOC Extractor
 # ---------------------------------------------------------------------------
+
 
 class TestIOCExtractor:
     def test_extract_ipv4(self):
@@ -157,6 +161,7 @@ class TestIOCExtractor:
 # Clusterer
 # ---------------------------------------------------------------------------
 
+
 class TestClusterer:
     def test_single_alert_is_singleton(self):
         alerts = [make_alert("Lone Alert")]
@@ -208,9 +213,11 @@ class TestClusterer:
 # Prioritizer
 # ---------------------------------------------------------------------------
 
+
 class TestPrioritizer:
     def _make_cluster(self, alerts, iocs=None) -> Cluster:
         import uuid as _uuid
+
         return Cluster(
             id=str(_uuid.uuid4()),
             label="Test Cluster",

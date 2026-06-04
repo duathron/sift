@@ -32,6 +32,7 @@ _DEFAULT_MODEL = "gpt-4o-mini"
 # Summarizer
 # ---------------------------------------------------------------------------
 
+
 class OpenAISummarizer:
     """Summarizer backed by the OpenAI Chat Completions API.
 
@@ -103,17 +104,13 @@ class OpenAISummarizer:
                 ],
             )
         except self._openai.OpenAIError as exc:
-            raise RuntimeError(
-                f"OpenAI API error while generating summary: {exc}"
-            ) from exc
+            raise RuntimeError(f"OpenAI API error while generating summary: {exc}") from exc
 
         response_text = response.choices[0].message.content or ""
 
         return self._parse_and_validate_response(response_text, report)
 
-    def _parse_and_validate_response(
-        self, response_text: str, report: TriageReport
-    ) -> SummaryResult:
+    def _parse_and_validate_response(self, response_text: str, report: TriageReport) -> SummaryResult:
         """Parse and validate LLM response with fallback to template on failure.
 
         Args:
@@ -139,10 +136,7 @@ class OpenAISummarizer:
             import logging
 
             logger = logging.getLogger(__name__)
-            logger.warning(
-                f"Failed to parse/validate OpenAI response: {exc}. "
-                f"Falling back to template summarizer."
-            )
+            logger.warning(f"Failed to parse/validate OpenAI response: {exc}. Falling back to template summarizer.")
             from .template import TemplateSummarizer  # noqa: PLC0415
 
             return TemplateSummarizer().summarize(report)

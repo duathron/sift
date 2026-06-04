@@ -36,12 +36,7 @@ _URGENCY_MAP = {
 
 def _splunk_record_to_alert(record: dict) -> Alert:
     # Splunk ES notable event fields take priority
-    alert_id = (
-        record.get("event_id")
-        or record.get("orig_event_id")
-        or record.get("_cd")
-        or str(uuid.uuid4())
-    )
+    alert_id = record.get("event_id") or record.get("orig_event_id") or record.get("_cd") or str(uuid.uuid4())
 
     # Title: rule_name > rule_title > search_name > source
     title = (
@@ -114,8 +109,7 @@ class SplunkNormalizer:
         # Splunk ndjson export: one JSON object per line
         records = _parse_ndjson(stripped)
         return len(records) > 0 and any(
-            "_time" in r or "urgency" in r or "rule_name" in r or "event_id" in r
-            for r in records
+            "_time" in r or "urgency" in r or "rule_name" in r or "event_id" in r for r in records
         )
 
     def normalize(self, raw: str) -> list[Alert]:

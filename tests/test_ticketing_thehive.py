@@ -64,6 +64,7 @@ class TestTheHiveProvider:
         _provider().send(_draft(title="[sift] HIGH | Test"))
         request = httpx_mock.get_requests()[0]
         import json
+
         body = json.loads(request.content)
         assert body["title"] == "[sift] HIGH | Test"
 
@@ -71,6 +72,7 @@ class TestTheHiveProvider:
         httpx_mock.add_response(url=f"{_BASE}/api/v1/alert", method="POST", json={"_id": "x"})
         _provider().send(_draft(severity="CRITICAL"))
         import json
+
         body = json.loads(httpx_mock.get_requests()[0].content)
         assert body["severity"] == 4
 
@@ -78,6 +80,7 @@ class TestTheHiveProvider:
         httpx_mock.add_response(url=f"{_BASE}/api/v1/alert", method="POST", json={"_id": "x"})
         _provider().send(_draft(iocs=["1.2.3.4", "evil.com"]))
         import json
+
         body = json.loads(httpx_mock.get_requests()[0].content)
         observable_data = [o["data"] for o in body["observables"]]
         assert "1.2.3.4" in observable_data
@@ -87,6 +90,7 @@ class TestTheHiveProvider:
         httpx_mock.add_response(url=f"{_BASE}/api/v1/alert", method="POST", json={"_id": "x"})
         _provider(tlp=3).send(_draft())
         import json
+
         body = json.loads(httpx_mock.get_requests()[0].content)
         assert body["tlp"] == 3
 
@@ -94,6 +98,7 @@ class TestTheHiveProvider:
         httpx_mock.add_response(url=f"{_BASE}/api/v1/alert", method="POST", json={"_id": "x"})
         _provider().send(_draft())
         import json
+
         body = json.loads(httpx_mock.get_requests()[0].content)
         assert "sift" in body["tags"]
 
@@ -101,6 +106,7 @@ class TestTheHiveProvider:
         httpx_mock.add_response(url=f"{_BASE}/api/v1/alert", method="POST", json={"_id": "x"})
         _provider().send(_draft(technique_ids=["T1003", "T1021.001"]))
         import json
+
         body = json.loads(httpx_mock.get_requests()[0].content)
         assert "T1003" in body["tags"]
 
@@ -108,6 +114,7 @@ class TestTheHiveProvider:
         httpx_mock.add_response(url=f"{_BASE}/api/v1/alert", method="POST", json={"_id": "x"})
         _provider().send(_draft())
         import json
+
         body = json.loads(httpx_mock.get_requests()[0].content)
         assert body["sourceRef"].startswith("sift-20260420T")
 
@@ -115,6 +122,7 @@ class TestTheHiveProvider:
         httpx_mock.add_response(url=f"{_BASE}/api/v1/alert", method="POST", json={"_id": "x"})
         _provider().send(_draft(summary="Specific summary text."))
         import json
+
         body = json.loads(httpx_mock.get_requests()[0].content)
         assert "Specific summary text." in body["description"]
 
@@ -122,15 +130,15 @@ class TestTheHiveProvider:
         httpx_mock.add_response(url=f"{_BASE}/api/v1/alert", method="POST", json={"_id": "x"})
         _provider().send(_draft(recommendations=["Isolate dc01"]))
         import json
+
         body = json.loads(httpx_mock.get_requests()[0].content)
         assert "Isolate dc01" in body["description"]
         assert "- [ ]" in body["description"]
 
     def test_http_error_raises(self, httpx_mock):
-        httpx_mock.add_response(
-            url=f"{_BASE}/api/v1/alert", method="POST", status_code=401
-        )
+        httpx_mock.add_response(url=f"{_BASE}/api/v1/alert", method="POST", status_code=401)
         import httpx
+
         with pytest.raises(httpx.HTTPStatusError):
             _provider().send(_draft())
 
@@ -144,15 +152,14 @@ class TestTheHiveProvider:
         assert "analyst@soc.example.com" in msg
 
     def test_healthcheck_401(self, httpx_mock):
-        httpx_mock.add_response(
-            url=f"{_BASE}/api/v1/user/current", status_code=401, text="Unauthorized"
-        )
+        httpx_mock.add_response(url=f"{_BASE}/api/v1/user/current", status_code=401, text="Unauthorized")
         ok, msg = _provider().healthcheck()
         assert ok is False
         assert "401" in msg
 
     def test_healthcheck_connection_error(self, httpx_mock):
         import httpx as _httpx
+
         httpx_mock.add_exception(
             _httpx.ConnectError("Connection refused"),
             url=f"{_BASE}/api/v1/user/current",

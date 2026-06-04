@@ -9,10 +9,10 @@ from sift.config import ClusteringConfig
 from sift.models import Alert, AlertSeverity, Cluster, ClusterPriority, TriageReport
 from sift.pipeline.chunker import chunk_alerts, merge_triage_reports
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _alert(n: int) -> Alert:
     return Alert(id=f"alert-{n:04d}", title=f"Alert {n}", severity=AlertSeverity.MEDIUM)
@@ -49,6 +49,7 @@ def _report(
 # ---------------------------------------------------------------------------
 # chunk_alerts
 # ---------------------------------------------------------------------------
+
 
 class TestChunkAlerts:
     def test_basic_split(self):
@@ -100,6 +101,7 @@ class TestChunkAlerts:
 # merge_triage_reports
 # ---------------------------------------------------------------------------
 
+
 class TestMergeTriageReports:
     def test_merge_empty(self):
         result = merge_triage_reports([])
@@ -136,7 +138,9 @@ class TestMergeTriageReports:
         t1 = datetime(2026, 1, 1, tzinfo=timezone.utc)
         t2 = datetime(2026, 6, 1, tzinfo=timezone.utc)
         r1 = TriageReport(input_file="first.json", alerts_ingested=1, alerts_after_dedup=1, clusters=[], analyzed_at=t1)
-        r2 = TriageReport(input_file="second.json", alerts_ingested=1, alerts_after_dedup=1, clusters=[], analyzed_at=t2)
+        r2 = TriageReport(
+            input_file="second.json", alerts_ingested=1, alerts_after_dedup=1, clusters=[], analyzed_at=t2
+        )
         result = merge_triage_reports([r1, r2])
         assert result.input_file == "first.json"
         assert result.analyzed_at == t1
@@ -145,6 +149,7 @@ class TestMergeTriageReports:
 # ---------------------------------------------------------------------------
 # ClusteringConfig.chunk_size
 # ---------------------------------------------------------------------------
+
 
 class TestChunkSizeConfig:
     def test_default_is_zero(self):

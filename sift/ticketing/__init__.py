@@ -38,14 +38,10 @@ def build_provider(
 
         token = os.getenv("SIFT_THEHIVE_TOKEN", "")
         if not token:
-            raise ValueError(
-                "SIFT_THEHIVE_TOKEN not set — run: sift config --ticket-token <token>"
-            )
+            raise ValueError("SIFT_THEHIVE_TOKEN not set — run: sift config --ticket-token <token>")
         url = getattr(cfg.ticketing, "url", None)
         if not url:
-            raise ValueError(
-                "ticketing.url not configured — run: sift config --ticket-url https://..."
-            )
+            raise ValueError("ticketing.url not configured — run: sift config --ticket-url https://...")
         timeout = getattr(cfg.ticketing, "timeout", 10.0)
         return TheHiveProvider(url=url, token=token, timeout=timeout)
 
@@ -58,7 +54,9 @@ def build_provider(
         project_key = getattr(cfg.ticketing, "project_key", None)
         issue_type = getattr(cfg.ticketing, "jira_issue_type", "Task")
         timeout = getattr(cfg.ticketing, "timeout", 10.0)
-        missing = [k for k, v in [("token", token), ("email", email), ("url", url), ("project_key", project_key)] if not v]
+        missing = [
+            k for k, v in [("token", token), ("email", email), ("url", url), ("project_key", project_key)] if not v
+        ]
         if missing:
             raise ValueError(
                 f"Jira config incomplete — missing: {', '.join(missing)}. "
@@ -73,6 +71,4 @@ def build_provider(
             timeout=timeout,
         )
 
-    raise ValueError(
-        f"Unknown ticket provider: {name!r}. Valid: thehive | jira | dry-run"
-    )
+    raise ValueError(f"Unknown ticket provider: {name!r}. Valid: thehive | jira | dry-run")

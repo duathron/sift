@@ -58,8 +58,7 @@ class VexBridge:
         if _looks_like_ip(ioc):
             return not _is_private_or_reserved_ip(ioc)
         # Accept URLs (any scheme — TLD filtering not applied to full URLs)
-        if ioc.lower().startswith(("http://", "https://", "ftp://",
-                                   "hxxp://", "hxxps://")):
+        if ioc.lower().startswith(("http://", "https://", "ftp://", "hxxp://", "hxxps://")):
             return True
         # Exclude filenames (common extensions that are not domains)
         if _looks_like_filename(ioc):
@@ -84,6 +83,7 @@ class VexBridge:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _call_vex_cli(ioc: str, vex_bin: str | None = None) -> dict:
     bin_path = vex_bin or shutil.which("vex")
@@ -140,13 +140,7 @@ def _is_private_or_reserved_ip(value: str) -> bool:
         # Pure IPv6: filter loopback, link-local, unspecified, documentation range,
         # and the ::/8 reserved prefix (catches ::ffff:3 and similar compressed forms
         # that ipv4_mapped does not recognise).
-        return (
-            ip.is_loopback
-            or ip.is_link_local
-            or ip.is_unspecified
-            or ip in _DOC_NET_V6
-            or ip in _RESERVED_PREFIX_V6
-        )
+        return ip.is_loopback or ip.is_link_local or ip.is_unspecified or ip in _DOC_NET_V6 or ip in _RESERVED_PREFIX_V6
     except ValueError:
         return False
 
@@ -154,9 +148,7 @@ def _is_private_or_reserved_ip(value: str) -> bool:
 def _looks_like_hash(value: str) -> bool:
     """MD5 (32), SHA-1 (40), SHA-256 (64) hex strings. SHA-512 excluded — vex unsupported."""
     stripped = value.strip()
-    return len(stripped) in (32, 40, 64) and all(
-        c in "0123456789abcdefABCDEF" for c in stripped
-    )
+    return len(stripped) in (32, 40, 64) and all(c in "0123456789abcdefABCDEF" for c in stripped)
 
 
 def _is_non_enrichable_type(value: str) -> bool:
@@ -183,8 +175,7 @@ def _is_non_enrichable_type(value: str) -> bool:
     ):
         return True
     # Registry key (HKLM / HKCU / etc., or full HKEY_* form)
-    if upper.startswith(("HKLM\\", "HKCU\\", "HKCR\\", "HKU\\", "HKCC\\",
-                         "HKEY_")):
+    if upper.startswith(("HKLM\\", "HKCU\\", "HKCR\\", "HKU\\", "HKCC\\", "HKEY_")):
         return True
     # PowerShell encoded sentinel
     if v.startswith("ps_encoded:"):
@@ -195,16 +186,10 @@ def _is_non_enrichable_type(value: str) -> bool:
     # (segments only 2 chars each) as ssdeep.
     if v.count(":") == 2:
         parts = v.split(":")
-        if (
-            parts[0].isdigit()
-            and len(parts[1]) >= 3
-            and len(parts[2]) >= 3
-        ):
+        if parts[0].isdigit() and len(parts[1]) >= 3 and len(parts[2]) >= 3:
             return True
     # TLSH (T1 prefix + 70 hex)
-    if upper.startswith("T1") and len(v) in (70, 72) and all(
-        c in "0123456789ABCDEFabcdef" for c in v[2:]
-    ):
+    if upper.startswith("T1") and len(v) in (70, 72) and all(c in "0123456789ABCDEFabcdef" for c in v[2:]):
         return True
     return False
 
@@ -226,23 +211,62 @@ _PRIVATE_NETS_V4 = [
     ipaddress.ip_network("172.16.0.0/12"),
     ipaddress.ip_network("192.168.0.0/16"),
     ipaddress.ip_network("127.0.0.0/8"),
-    ipaddress.ip_network("169.254.0.0/16"),   # link-local
-    ipaddress.ip_network("100.64.0.0/10"),    # shared address space (RFC 6598)
-    ipaddress.ip_network("0.0.0.0/8"),        # unspecified / reserved
+    ipaddress.ip_network("169.254.0.0/16"),  # link-local
+    ipaddress.ip_network("100.64.0.0/10"),  # shared address space (RFC 6598)
+    ipaddress.ip_network("0.0.0.0/8"),  # unspecified / reserved
 ]
 
-_DOC_NET_V6 = ipaddress.ip_network("2001:db8::/32")        # documentation range (RFC 3849)
-_RESERVED_PREFIX_V6 = ipaddress.ip_network("::/8")         # all-zero first-byte IPv6 (reserved / special)
+_DOC_NET_V6 = ipaddress.ip_network("2001:db8::/32")  # documentation range (RFC 3849)
+_RESERVED_PREFIX_V6 = ipaddress.ip_network("::/8")  # all-zero first-byte IPv6 (reserved / special)
 
 # TLDs that indicate non-routable / internal domains — mirror ioc_extractor._NON_IOC_TLDS
-_NON_IOC_TLDS = frozenset({
-    "local", "internal", "corp", "test", "example", "invalid",
-    "localhost", "lan", "home", "intranet", "localdomain", "domain", "arpa",
-})
+_NON_IOC_TLDS = frozenset(
+    {
+        "local",
+        "internal",
+        "corp",
+        "test",
+        "example",
+        "invalid",
+        "localhost",
+        "lan",
+        "home",
+        "intranet",
+        "localdomain",
+        "domain",
+        "arpa",
+    }
+)
 
-_FILE_EXTENSIONS = frozenset({
-    ".exe", ".dll", ".sys", ".ps1", ".bat", ".cmd", ".vbs", ".js",
-    ".log", ".ldb", ".sst", ".tmp", ".mca", ".inf", ".msi", ".jar",
-    ".zip", ".rar", ".7z", ".tar", ".gz", ".iso", ".img",
-    ".py", ".sh", ".rb", ".pl", ".php",
-})
+_FILE_EXTENSIONS = frozenset(
+    {
+        ".exe",
+        ".dll",
+        ".sys",
+        ".ps1",
+        ".bat",
+        ".cmd",
+        ".vbs",
+        ".js",
+        ".log",
+        ".ldb",
+        ".sst",
+        ".tmp",
+        ".mca",
+        ".inf",
+        ".msi",
+        ".jar",
+        ".zip",
+        ".rar",
+        ".7z",
+        ".tar",
+        ".gz",
+        ".iso",
+        ".img",
+        ".py",
+        ".sh",
+        ".rb",
+        ".pl",
+        ".php",
+    }
+)

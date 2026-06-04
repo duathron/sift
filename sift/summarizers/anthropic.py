@@ -32,6 +32,7 @@ _DEFAULT_MODEL = "claude-sonnet-4-6"
 # Summarizer
 # ---------------------------------------------------------------------------
 
+
 class AnthropicSummarizer:
     """Summarizer backed by the Anthropic Messages API (Claude models).
 
@@ -100,9 +101,7 @@ class AnthropicSummarizer:
                 messages=[{"role": "user", "content": prompt}],
             )
         except self._anthropic.APIError as exc:
-            raise RuntimeError(
-                f"Anthropic API error while generating summary: {exc}"
-            ) from exc
+            raise RuntimeError(f"Anthropic API error while generating summary: {exc}") from exc
 
         # Extract text content from the first content block
         response_text = ""
@@ -113,9 +112,7 @@ class AnthropicSummarizer:
 
         return self._parse_and_validate_response(response_text, report)
 
-    def _parse_and_validate_response(
-        self, response_text: str, report: TriageReport
-    ) -> SummaryResult:
+    def _parse_and_validate_response(self, response_text: str, report: TriageReport) -> SummaryResult:
         """Parse and validate LLM response with fallback to template on failure.
 
         Args:
@@ -141,10 +138,7 @@ class AnthropicSummarizer:
             import logging
 
             logger = logging.getLogger(__name__)
-            logger.warning(
-                f"Failed to parse/validate Anthropic response: {exc}. "
-                f"Falling back to template summarizer."
-            )
+            logger.warning(f"Failed to parse/validate Anthropic response: {exc}. Falling back to template summarizer.")
             from .template import TemplateSummarizer  # noqa: PLC0415
 
             return TemplateSummarizer().summarize(report)

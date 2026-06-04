@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 from typing import Optional
 
 from rich import box
@@ -9,9 +11,6 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-
-import base64
-import hashlib
 
 from ..models import (
     AlertSeverity,
@@ -118,7 +117,7 @@ def _fmt_techniques(cluster: Cluster) -> str:
 
 def _fmt_ps_encoded(ioc: str) -> str:
     """Replace ps_encoded:<b64> with a short human-readable label."""
-    payload = ioc[len("ps_encoded:"):]
+    payload = ioc[len("ps_encoded:") :]
     try:
         raw = base64.b64decode(payload + "==")
         n = len(raw)
@@ -170,11 +169,15 @@ def _should_show_detail(cluster: Cluster, all_clusters: list[Cluster]) -> bool:
 
 def _render_header(report: TriageReport, con: Console) -> None:
     """Print the header panel with run metadata."""
-    overall = report.summary.overall_priority if report.summary else (
-        max(
-            (c.priority for c in report.clusters),
-            key=lambda p: (4 - _PRIORITY_ORDER[p]),
-            default=ClusterPriority.NOISE,
+    overall = (
+        report.summary.overall_priority
+        if report.summary
+        else (
+            max(
+                (c.priority for c in report.clusters),
+                key=lambda p: 4 - _PRIORITY_ORDER[p],
+                default=ClusterPriority.NOISE,
+            )
         )
     )
     border = priority_color(overall)
@@ -267,10 +270,7 @@ def _render_cluster_detail(
 ) -> None:
     """Print a detail panel for a single cluster."""
     pri_style = priority_color(cluster.priority)
-    title = (
-        f"[{pri_style}]{cluster.priority.icon} {cluster.priority.value}[/{pri_style}]"
-        f"  [bold]{cluster.label}[/bold]"
-    )
+    title = f"[{pri_style}]{cluster.priority.icon} {cluster.priority.value}[/{pri_style}]  [bold]{cluster.label}[/bold]"
 
     lines: list[str] = []
 
@@ -279,9 +279,7 @@ def _render_cluster_detail(
         lines.append(cluster_summary.narrative)
 
     # Cluster reason (if no narrative, or as supplement)
-    if cluster.cluster_reason and (
-        not cluster_summary or not cluster_summary.narrative
-    ):
+    if cluster.cluster_reason and (not cluster_summary or not cluster_summary.narrative):
         lines.append(f"[dim]Reason: {cluster.cluster_reason}[/dim]")
 
     # Stats row
@@ -297,9 +295,7 @@ def _render_cluster_detail(
         lines.append("\n[bold cyan]Recommendations[/bold cyan]")
         for rec in cluster_summary.recommendations:
             rec_style = _RECOMMENDATION_PRIORITY_STYLE.get(rec.priority, "white")
-            lines.append(
-                f"  [{rec_style}][{rec.priority}][/{rec_style}]  {rec.action}"
-            )
+            lines.append(f"  [{rec_style}][{rec.priority}][/{rec_style}]  {rec.action}")
             lines.append(f"    [dim]{rec.rationale}[/dim]")
 
     # Top IOCs
@@ -316,10 +312,7 @@ def _render_cluster_detail(
     if cluster.techniques:
         lines.append("\n[bold cyan]ATT&CK Techniques[/bold cyan] [dim](top 3)[/dim]")
         for tech in cluster.techniques[:3]:
-            lines.append(
-                f"  [bold]{tech.technique_id}[/bold]  {tech.technique_name}"
-                f"  [dim]({tech.tactic})[/dim]"
-            )
+            lines.append(f"  [bold]{tech.technique_id}[/bold]  {tech.technique_name}  [dim]({tech.tactic})[/dim]")
 
     content = "\n".join(lines)
     con.print(Panel(content, title=title, border_style=pri_style, padding=(1, 2)))
@@ -390,6 +383,7 @@ def format_report_console(report: TriageReport) -> None:
         overall = report.summary.overall_priority.value
     elif report.clusters:
         from ..models import ClusterPriority
+
         _order = [p.value for p in ClusterPriority]
         overall = max(
             (c.priority.value for c in report.clusters),
@@ -407,9 +401,6 @@ def format_report_console(report: TriageReport) -> None:
 
     sorted_clusters = _sorted_clusters(report.clusters)
     for cluster in sorted_clusters:
-        print(
-            f"{cluster.priority.value:8s} | {cluster.score:5.1f} | "
-            f"{cluster.label} | {len(cluster.alerts)} alerts"
-        )
+        print(f"{cluster.priority.value:8s} | {cluster.score:5.1f} | {cluster.label} | {len(cluster.alerts)} alerts")
 
     print()

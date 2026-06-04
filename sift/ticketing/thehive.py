@@ -7,8 +7,8 @@ import httpx
 from sift.pipeline.ioc_extractor import detect_ioc_type
 from sift.ticketing.protocol import TicketDraft, TicketResult
 
-_DEFAULT_TLP = 2   # AMBER
-_DEFAULT_PAP = 2   # AMBER
+_DEFAULT_TLP = 2  # AMBER
+_DEFAULT_PAP = 2  # AMBER
 _DEFAULT_TIMEOUT = 10.0
 
 
@@ -91,10 +91,7 @@ class TheHiveProvider:
             + [cve for cve in draft.cve_ids[:5]]
             + [mid for mid in draft.mitre_ids[:5]]
         )
-        observables = [
-            {"dataType": self._ioc_type(ioc), "data": ioc}
-            for ioc in draft.iocs
-        ]
+        observables = [{"dataType": self._ioc_type(ioc), "data": ioc} for ioc in draft.iocs]
         return {
             "type": "sift-triage",
             "source": "sift",
@@ -136,7 +133,7 @@ class TheHiveProvider:
     @staticmethod
     def _render_markdown(draft: TicketDraft) -> str:
         lines: list[str] = [
-            f"## Summary",
+            "## Summary",
             "",
             draft.summary,
             "",

@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import pytest
-
 from sift.enrichers.local_heuristics import analyze
 from sift.enrichers.runner import EnrichmentMode, EnrichmentRunner
-
 
 # ---------------------------------------------------------------------------
 # EnrichmentMode enum
 # ---------------------------------------------------------------------------
+
 
 class TestEnrichmentModeEnum:
     def test_local_mode_enum_value(self):
@@ -24,6 +22,7 @@ class TestEnrichmentModeEnum:
 # ---------------------------------------------------------------------------
 # IP address heuristics
 # ---------------------------------------------------------------------------
+
 
 class TestIPHeuristics:
     def test_private_ipv4_detected(self):
@@ -47,6 +46,7 @@ class TestIPHeuristics:
 # ---------------------------------------------------------------------------
 # URL / domain heuristics
 # ---------------------------------------------------------------------------
+
 
 class TestDomainHeuristics:
     def test_suspicious_tld_detected(self):
@@ -74,6 +74,7 @@ class TestDomainHeuristics:
 # High-entropy (DGA) detection
 # ---------------------------------------------------------------------------
 
+
 class TestEntropyHeuristics:
     def test_high_entropy_domain(self):
         # 16 unique chars → Shannon entropy ≈ 4.0 bits > 3.8 threshold
@@ -89,6 +90,7 @@ class TestEntropyHeuristics:
 # Hash identification
 # ---------------------------------------------------------------------------
 
+
 class TestHashHeuristics:
     def test_md5_identified(self):
         result = analyze("5d41402abc4b2a76b9719d911017c592")
@@ -102,6 +104,7 @@ class TestHashHeuristics:
 # ---------------------------------------------------------------------------
 # Result structure
 # ---------------------------------------------------------------------------
+
 
 class TestResultStructure:
     def test_result_has_required_keys(self):
@@ -118,6 +121,7 @@ class TestResultStructure:
 # ---------------------------------------------------------------------------
 # EnrichmentRunner LOCAL mode
 # ---------------------------------------------------------------------------
+
 
 class TestEnrichmentRunnerLocal:
     def test_local_mode_returns_enrichment_context(self):

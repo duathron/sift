@@ -39,17 +39,10 @@ class MetricsCollector:
         alert_count = len([a for c in report.clusters for a in c.alerts])
 
         # Average cluster size
-        avg_cluster_size = (
-            alert_count / cluster_count if cluster_count > 0 else 0.0
-        )
+        avg_cluster_size = alert_count / cluster_count if cluster_count > 0 else 0.0
 
         # Top 5 categories
-        all_categories = [
-            a.category
-            for c in report.clusters
-            for a in c.alerts
-            if a.category
-        ]
+        all_categories = [a.category for c in report.clusters for a in c.alerts if a.category]
         category_counter = Counter(all_categories)
         top_categories = dict(category_counter.most_common(5))
 
@@ -61,14 +54,10 @@ class MetricsCollector:
         # AI success rate (clusters with summaries)
         ai_success = 0
         if report.summary and report.summary.cluster_summaries:
-            clusters_with_summary = set(
-                cs.cluster_id for cs in report.summary.cluster_summaries
-            )
+            clusters_with_summary = set(cs.cluster_id for cs in report.summary.cluster_summaries)
             ai_success = len(clusters_with_summary)
 
-        ai_success_rate = (
-            (ai_success / cluster_count * 100) if cluster_count > 0 else 0.0
-        )
+        ai_success_rate = (ai_success / cluster_count * 100) if cluster_count > 0 else 0.0
 
         return TriageMetrics(
             cluster_count=cluster_count,
@@ -148,12 +137,8 @@ class MetricsCollector:
 
         table.add_row("Clusters", str(metrics.cluster_count))
         table.add_row("Total Alerts", str(metrics.alert_count))
-        table.add_row(
-            "Avg Cluster Size", f"{metrics.avg_cluster_size:.2f}"
-        )
-        table.add_row(
-            "AI Success Rate", f"{metrics.ai_success_rate:.1f}%"
-        )
+        table.add_row("Avg Cluster Size", f"{metrics.avg_cluster_size:.2f}")
+        table.add_row("AI Success Rate", f"{metrics.ai_success_rate:.1f}%")
 
         # Top categories
         if metrics.top_categories:

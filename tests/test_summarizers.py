@@ -21,6 +21,7 @@ from sift.summarizers.template import TemplateSummarizer
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_alert(severity: AlertSeverity = AlertSeverity.HIGH, iocs: list[str] | None = None) -> Alert:
     return Alert(
         id=str(uuid.uuid4()),
@@ -60,6 +61,7 @@ def make_report(clusters: list[Cluster]) -> TriageReport:
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestTemplateSummarizerProtocol:
     """TemplateSummarizer satisfies the structural SummarizerProtocol."""

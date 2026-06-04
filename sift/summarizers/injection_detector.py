@@ -64,9 +64,7 @@ class PromptInjectionDetector:
         """
         self.case_insensitive = case_insensitive
         flags = re.IGNORECASE if case_insensitive else 0
-        self._whitelist: list[re.Pattern] = [
-            re.compile(p, flags) for p in (whitelist_patterns or [])
-        ]
+        self._whitelist: list[re.Pattern] = [re.compile(p, flags) for p in (whitelist_patterns or [])]
         self._compile_patterns()
 
     def _compile_patterns(self) -> None:
@@ -113,19 +111,19 @@ class PromptInjectionDetector:
         #   while long random-looking Base64 without special chars is still caught.
         # Branch 5: hex-encoded bytes — 10+ two-hex-digit pairs (20+ hex chars).
         self.pattern_base64_hex = re.compile(
-            r'(?:'
-            r'(?=[A-Za-z0-9+/]*[+/])[A-Za-z0-9+/]{12,}'  # Branch 1: 12+ with +/
-            r'|[A-Za-z0-9+/]{4,}=='                        # Branch 2: == padded
-            r'|[A-Za-z0-9+/]{8,}='                         # Branch 3: = padded
-            r'|(?:[0-9a-fA-F]{2}){10,}'                     # Branch 5: hex pairs (before Branch 4 to preserve pair semantics)
-            r'|[A-Za-z0-9]{20,}'                            # Branch 4: 20+ alphanumeric (raised from 15 — avoids FP on hostnames/process names)
-            r')',
+            r"(?:"
+            r"(?=[A-Za-z0-9+/]*[+/])[A-Za-z0-9+/]{12,}"  # Branch 1: 12+ with +/
+            r"|[A-Za-z0-9+/]{4,}=="  # Branch 2: == padded
+            r"|[A-Za-z0-9+/]{8,}="  # Branch 3: = padded
+            r"|(?:[0-9a-fA-F]{2}){10,}"  # Branch 5: hex pairs (before Branch 4 to preserve pair semantics)
+            r"|[A-Za-z0-9]{20,}"  # Branch 4: 20+ alphanumeric (raised from 15 — avoids FP on hostnames/process names)
+            r")",
             flags,
         )
 
         # Pattern 5: Shell command injection ($(...), backticks, $var)
         self.pattern_shell_commands = re.compile(
-            r'(?:\$\([^)]*\)|`[^`]*`|\$\w+)',
+            r"(?:\$\([^)]*\)|`[^`]*`|\$\w+)",
             flags,
         )
 

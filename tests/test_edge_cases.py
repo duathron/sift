@@ -9,24 +9,23 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from sift.cache import AlertCache, CacheConfig
+from sift.config import SeverityWeights
 from sift.filtering import FilterParser, FilterSyntaxError
 from sift.models import Alert, AlertSeverity, Cluster, ClusterPriority
 from sift.normalizers.csv_normalizer import CSVNormalizer
 from sift.normalizers.generic import GenericNormalizer
 from sift.pipeline.ioc_extractor import enrich_alert_iocs, extract_iocs
 from sift.pipeline.prioritizer import prioritize, score_cluster
-from sift.config import ScoringConfig, SeverityWeights, PriorityThresholds
-
 
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
 
 def _alert(
     *,
@@ -103,11 +102,13 @@ class TestGenericNormalizerEdgeCases:
         # containing a valid dict and a non-dict value drops the non-dict.
         normalizer = GenericNormalizer()
         # Simulate NDJSON fed as a JSON array with mixed types.
-        data = json.dumps([
-            {"title": "Good Alert 1", "severity": "high"},
-            "this is not a dict",
-            {"title": "Good Alert 2", "severity": "low"},
-        ])
+        data = json.dumps(
+            [
+                {"title": "Good Alert 1", "severity": "high"},
+                "this is not a dict",
+                {"title": "Good Alert 2", "severity": "low"},
+            ]
+        )
         result = normalizer.normalize(data)
         # Only the two dict entries should produce Alerts.
         assert len(result) == 2
@@ -285,9 +286,7 @@ class TestPrioritizerEdgeCases:
             _alert(severity=AlertSeverity.CRITICAL),
         ]
         cluster_mixed = _cluster(alerts=alerts)
-        cluster_all_low = _cluster(
-            alerts=[_alert(severity=AlertSeverity.LOW) for _ in range(3)]
-        )
+        cluster_all_low = _cluster(alerts=[_alert(severity=AlertSeverity.LOW) for _ in range(3)])
         result_mixed = prioritize(cluster_mixed)
         result_low = prioritize(cluster_all_low)
         # Mixed cluster must score strictly higher than the all-LOW cluster.
@@ -360,9 +359,9 @@ class TestCacheEdgeCases:
         cache.put("fp_a", {"tag": "alpha"})
         cache.put("fp_b", {"tag": "beta"})
 
-        cache.get("fp_a")   # hit
-        cache.get("fp_a")   # hit
-        cache.get("fp_b")   # hit
+        cache.get("fp_a")  # hit
+        cache.get("fp_a")  # hit
+        cache.get("fp_b")  # hit
         cache.get("fp_nope")  # miss
         cache.get("fp_nada")  # miss
 
@@ -413,6 +412,7 @@ class TestFilterDSLEdgeCases:
     def test_unknown_field_name_raises_error_on_evaluation(self):
         """Referencing a field that does not exist raises an error at evaluation time."""
         from sift.filtering import FilterEvalError
+
         f = FilterParser.parse("nonexistent_field == 42")
         cluster = self._cluster()
         with pytest.raises((FilterEvalError, Exception)):
@@ -454,9 +454,7 @@ class TestFilterDSLEdgeCases:
 
     def test_deeply_nested_parens_evaluated_correctly(self):
         """(priority == CRITICAL OR (ioc_count > 5 AND alert_count > 3)) is valid."""
-        f = FilterParser.parse(
-            "(priority == CRITICAL OR (ioc_count > 5 AND alert_count > 3))"
-        )
+        f = FilterParser.parse("(priority == CRITICAL OR (ioc_count > 5 AND alert_count > 3))")
         # Matches because CRITICAL
         critical_cluster = self._cluster(priority=ClusterPriority.CRITICAL)
         assert f.matches(critical_cluster) is True

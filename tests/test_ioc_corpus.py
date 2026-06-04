@@ -32,6 +32,7 @@ def _read(name: str) -> str:
 # 01 — PS Eclipse Sysmon CSV row
 # ---------------------------------------------------------------------------
 
+
 class TestPSEclipseSysmon:
     """The original v1.1.08 motivating bug: filename + null-hash filter."""
 
@@ -52,10 +53,7 @@ class TestPSEclipseSysmon:
         assert "a1b2c3d4e5f67890a1b2c3d4e5f67890" in iocs
 
     def test_real_sha256_extracted(self, iocs):
-        assert (
-            "deadbeefcafef00d1234567890abcdef0123456789abcdef0123456789abcdef"
-            in iocs
-        )
+        assert "deadbeefcafef00d1234567890abcdef0123456789abcdef0123456789abcdef" in iocs
 
     def test_null_imphash_filtered(self, iocs):
         assert "00000000000000000000000000000000" not in iocs
@@ -70,6 +68,7 @@ class TestPSEclipseSysmon:
 # ---------------------------------------------------------------------------
 # 02 — Defanged threat report
 # ---------------------------------------------------------------------------
+
 
 class TestDefangedThreatReport:
     """Refang preprocessor — hxxp://, [.], [dot], [at], fullwidth."""
@@ -123,6 +122,7 @@ class TestDefangedThreatReport:
 # 03 — any.run sandbox report
 # ---------------------------------------------------------------------------
 
+
 class TestAnyRunReport:
     """Sandbox-style detonation: registry, JA3/JA3S, JARM, ssdeep, TLSH."""
 
@@ -131,10 +131,7 @@ class TestAnyRunReport:
         return extract_iocs(_read("03_anyrun_report.txt"))
 
     def test_registry_run_key_extracted(self, iocs):
-        assert any(
-            "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" in i
-            for i in iocs
-        )
+        assert any("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" in i for i in iocs)
 
     def test_registry_service_imagepath_extracted(self, iocs):
         assert any(r"HKLM\SYSTEM\CurrentControlSet\Services" in i for i in iocs)
@@ -143,9 +140,7 @@ class TestAnyRunReport:
         assert any(i.startswith("ps_encoded:") for i in iocs)
 
     def test_discord_webhook_url_extracted(self, iocs):
-        assert any(
-            "discord.com/api/webhooks" in i for i in iocs if i.startswith("http")
-        )
+        assert any("discord.com/api/webhooks" in i for i in iocs if i.startswith("http"))
 
     def test_trycloudflare_tunnel_extracted(self, iocs):
         assert any(".trycloudflare.com" in i for i in iocs)
@@ -158,8 +153,7 @@ class TestAnyRunReport:
 
     def test_jarm_extracted(self, iocs):
         # 62 hex chars
-        assert any(len(i) == 62 and all(c in "0123456789abcdef" for c in i)
-                   for i in iocs)
+        assert any(len(i) == 62 and all(c in "0123456789abcdef" for c in i) for i in iocs)
 
     def test_ssdeep_extracted(self, iocs):
         assert any(":" in i and i.split(":", 1)[0] == "1536" for i in iocs)
@@ -174,14 +168,10 @@ class TestAnyRunReport:
 
     def test_severity_hint_for_tunnel_domain(self):
         assert classify_severity_hint("abc123.ngrok.io") == "high"
-        assert classify_severity_hint(
-            "https://abc.trycloudflare.com/x"
-        ) == "high"
+        assert classify_severity_hint("https://abc.trycloudflare.com/x") == "high"
 
     def test_severity_hint_for_discord_webhook(self):
-        assert classify_severity_hint(
-            "https://discord.com/api/webhooks/123/abc"
-        ) == "high"
+        assert classify_severity_hint("https://discord.com/api/webhooks/123/abc") == "high"
 
     def test_severity_hint_for_ps_encoded(self):
         assert classify_severity_hint("ps_encoded:" + "A" * 120) == "critical"
@@ -190,6 +180,7 @@ class TestAnyRunReport:
 # ---------------------------------------------------------------------------
 # 04 — OTX pulse
 # ---------------------------------------------------------------------------
+
 
 class TestOTXPulse:
     """Threat-intel pulse with defanged IOCs + ATT&CK + CVE all in one doc."""
@@ -219,10 +210,7 @@ class TestOTXPulse:
         assert "0d11d8e63f7ab9d0eb83f5a93b1c0e0e7b6c4f93" in iocs
 
     def test_sha256_extracted(self, iocs):
-        assert (
-            "7f0fbfae39e62ac8e8d21f72ddd3fbe9e9b9b2cf04c7b2e95e17bb3be9b6bab8"
-            in iocs
-        )
+        assert "7f0fbfae39e62ac8e8d21f72ddd3fbe9e9b9b2cf04c7b2e95e17bb3be9b6bab8" in iocs
 
     def test_email_extracted(self, iocs):
         assert "hr-recruit@careers-aerospace.net" in iocs
@@ -242,6 +230,7 @@ class TestOTXPulse:
 # 05 — Ransomware note (refanged email + filename)
 # ---------------------------------------------------------------------------
 
+
 class TestRansomwareNote:
     """Verifies SHA256 + email + executable name extraction in a ransom note."""
 
@@ -250,10 +239,7 @@ class TestRansomwareNote:
         return extract_iocs(_read("05_ransomware_ransomnote.txt"))
 
     def test_sha256_extracted(self, iocs):
-        assert (
-            "cafebabe1234567890deadbeefabcdef1234567890fedcba0987654321feedfa"
-            in iocs
-        )
+        assert "cafebabe1234567890deadbeefabcdef1234567890fedcba0987654321feedfa" in iocs
 
     def test_encryptor_executable_extracted(self, iocs):
         assert "ENCRYPTOR.exe" in iocs
@@ -266,6 +252,7 @@ class TestRansomwareNote:
 # ---------------------------------------------------------------------------
 # Type-detection regression
 # ---------------------------------------------------------------------------
+
 
 class TestDetectIOCType:
     @pytest.mark.parametrize(
@@ -298,17 +285,14 @@ class TestDetectIOCType:
         # Hashes-of-empty-bytestring sentinels are also dropped.
         # MD5(""), SHA1(""), SHA256("") respectively.
         assert detect_ioc_type("d41d8cd98f00b204e9800998ecf8427e") == "unknown"
-        assert detect_ioc_type(
-            "da39a3ee5e6b4b0d3255bfef95601890afd80709"
-        ) == "unknown"
-        assert detect_ioc_type(
-            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        ) == "unknown"
+        assert detect_ioc_type("da39a3ee5e6b4b0d3255bfef95601890afd80709") == "unknown"
+        assert detect_ioc_type("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") == "unknown"
 
 
 # ---------------------------------------------------------------------------
 # Negative tests — false-positive prevention
 # ---------------------------------------------------------------------------
+
 
 class TestNegatives:
     """Things that look IOC-shaped but should NOT be extracted."""
@@ -353,13 +337,13 @@ class TestNegatives:
     def test_timestamp_not_classified_as_ssdeep_in_bridge(self):
         # 12:34:56 timestamps must not look like ssdeep to the bridge filter.
         from sift.enrichers.vex_bridge import _is_non_enrichable_type
+
         assert _is_non_enrichable_type("12:34:56") is False
 
     def test_real_ssdeep_classified_as_ssdeep_in_bridge(self):
         from sift.enrichers.vex_bridge import _is_non_enrichable_type
-        assert _is_non_enrichable_type(
-            "1536:y6dkO/ZD3OgK2bUk:y6mO/ZDHZk"
-        ) is True
+
+        assert _is_non_enrichable_type("1536:y6dkO/ZD3OgK2bUk:y6mO/ZDHZk") is True
 
     def test_ipv6_does_not_explode_on_long_input(self):
         # Catastrophic-backtracking guard. Should return promptly.
@@ -385,6 +369,7 @@ class TestNegatives:
 # Severity-hint coverage
 # ---------------------------------------------------------------------------
 
+
 class TestSeverityHintCoverage:
     """Verify ``classify_severity_hint`` returns ``None`` for benign types."""
 
@@ -404,29 +389,22 @@ class TestSeverityHintCoverage:
         assert classify_severity_hint("T1059.001") is None
 
     def test_pastebin_url_high(self):
-        assert classify_severity_hint(
-            "https://pastebin.com/raw/Xy12AbCd"
-        ) == "high"
+        assert classify_severity_hint("https://pastebin.com/raw/Xy12AbCd") == "high"
 
     def test_telegram_bot_url_high(self):
-        assert classify_severity_hint(
-            "https://api.telegram.org/bot1234567:abc/sendMessage"
-        ) == "high"
+        assert classify_severity_hint("https://api.telegram.org/bot1234567:abc/sendMessage") == "high"
 
     def test_non_persistence_regkey_no_hint(self):
-        assert classify_severity_hint(
-            r"HKLM\SOFTWARE\Microsoft\Office\Common\Settings"
-        ) is None
+        assert classify_severity_hint(r"HKLM\SOFTWARE\Microsoft\Office\Common\Settings") is None
 
     def test_run_key_lowercase_high(self):
-        assert classify_severity_hint(
-            r"hklm\software\microsoft\windows\currentversion\run\evil"
-        ) == "high"
+        assert classify_severity_hint(r"hklm\software\microsoft\windows\currentversion\run\evil") == "high"
 
 
 # ---------------------------------------------------------------------------
 # Refang idempotence
 # ---------------------------------------------------------------------------
+
 
 class TestRefangIdempotence:
     """Refang twice = refang once (no further substitutions kick in)."""
@@ -438,12 +416,13 @@ class TestRefangIdempotence:
             "user[at]phish[dot]tld",
             "8[.]8[.]8[.]8",
             "evil．com / mail＠domain．com",
-            "state[at]rest is fine",   # negative case (no refang at all)
+            "state[at]rest is fine",  # negative case (no refang at all)
             "",
         ],
     )
     def test_refang_idempotent(self, text):
         from sift.pipeline.ioc_extractor import _refang
+
         once = _refang(text)
         twice = _refang(once)
         assert once == twice
@@ -452,6 +431,7 @@ class TestRefangIdempotence:
 # ---------------------------------------------------------------------------
 # Boundary tests
 # ---------------------------------------------------------------------------
+
 
 class TestBoundaries:
     def test_cve_seven_digit_suffix(self):

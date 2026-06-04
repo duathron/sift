@@ -171,6 +171,7 @@ def _check_llm_key() -> CheckResult:
         if env_file.exists():
             try:
                 from dotenv import dotenv_values
+
                 key = dotenv_values(env_file).get("SIFT_LLM_KEY", "") or ""
                 source = "~/.sift/.env"
             except ImportError:
@@ -248,6 +249,7 @@ def _check_ticketing() -> CheckResult:
     """Check ticketing provider config and connectivity (optional feature)."""
     try:
         from sift.config import load_config
+
         cfg = load_config()
     except Exception:
         return CheckResult(name="Ticketing", status=CheckStatus.WARN, message="Could not load config")
@@ -262,6 +264,7 @@ def _check_ticketing() -> CheckResult:
 
     try:
         from sift.ticketing import build_provider
+
         tp = build_provider(provider, cfg)
         ok, msg = tp.healthcheck()
         return CheckResult(
@@ -416,10 +419,7 @@ def print_doctor_report(
     console.print()
 
     if has_fail:
-        console.print(
-            "[bold red]One or more checks FAILED.[/bold red] "
-            "Resolve the issues above before running sift.\n"
-        )
+        console.print("[bold red]One or more checks FAILED.[/bold red] Resolve the issues above before running sift.\n")
     elif warn_count > 0:
         console.print(
             f"[bold green]All checks passed[/bold green] "

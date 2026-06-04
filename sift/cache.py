@@ -20,7 +20,6 @@ Design decisions
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import threading
 from datetime import date, datetime, timezone
@@ -145,8 +144,7 @@ class AlertCache:
         with self._lock:
             conn = self._get_conn()
             row = conn.execute(
-                "SELECT fingerprint, result_json, created_at, hits "
-                "FROM cache_entries WHERE fingerprint = ?",
+                "SELECT fingerprint, result_json, created_at, hits FROM cache_entries WHERE fingerprint = ?",
                 (fingerprint,),
             ).fetchone()
 
@@ -174,8 +172,7 @@ class AlertCache:
             # Update access metadata for LRU ordering.
             now_iso = datetime.now(tz=timezone.utc).isoformat()
             conn.execute(
-                "UPDATE cache_entries SET hits = hits + 1, accessed_at = ? "
-                "WHERE fingerprint = ?",
+                "UPDATE cache_entries SET hits = hits + 1, accessed_at = ? WHERE fingerprint = ?",
                 (now_iso, fingerprint),
             )
             conn.commit()
@@ -206,9 +203,7 @@ class AlertCache:
             result_json = json.dumps(result, default=_json_default)
 
             # Evict before inserting so we never breach max_entries.
-            count: int = conn.execute(
-                "SELECT COUNT(*) FROM cache_entries"
-            ).fetchone()[0]
+            count: int = conn.execute("SELECT COUNT(*) FROM cache_entries").fetchone()[0]
 
             # Only evict if an entry for this fingerprint does *not* already exist
             # (updates don't change the row count).
@@ -289,9 +284,7 @@ class AlertCache:
 
         with self._lock:
             conn = self._get_conn()
-            entries: int = conn.execute(
-                "SELECT COUNT(*) FROM cache_entries"
-            ).fetchone()[0]
+            entries: int = conn.execute("SELECT COUNT(*) FROM cache_entries").fetchone()[0]
 
         db_path = self._config.cache_dir / _DB_FILENAME
         size_bytes = db_path.stat().st_size if db_path.exists() else 0
@@ -386,9 +379,7 @@ class AlertCache:
             )
             """
         )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_accessed_at ON cache_entries(accessed_at)"
-        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_accessed_at ON cache_entries(accessed_at)")
         conn.commit()
         self._conn = conn
 

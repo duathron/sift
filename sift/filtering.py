@@ -15,7 +15,6 @@ from typing import Any, Optional, Protocol
 
 from sift.models import Cluster, ClusterPriority
 
-
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
@@ -350,7 +349,7 @@ class ComparisonNode:
                 expected_val = None
 
             if actual_val is None or expected_val is None:
-                raise FilterEvalError(f"Invalid priority value")
+                raise FilterEvalError("Invalid priority value")
             return comparator(actual_val, expected_val)
 
         if not isinstance(actual, (int, float)) or not isinstance(expected, (int, float)):
@@ -480,7 +479,14 @@ class Parser:
             values = self.parse_set()
             return SetMembershipNode(field, "IN", values)
 
-        if self.current_token.type in (TokenType.EQ, TokenType.NE, TokenType.LT, TokenType.LE, TokenType.GT, TokenType.GE):
+        if self.current_token.type in (
+            TokenType.EQ,
+            TokenType.NE,
+            TokenType.LT,
+            TokenType.LE,
+            TokenType.GT,
+            TokenType.GE,
+        ):
             op_token = self.current_token
             self.eat(op_token.type)
             value = self.parse_value()

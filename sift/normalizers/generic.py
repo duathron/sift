@@ -19,8 +19,27 @@ _TIMESTAMP_FIELDS = ["timestamp", "time", "event_time", "created_at", "@timestam
 _SEVERITY_FIELDS = ["severity", "priority", "level", "risk_level", "alert_level"]
 _TITLE_FIELDS = ["title", "name", "alert_name", "message", "msg", "description", "event_name", "label"]
 _SOURCE_FIELDS = ["source", "sensor", "detector", "product", "vendor", "parentimage"]
-_SOURCE_IP_FIELDS = ["source_ip", "src_ip", "src", "sourceAddress", "source_address", "attacker_ip", "source ip", "src ip"]
-_DEST_IP_FIELDS = ["dest_ip", "dst_ip", "dst", "destAddress", "destination_ip", "target_ip", "destination ip", "dest ip", "dst ip"]
+_SOURCE_IP_FIELDS = [
+    "source_ip",
+    "src_ip",
+    "src",
+    "sourceAddress",
+    "source_address",
+    "attacker_ip",
+    "source ip",
+    "src ip",
+]
+_DEST_IP_FIELDS = [
+    "dest_ip",
+    "dst_ip",
+    "dst",
+    "destAddress",
+    "destination_ip",
+    "target_ip",
+    "destination ip",
+    "dest ip",
+    "dst ip",
+]
 _USER_FIELDS = ["user", "username", "user_name", "account", "actor"]
 _HOST_FIELDS = ["host", "hostname", "computer", "device", "endpoint", "machine", "image"]
 _CATEGORY_FIELDS = ["category", "type", "alert_type", "event_type", "classification", "label", "eventid"]
@@ -78,6 +97,7 @@ def _parse_timestamp(value: Any) -> datetime | None:
                 continue
         try:
             from datetime import datetime as dt
+
             parsed = dt.fromisoformat(value)
             if parsed.tzinfo is None:
                 parsed = parsed.replace(tzinfo=timezone.utc)

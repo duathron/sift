@@ -31,6 +31,7 @@ _DEFAULT_BASE_URL = "http://localhost:11434"
 # Summarizer
 # ---------------------------------------------------------------------------
 
+
 class OllamaSummarizer:
     """Summarizer backed by a local Ollama instance.
 
@@ -133,9 +134,7 @@ class OllamaSummarizer:
 
         return self._parse_and_validate_response(llm_text, report)
 
-    def _parse_and_validate_response(
-        self, response_text: str, report: TriageReport
-    ) -> SummaryResult:
+    def _parse_and_validate_response(self, response_text: str, report: TriageReport) -> SummaryResult:
         """Parse and validate LLM response with fallback to template on failure.
 
         Args:
@@ -161,10 +160,7 @@ class OllamaSummarizer:
             import logging
 
             logger = logging.getLogger(__name__)
-            logger.warning(
-                f"Failed to parse/validate Ollama response: {exc}. "
-                f"Falling back to template summarizer."
-            )
+            logger.warning(f"Failed to parse/validate Ollama response: {exc}. Falling back to template summarizer.")
             from .template import TemplateSummarizer  # noqa: PLC0415
 
             return TemplateSummarizer().summarize(report)

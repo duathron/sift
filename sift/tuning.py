@@ -18,22 +18,22 @@ from .config import ClusteringConfig
 class TuneResult:
     """Outcome of auto-tuning — passed into the pipeline."""
 
-    chunk_size: int          # 0 = no chunking
-    drop_raw: bool           # True = discard raw dict after normalization
-    sub_chunk: bool          # True = sub-file chunking inside streaming reader
-    sub_chunk_size: int      # alerts per sub-file batch
-    reason: str              # human-readable explanation (shown only in verbose/debug)
+    chunk_size: int  # 0 = no chunking
+    drop_raw: bool  # True = discard raw dict after normalization
+    sub_chunk: bool  # True = sub-file chunking inside streaming reader
+    sub_chunk_size: int  # alerts per sub-file batch
+    reason: str  # human-readable explanation (shown only in verbose/debug)
 
 
 # ---------------------------------------------------------------------------
 # Thresholds
 # ---------------------------------------------------------------------------
 
-_DROP_RAW_BYTES = 500 * 1024 * 1024       # 500 MB — drop raw dict above this
-_CHUNK_BYTES = 200 * 1024 * 1024          # 200 MB — enable chunking above this
-_SUB_CHUNK_BYTES = 500 * 1024 * 1024      # 500 MB per file — enable sub-file chunking
-_DEFAULT_CHUNK_SIZE = 100_000             # alerts per chunk
-_DEFAULT_SUB_CHUNK_SIZE = 100_000         # alerts per sub-file batch
+_DROP_RAW_BYTES = 500 * 1024 * 1024  # 500 MB — drop raw dict above this
+_CHUNK_BYTES = 200 * 1024 * 1024  # 200 MB — enable chunking above this
+_SUB_CHUNK_BYTES = 500 * 1024 * 1024  # 500 MB per file — enable sub-file chunking
+_DEFAULT_CHUNK_SIZE = 100_000  # alerts per chunk
+_DEFAULT_SUB_CHUNK_SIZE = 100_000  # alerts per sub-file batch
 
 
 def auto_tune(

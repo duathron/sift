@@ -97,7 +97,7 @@ def _merge_ioc_overlapping_clusters(
                 if ioc not in seen_iocs:
                     all_iocs.append(ioc)
                     seen_iocs.add(ioc)
-            for t in (c.techniques or []):
+            for t in c.techniques or []:
                 if t.technique_id not in seen_tech_ids:
                     all_techniques.append(t)
                     seen_tech_ids.add(t.technique_id)
@@ -108,24 +108,28 @@ def _merge_ioc_overlapping_clusters(
 
         max_confidence = max(c.confidence for c in group)
 
-        draft = base.model_copy(update={
-            "alerts": all_alerts,
-            "iocs": all_iocs,
-            "techniques": all_techniques,
-            "score": 0.0,
-            "priority": ClusterPriority.NOISE,
-            "confidence": max_confidence,
-            "first_seen": first_seen,
-            "last_seen": last_seen,
-            "cluster_reason": (
-                f"{base.cluster_reason} [merged {len(group)} chunks by IOC overlap]"
-                if base.cluster_reason else f"merged {len(group)} chunks by IOC overlap"
-            ),
-        })
+        draft = base.model_copy(
+            update={
+                "alerts": all_alerts,
+                "iocs": all_iocs,
+                "techniques": all_techniques,
+                "score": 0.0,
+                "priority": ClusterPriority.NOISE,
+                "confidence": max_confidence,
+                "first_seen": first_seen,
+                "last_seen": last_seen,
+                "cluster_reason": (
+                    f"{base.cluster_reason} [merged {len(group)} chunks by IOC overlap]"
+                    if base.cluster_reason
+                    else f"merged {len(group)} chunks by IOC overlap"
+                ),
+            }
+        )
 
         # Re-derive score and priority from the merged cluster's alerts so that
         # severity multipliers are applied exactly once (not summed from each chunk).
         from sift.pipeline.prioritizer import prioritize
+
         merged.append(prioritize(draft, scoring_config))
 
     merged.sort(key=lambda c: c.score, reverse=True)

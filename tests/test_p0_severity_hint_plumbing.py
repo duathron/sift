@@ -18,10 +18,10 @@ from datetime import datetime, timezone
 
 import pytest
 
-from sift.config import ScoringConfig, SeverityWeights
-from sift.models import Alert, AlertSeverity, Cluster, ClusterPriority, TechniqueRef
+from sift.config import SeverityWeights
+from sift.models import Alert, AlertSeverity, Cluster, ClusterPriority
 from sift.output.stix import _pattern_from_ioc
-from sift.pipeline.ioc_extractor import classify_severity_hint, detect_ioc_type
+from sift.pipeline.ioc_extractor import classify_severity_hint
 from sift.pipeline.prioritizer import score_cluster
 from sift.summarizers.injection_detector import PromptInjectionDetector
 from sift.summarizers.prompt import _safe_ioc_for_prompt
@@ -29,10 +29,10 @@ from sift.ticketing.jira import JiraProvider
 from sift.ticketing.protocol import TicketDraft
 from sift.ticketing.thehive import TheHiveProvider
 
-
 # ---------------------------------------------------------------------------
 # Fixtures / factories
 # ---------------------------------------------------------------------------
+
 
 def _alert(severity: AlertSeverity = AlertSeverity.MEDIUM, iocs: list[str] | None = None) -> Alert:
     return Alert(id=str(uuid.uuid4()), title="t", severity=severity, iocs=iocs or [])
@@ -76,6 +76,7 @@ def _draft(iocs: list[str] = (), severity: str = "MEDIUM") -> TicketDraft:
 # ---------------------------------------------------------------------------
 # P0-1: prioritizer severity-hint multipliers
 # ---------------------------------------------------------------------------
+
 
 class TestPrioritizerSeverityHint:
     def test_ps_encoded_ioc_applies_critical_multiplier(self):
@@ -134,6 +135,7 @@ class TestPrioritizerSeverityHint:
 # P0-11: Jira priority bump
 # ---------------------------------------------------------------------------
 
+
 class TestJiraSeverityHintPriority:
     def _provider(self) -> JiraProvider:
         return JiraProvider(
@@ -176,6 +178,7 @@ class TestJiraSeverityHintPriority:
 # P0-4: TheHive _ioc_type
 # ---------------------------------------------------------------------------
 
+
 class TestTheHiveIocType:
     def test_ip(self):
         assert TheHiveProvider._ioc_type("203.0.113.1") == "ip"
@@ -205,9 +208,7 @@ class TestTheHiveIocType:
         assert TheHiveProvider._ioc_type("T1059.001") == "other"
 
     def test_registry_key(self):
-        assert TheHiveProvider._ioc_type(
-            r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
-        ) == "registry"
+        assert TheHiveProvider._ioc_type(r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run") == "registry"
 
     def test_ps_encoded(self):
         raw = b"payload"
@@ -224,6 +225,7 @@ class TestTheHiveIocType:
 # ---------------------------------------------------------------------------
 # P0-3: STIX _pattern_from_ioc new types
 # ---------------------------------------------------------------------------
+
 
 class TestStixPatternNewTypes:
     def test_sha512_explicit(self):
@@ -283,6 +285,7 @@ class TestStixPatternNewTypes:
 # P0-5: injection_detector scans cluster.iocs
 # ---------------------------------------------------------------------------
 
+
 class TestInjectionDetectorIocScan:
     def test_ps_encoded_ioc_does_not_trigger_encoded_payload_finding(self):
         """ps_encoded IOC must NOT trigger encoded_payload — IOC fields skip base64 check (P1-21).
@@ -319,8 +322,7 @@ class TestInjectionDetectorIocScan:
         findings = detector.detect(alert)
         # No encoded_payload findings for ioc.* fields
         encoded_ioc_findings = [
-            f for f in findings
-            if f.field.startswith("ioc.") and f.pattern_type == "encoded_payload"
+            f for f in findings if f.field.startswith("ioc.") and f.pattern_type == "encoded_payload"
         ]
         assert len(encoded_ioc_findings) == 0
         # Redact produces no changes for this alert
@@ -331,6 +333,7 @@ class TestInjectionDetectorIocScan:
 # ---------------------------------------------------------------------------
 # P0-6: prompt _safe_ioc_for_prompt
 # ---------------------------------------------------------------------------
+
 
 class TestSafeIocForPrompt:
     def test_ps_encoded_sanitized(self):

@@ -25,6 +25,7 @@ from sift.models import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_alert(iocs: list[str] | None = None) -> Alert:
     return Alert(
         id=str(uuid.uuid4()),
@@ -59,6 +60,7 @@ def make_report(clusters: list[Cluster]) -> TriageReport:
 # EnricherProtocol conformance
 # ---------------------------------------------------------------------------
 
+
 class TestEnricherProtocolConformance:
     """BarbBridge and VexBridge satisfy the structural EnricherProtocol."""
 
@@ -72,6 +74,7 @@ class TestEnricherProtocolConformance:
 # ---------------------------------------------------------------------------
 # BarbBridge.can_enrich
 # ---------------------------------------------------------------------------
+
 
 class TestBarbBridgeCanEnrich:
     """BarbBridge.can_enrich accepts URLs/domains and rejects IPs and hashes."""
@@ -105,6 +108,7 @@ class TestBarbBridgeCanEnrich:
 # ---------------------------------------------------------------------------
 # VexBridge.can_enrich
 # ---------------------------------------------------------------------------
+
 
 class TestVexBridgeCanEnrich:
     """VexBridge.can_enrich accepts IPs, domains, URLs, hashes; not emails."""
@@ -141,6 +145,7 @@ class TestVexBridgeCanEnrich:
 # BarbBridge.enrich (mocked subprocess)
 # ---------------------------------------------------------------------------
 
+
 class TestBarbBridgeEnrich:
     """BarbBridge.enrich delegates to barb CLI and handles error cases."""
 
@@ -150,8 +155,7 @@ class TestBarbBridgeEnrich:
         mock_result.stdout = barb_output
         mock_result.stderr = ""
 
-        with patch("shutil.which", return_value="/usr/bin/barb"), \
-             patch("subprocess.run", return_value=mock_result):
+        with patch("shutil.which", return_value="/usr/bin/barb"), patch("subprocess.run", return_value=mock_result):
             bridge = BarbBridge()
             results = bridge.enrich(["https://phish.com"])
 
@@ -167,11 +171,13 @@ class TestBarbBridgeEnrich:
         assert "error" in results[0]
 
     def test_subprocess_timeout_returns_error_dict(self):
-        with patch("shutil.which", return_value="/usr/bin/barb"), \
-             patch(
-                 "subprocess.run",
-                 side_effect=subprocess.TimeoutExpired(cmd="barb", timeout=15),
-             ):
+        with (
+            patch("shutil.which", return_value="/usr/bin/barb"),
+            patch(
+                "subprocess.run",
+                side_effect=subprocess.TimeoutExpired(cmd="barb", timeout=15),
+            ),
+        ):
             bridge = BarbBridge()
             results = bridge.enrich(["https://phish.com"])
 
@@ -184,8 +190,7 @@ class TestBarbBridgeEnrich:
         mock_result.stdout = "not valid json {"
         mock_result.stderr = ""
 
-        with patch("shutil.which", return_value="/usr/bin/barb"), \
-             patch("subprocess.run", return_value=mock_result):
+        with patch("shutil.which", return_value="/usr/bin/barb"), patch("subprocess.run", return_value=mock_result):
             bridge = BarbBridge()
             results = bridge.enrich(["https://phish.com"])
 
@@ -197,8 +202,7 @@ class TestBarbBridgeEnrich:
         mock_result.stdout = ""
         mock_result.stderr = "barb crashed"
 
-        with patch("shutil.which", return_value="/usr/bin/barb"), \
-             patch("subprocess.run", return_value=mock_result):
+        with patch("shutil.which", return_value="/usr/bin/barb"), patch("subprocess.run", return_value=mock_result):
             bridge = BarbBridge()
             results = bridge.enrich(["https://phish.com"])
 
@@ -211,8 +215,10 @@ class TestBarbBridgeEnrich:
         mock_result.stdout = json.dumps({"verdict": "SAFE"})
         mock_result.stderr = ""
 
-        with patch("shutil.which", return_value="/usr/bin/barb"), \
-             patch("subprocess.run", return_value=mock_result) as mock_run:
+        with (
+            patch("shutil.which", return_value="/usr/bin/barb"),
+            patch("subprocess.run", return_value=mock_result) as mock_run,
+        ):
             bridge = BarbBridge()
             results = bridge.enrich(["185.220.101.47"])
 
@@ -225,6 +231,7 @@ class TestBarbBridgeEnrich:
 # VexBridge.enrich (mocked subprocess)
 # ---------------------------------------------------------------------------
 
+
 class TestVexBridgeEnrich:
     """VexBridge.enrich delegates to vex CLI and handles error cases."""
 
@@ -234,8 +241,7 @@ class TestVexBridgeEnrich:
         mock_result.stdout = vex_output
         mock_result.stderr = ""
 
-        with patch("shutil.which", return_value="/usr/bin/vex"), \
-             patch("subprocess.run", return_value=mock_result):
+        with patch("shutil.which", return_value="/usr/bin/vex"), patch("subprocess.run", return_value=mock_result):
             bridge = VexBridge()
             results = bridge.enrich(["185.220.101.47"])
 
@@ -258,11 +264,13 @@ class TestVexBridgeEnrich:
         assert "vex not installed" in results[0]["error"]
 
     def test_subprocess_timeout_returns_error_dict(self):
-        with patch("shutil.which", return_value="/usr/bin/vex"), \
-             patch(
-                 "subprocess.run",
-                 side_effect=subprocess.TimeoutExpired(cmd="vex", timeout=30),
-             ):
+        with (
+            patch("shutil.which", return_value="/usr/bin/vex"),
+            patch(
+                "subprocess.run",
+                side_effect=subprocess.TimeoutExpired(cmd="vex", timeout=30),
+            ),
+        ):
             bridge = VexBridge()
             results = bridge.enrich(["185.220.101.47"])
 
@@ -274,6 +282,7 @@ class TestVexBridgeEnrich:
 # ---------------------------------------------------------------------------
 # EnrichmentRunner
 # ---------------------------------------------------------------------------
+
 
 class TestEnrichmentRunnerCollectIocs:
     """collect_iocs_from_report extracts unique IOCs across clusters."""
@@ -423,6 +432,7 @@ class TestEnrichmentRunnerEnrich:
 # ---------------------------------------------------------------------------
 # EnrichmentContext model defaults
 # ---------------------------------------------------------------------------
+
 
 class TestEnrichmentContextModel:
     """EnrichmentContext Pydantic model default values."""

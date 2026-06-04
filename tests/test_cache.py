@@ -11,17 +11,11 @@ TestCacheConfig           (3 tests)
 
 from __future__ import annotations
 
-import json
-import os
 import stat
-import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import pytest
-
-from sift.cache import AlertCache, CacheConfig, CacheEntry
-
+from sift.cache import AlertCache, CacheConfig
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -194,8 +188,8 @@ class TestCacheStats:
         """clear() resets in-process hits and misses to zero."""
         cache = AlertCache(make_config(tmp_path))
         cache.put(FP_A, sample_result())
-        cache.get(FP_A)   # hit
-        cache.get(FP_B)   # miss
+        cache.get(FP_A)  # hit
+        cache.get(FP_B)  # miss
 
         cache.clear()
         s = cache.stats()
@@ -288,9 +282,7 @@ class TestCacheConfig:
 
         assert cache.get(FP_A) is None
 
-    def test_custom_max_entries_triggers_eviction_at_correct_threshold(
-        self, tmp_path: Path
-    ) -> None:
+    def test_custom_max_entries_triggers_eviction_at_correct_threshold(self, tmp_path: Path) -> None:
         """Eviction only fires once the entry count reaches max_entries."""
         max_e = 4
         cfg = make_config(tmp_path, max_entries=max_e)
@@ -323,7 +315,9 @@ class TestCacheTriageReportRoundtrip:
 
     def _make_report(self, input_file: str = "test.json"):
         from datetime import datetime, timezone
+
         from sift.models import TriageReport
+
         return TriageReport(
             input_file=input_file,
             alerts_ingested=0,

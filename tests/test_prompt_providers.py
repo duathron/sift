@@ -157,9 +157,7 @@ class TestProviderExamples:
                 try:
                     json.loads(ex.output)
                 except json.JSONDecodeError:
-                    pytest.fail(
-                        f"{provider} example output is not valid JSON: {ex.output}"
-                    )
+                    pytest.fail(f"{provider} example output is not valid JSON: {ex.output}")
 
 
 # ---------------------------------------------------------------------------
@@ -218,19 +216,27 @@ class TestAlertTypeBreakdown:
     def _mixed_cluster(self) -> Cluster:
         """Simulate a large heterogeneous cluster: 2000 low-noise + 324 brute-force + 1 critical."""
         alerts: list[Alert] = [
-            Alert(id=f"ps-{i}", title="External Port Scan Detected",
-                  severity=AlertSeverity.LOW, source_ip="185.1.2.3")
+            Alert(id=f"ps-{i}", title="External Port Scan Detected", severity=AlertSeverity.LOW, source_ip="185.1.2.3")
             for i in range(2000)
         ]
         alerts += [
-            Alert(id=f"bf-{i}", title="SSH Login Failed",
-                  severity=AlertSeverity.MEDIUM, source_ip="185.1.2.3", dest_ip="10.10.1.5")
+            Alert(
+                id=f"bf-{i}",
+                title="SSH Login Failed",
+                severity=AlertSeverity.MEDIUM,
+                source_ip="185.1.2.3",
+                dest_ip="10.10.1.5",
+            )
             for i in range(324)
         ]
-        alerts.append(Alert(
-            id="cred-1", title="Credential Dumping Detected",
-            severity=AlertSeverity.CRITICAL, host="dc01",
-        ))
+        alerts.append(
+            Alert(
+                id="cred-1",
+                title="Credential Dumping Detected",
+                severity=AlertSeverity.CRITICAL,
+                host="dc01",
+            )
+        )
         return make_cluster(priority=ClusterPriority.CRITICAL, alerts=alerts)
 
     def test_distribution_header_present(self):
@@ -263,10 +269,7 @@ class TestAlertTypeBreakdown:
 
     def test_overflow_line_for_more_than_10_types(self):
         """If cluster has >10 distinct alert titles, a '… (N more type(s))' line is shown."""
-        alerts = [
-            Alert(id=f"t{i}", title=f"Alert Type {i}", severity=AlertSeverity.LOW)
-            for i in range(15)
-        ]
+        alerts = [Alert(id=f"t{i}", title=f"Alert Type {i}", severity=AlertSeverity.LOW) for i in range(15)]
         cluster = make_cluster(alerts=alerts)
         prompt = build_cluster_prompt(make_report([cluster]), make_config())
         assert "more type(s)" in prompt
@@ -303,9 +306,9 @@ class TestExampleStructure:
                 has_cluster = "Cluster" in ex.input
                 has_report = "Triage Report" in ex.input
                 has_alert = "alert" in ex.input.lower()
-                assert (
-                    has_cluster or has_report or has_alert
-                ), f"{provider} example input missing cluster/report/alert reference"
+                assert has_cluster or has_report or has_alert, (
+                    f"{provider} example input missing cluster/report/alert reference"
+                )
 
     def test_example_output_follows_schema(self):
         """Output JSON should follow the expected schema."""
@@ -314,9 +317,7 @@ class TestExampleStructure:
             examples = get_provider_examples(provider)
             for ex in examples:
                 data = json.loads(ex.output)
-                assert required_fields.issubset(
-                    set(data.keys())
-                ), f"{provider} example missing required fields"
+                assert required_fields.issubset(set(data.keys())), f"{provider} example missing required fields"
 
 
 # ---------------------------------------------------------------------------

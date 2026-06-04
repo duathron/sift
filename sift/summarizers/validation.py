@@ -60,9 +60,7 @@ class SummaryResultSchema(BaseModel):
         default_factory=list, description="Optional top-level recommendations"
     )
     provider: Optional[str] = Field(default=None, description="Provider identifier for logging")
-    generated_at: Optional[datetime] = Field(
-        default=None, description="Optional timestamp for generated_at field"
-    )
+    generated_at: Optional[datetime] = Field(default=None, description="Optional timestamp for generated_at field")
 
     @field_validator("overall_priority", mode="before")
     @classmethod
@@ -88,10 +86,7 @@ class SummaryResultSchema(BaseModel):
         # Validate against allowed priorities
         allowed = {p.value for p in ClusterPriority}
         if v_str not in allowed:
-            raise ValueError(
-                f"overall_priority '{v_str}' is not a valid ClusterPriority. "
-                f"Allowed: {sorted(allowed)}"
-            )
+            raise ValueError(f"overall_priority '{v_str}' is not a valid ClusterPriority. Allowed: {sorted(allowed)}")
 
         return v_str
 
@@ -188,10 +183,7 @@ class SummaryValidator:
                 generated_at=schema.generated_at or datetime.now(tz=timezone.utc),
             )
         except (ValidationError, ValueError, KeyError, TypeError) as exc:
-            logger.warning(
-                f"Validation failed for {provider} summary: {exc}. "
-                f"Falling back to template summarizer."
-            )
+            logger.warning(f"Validation failed for {provider} summary: {exc}. Falling back to template summarizer.")
             from .template import TemplateSummarizer  # noqa: PLC0415
 
             return TemplateSummarizer().summarize(report)
@@ -209,10 +201,7 @@ class SummaryValidator:
             True if the field is valid; False otherwise (warning logged).
         """
         if not isinstance(value, field_type):
-            logger.warning(
-                f"Field '{field_name}' has type {type(value).__name__}, "
-                f"expected {field_type.__name__}"
-            )
+            logger.warning(f"Field '{field_name}' has type {type(value).__name__}, expected {field_type.__name__}")
             return False
         return True
 
@@ -232,7 +221,5 @@ def _string_to_priority(priority_str: str) -> ClusterPriority:
     try:
         return ClusterPriority[priority_str.upper()]
     except KeyError:
-        logger.warning(
-            f"Unknown priority '{priority_str}'; defaulting to MEDIUM"
-        )
+        logger.warning(f"Unknown priority '{priority_str}'; defaulting to MEDIUM")
         return ClusterPriority.MEDIUM

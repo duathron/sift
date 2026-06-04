@@ -208,11 +208,13 @@ class TestIOCClassification:
 
     def test_classify_hash(self):
         """Test hash classification."""
-        types = MetricsCollector._classify_iocs([
-            "5d41402abc4b2a76b9719d911017c592",  # MD5
-            "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d",  # SHA1
-            "2c26b46911185131006ba32987d1b2b82df7e0e3a8c0b7349349b1acb7b65f18",  # SHA256
-        ])
+        types = MetricsCollector._classify_iocs(
+            [
+                "5d41402abc4b2a76b9719d911017c592",  # MD5
+                "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d",  # SHA1
+                "2c26b46911185131006ba32987d1b2b82df7e0e3a8c0b7349349b1acb7b65f18",  # SHA256
+            ]
+        )
         assert types == ["md5", "sha1", "sha256"]
 
     def test_classify_email(self):
@@ -222,10 +224,12 @@ class TestIOCClassification:
 
     def test_classify_mixed(self):
         """Test mixed IOC types."""
-        types = MetricsCollector._classify_iocs([
-            "192.168.1.1",
-            "example.com",
-            "http://malware.io",
-            "user@phish.com",
-        ])
+        types = MetricsCollector._classify_iocs(
+            [
+                "192.168.1.1",
+                "example.com",
+                "http://malware.io",
+                "user@phish.com",
+            ]
+        )
         assert types == ["ipv4", "domain", "url", "email"]

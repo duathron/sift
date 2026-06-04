@@ -13,8 +13,6 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-import pytest
-
 from sift.config import ClusteringConfig
 from sift.models import Alert, AlertSeverity
 from sift.pipeline.clusterer import cluster_alerts
@@ -22,6 +20,7 @@ from sift.pipeline.clusterer import cluster_alerts
 # ---------------------------------------------------------------------------
 # Alert factory
 # ---------------------------------------------------------------------------
+
 
 def make_alert(
     id: str,
@@ -52,6 +51,7 @@ _T0 = datetime(2026, 3, 22, 10, 0, 0, tzinfo=timezone.utc)
 # TestClusteringPerformance
 # ---------------------------------------------------------------------------
 
+
 class TestClusteringPerformance:
     """Wall-clock timing and scale correctness tests."""
 
@@ -60,7 +60,7 @@ class TestClusteringPerformance:
         alerts = [
             make_alert(
                 id=f"a{i}",
-                iocs=[f"ioc-{i % 50}"],           # 50 distinct IOCs → 20 per bucket
+                iocs=[f"ioc-{i % 50}"],  # 50 distinct IOCs → 20 per bucket
                 category=f"Cat{i % 10}",
                 timestamp=_T0 + timedelta(seconds=i),
             )
@@ -77,7 +77,7 @@ class TestClusteringPerformance:
         alerts = [
             make_alert(
                 id=f"a{i}",
-                iocs=[f"ioc-{i % 100}"],          # 100 distinct IOCs
+                iocs=[f"ioc-{i % 100}"],  # 100 distinct IOCs
                 category=f"Cat{i % 20}",
                 timestamp=_T0 + timedelta(seconds=i * 2),
             )
@@ -110,7 +110,7 @@ class TestClusteringPerformance:
           and chain together into one large cluster.
         """
         cfg_narrow = ClusteringConfig(time_window_minutes=5)
-        cfg_wide   = ClusteringConfig(time_window_minutes=60)
+        cfg_wide = ClusteringConfig(time_window_minutes=60)
 
         # 10-minute spacing: narrower than wide (60 min) but wider than narrow (5 min).
         alerts = [
@@ -123,29 +123,20 @@ class TestClusteringPerformance:
         ]
 
         clusters_narrow = cluster_alerts(alerts, cfg_narrow)
-        clusters_wide   = cluster_alerts(alerts, cfg_wide)
+        clusters_wide = cluster_alerts(alerts, cfg_wide)
 
         sizes_narrow = sorted(len(c.alerts) for c in clusters_narrow)
-        sizes_wide   = sorted(len(c.alerts) for c in clusters_wide)
+        sizes_wide = sorted(len(c.alerts) for c in clusters_wide)
 
         # Narrow: every alert is isolated (10 min > 5 min window).
-        assert all(s == 1 for s in sizes_narrow), (
-            f"Narrow window should produce all singletons, got {sizes_narrow}"
-        )
+        assert all(s == 1 for s in sizes_narrow), f"Narrow window should produce all singletons, got {sizes_narrow}"
         # Wide: all 10 alerts chain into one cluster (10 min < 60 min window).
-        assert max(sizes_wide) > max(sizes_narrow), (
-            "Wide window should produce larger clusters than narrow window"
-        )
-        assert sum(sizes_narrow) == sum(sizes_wide) == 10, (
-            "Total alert count must be preserved in both configurations"
-        )
+        assert max(sizes_wide) > max(sizes_narrow), "Wide window should produce larger clusters than narrow window"
+        assert sum(sizes_narrow) == sum(sizes_wide) == 10, "Total alert count must be preserved in both configurations"
 
     def test_max_clusters_parameter_limits_output(self):
         """max_clusters=N must return at most N clusters."""
-        alerts = [
-            make_alert(id=f"a{i}", category=f"UniqueCategory{i}", timestamp=_T0)
-            for i in range(50)
-        ]
+        alerts = [make_alert(id=f"a{i}", category=f"UniqueCategory{i}", timestamp=_T0) for i in range(50)]
         limit = 10
         clusters = cluster_alerts(alerts, max_clusters=limit)
         assert len(clusters) <= limit
@@ -154,6 +145,7 @@ class TestClusteringPerformance:
 # ---------------------------------------------------------------------------
 # TestIOCIndexOptimization
 # ---------------------------------------------------------------------------
+
 
 class TestIOCIndexOptimization:
     """Edge cases for the inverted IOC index used in Pass 1."""
@@ -168,7 +160,7 @@ class TestIOCIndexOptimization:
     def test_duplicate_iocs_within_alert_handled_correctly(self):
         """An alert listing the same IOC twice must not cause double-union errors."""
         ioc = "evil.example.com"
-        a1 = make_alert("a1", iocs=[ioc, ioc, ioc])   # same IOC repeated
+        a1 = make_alert("a1", iocs=[ioc, ioc, ioc])  # same IOC repeated
         a2 = make_alert("a2", iocs=[ioc])
         clusters = cluster_alerts([a1, a2])
         # Both alerts share the IOC → exactly one cluster.
@@ -187,9 +179,7 @@ class TestIOCIndexOptimization:
         t0 = time.monotonic()
         clusters = cluster_alerts(alerts)
         elapsed = time.monotonic() - t0
-        assert elapsed < 3.0, (
-            f"200 alerts × 100 unique IOCs took {elapsed:.2f}s (limit 3s)"
-        )
+        assert elapsed < 3.0, f"200 alerts × 100 unique IOCs took {elapsed:.2f}s (limit 3s)"
         # All IOCs are unique per alert → no grouping expected.
         assert len(clusters) == 200
 
@@ -226,6 +216,7 @@ class TestIOCIndexOptimization:
 # TestTimeWindowOptimization
 # ---------------------------------------------------------------------------
 
+
 class TestTimeWindowOptimization:
     """Edge cases for the sliding-deque time-window grouping in Passes 2 and 3."""
 
@@ -256,9 +247,9 @@ class TestTimeWindowOptimization:
         """Alerts in different categories must NOT be merged by the time-window pass."""
         cfg = ClusteringConfig(time_window_minutes=60)
         alerts = [
-            make_alert("a1", category="Malware",    timestamp=_T0),
-            make_alert("a2", category="Network",    timestamp=_T0 + timedelta(minutes=5)),
-            make_alert("a3", category="Malware",    timestamp=_T0 + timedelta(minutes=10)),
+            make_alert("a1", category="Malware", timestamp=_T0),
+            make_alert("a2", category="Network", timestamp=_T0 + timedelta(minutes=5)),
+            make_alert("a3", category="Malware", timestamp=_T0 + timedelta(minutes=10)),
         ]
         clusters = cluster_alerts(alerts, cfg)
         # a1 and a3 share category "Malware" and are within the window → merge.
@@ -291,9 +282,7 @@ class TestTimeWindowOptimization:
             timestamp=_T0 + timedelta(seconds=1801),
         )
         clusters = cluster_alerts([a1, a2], cfg)
-        assert all(len(c.alerts) == 1 for c in clusters), (
-            "Alert outside window boundary should not be merged"
-        )
+        assert all(len(c.alerts) == 1 for c in clusters), "Alert outside window boundary should not be merged"
 
     def test_mixed_timestamp_no_timestamp_alerts(self):
         """Alerts with timestamps must not be merged with timestamp-less alerts via time window.

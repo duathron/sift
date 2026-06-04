@@ -232,6 +232,7 @@ class TestReportToDraft:
 
     def test_sift_version_present(self):
         from sift import __version__
+
         draft = report_to_draft(_report([_cluster()]))
         assert draft.sift_version == __version__
 

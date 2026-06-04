@@ -31,6 +31,7 @@ from sift.models import Alert, Cluster, ClusterPriority, TechniqueRef
 # Union-Find (Disjoint Set Union)
 # ---------------------------------------------------------------------------
 
+
 class _UnionFind:
     """Path-compressed, union-by-rank disjoint set."""
 
@@ -93,6 +94,7 @@ def _ip_pair_cluster_label(src: str, dest: str, count: int) -> str:
 # Aggregation helpers
 # ---------------------------------------------------------------------------
 
+
 def _aggregate_iocs(alerts: list[Alert]) -> list[str]:
     """Return a sorted, deduplicated list of all IOCs across *alerts*."""
     seen: set[str] = set()
@@ -138,6 +140,7 @@ def _cluster_score(alerts: list[Alert]) -> float:
 # Time-window predicate
 # ---------------------------------------------------------------------------
 
+
 def _within_window(a: Alert, b: Alert, window: timedelta) -> bool:
     """Return True if both alerts have timestamps and are within *window* of each other."""
     if a.timestamp is None or b.timestamp is None:
@@ -148,6 +151,7 @@ def _within_window(a: Alert, b: Alert, window: timedelta) -> bool:
 # ---------------------------------------------------------------------------
 # Cluster builder
 # ---------------------------------------------------------------------------
+
 
 def _build_cluster(
     cluster_id: str,
@@ -176,6 +180,7 @@ def _build_cluster(
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+
 
 def cluster_alerts(
     alerts: list[Alert],
@@ -383,6 +388,7 @@ def cluster_alerts(
 # Sliding-window merge helper (Pass 2 / Pass 3)
 # ---------------------------------------------------------------------------
 
+
 def _merge_with_sliding_window(
     indices: list[int],
     alerts: list[Alert],
@@ -451,6 +457,7 @@ def _merge_with_sliding_window(
 # ---------------------------------------------------------------------------
 # Private helpers for label / reason resolution
 # ---------------------------------------------------------------------------
+
 
 def _find_shared_iocs(alerts: list[Alert]) -> list[str]:
     """Return sorted list of IOCs present in more than one alert in the group."""

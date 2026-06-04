@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from sift.ticketing.jira import JiraProvider, _build_adf, _bullet_list, _heading, _paragraph, _task_list
+from sift.ticketing.jira import JiraProvider, _build_adf, _bullet_list, _heading, _task_list
 from sift.ticketing.protocol import TicketDraft, TicketProvider
 
 _BASE = "https://company.atlassian.net"
@@ -59,57 +59,65 @@ class TestJiraProvider:
 
     def test_send_url_contains_key(self, httpx_mock):
         httpx_mock.add_response(
-            url=f"{_BASE}/rest/api/3/issue", method="POST",
+            url=f"{_BASE}/rest/api/3/issue",
+            method="POST",
             json={"id": "10001", "key": "SOC-42", "self": ""},
         )
         result = _provider().send(_draft())
         assert result.ticket_url == f"{_BASE}/browse/SOC-42"
 
     def test_send_payload_project_key(self, httpx_mock):
-        httpx_mock.add_response(url=f"{_BASE}/rest/api/3/issue", method="POST",
-                                json={"id": "1", "key": "SOC-1", "self": ""})
+        httpx_mock.add_response(
+            url=f"{_BASE}/rest/api/3/issue", method="POST", json={"id": "1", "key": "SOC-1", "self": ""}
+        )
         _provider(project_key="SECOPS").send(_draft())
         body = json.loads(httpx_mock.get_requests()[0].content)
         assert body["fields"]["project"]["key"] == "SECOPS"
 
     def test_send_payload_summary(self, httpx_mock):
-        httpx_mock.add_response(url=f"{_BASE}/rest/api/3/issue", method="POST",
-                                json={"id": "1", "key": "SOC-1", "self": ""})
+        httpx_mock.add_response(
+            url=f"{_BASE}/rest/api/3/issue", method="POST", json={"id": "1", "key": "SOC-1", "self": ""}
+        )
         _provider().send(_draft(title="[sift] CRITICAL | Test"))
         body = json.loads(httpx_mock.get_requests()[0].content)
         assert body["fields"]["summary"] == "[sift] CRITICAL | Test"
 
     def test_send_payload_priority_critical(self, httpx_mock):
-        httpx_mock.add_response(url=f"{_BASE}/rest/api/3/issue", method="POST",
-                                json={"id": "1", "key": "SOC-1", "self": ""})
+        httpx_mock.add_response(
+            url=f"{_BASE}/rest/api/3/issue", method="POST", json={"id": "1", "key": "SOC-1", "self": ""}
+        )
         _provider().send(_draft(severity="CRITICAL"))
         body = json.loads(httpx_mock.get_requests()[0].content)
         assert body["fields"]["priority"]["name"] == "Highest"
 
     def test_send_payload_priority_high(self, httpx_mock):
-        httpx_mock.add_response(url=f"{_BASE}/rest/api/3/issue", method="POST",
-                                json={"id": "1", "key": "SOC-1", "self": ""})
+        httpx_mock.add_response(
+            url=f"{_BASE}/rest/api/3/issue", method="POST", json={"id": "1", "key": "SOC-1", "self": ""}
+        )
         _provider().send(_draft(severity="HIGH"))
         body = json.loads(httpx_mock.get_requests()[0].content)
         assert body["fields"]["priority"]["name"] == "High"
 
     def test_send_payload_labels_contain_sift(self, httpx_mock):
-        httpx_mock.add_response(url=f"{_BASE}/rest/api/3/issue", method="POST",
-                                json={"id": "1", "key": "SOC-1", "self": ""})
+        httpx_mock.add_response(
+            url=f"{_BASE}/rest/api/3/issue", method="POST", json={"id": "1", "key": "SOC-1", "self": ""}
+        )
         _provider().send(_draft())
         body = json.loads(httpx_mock.get_requests()[0].content)
         assert "sift" in body["fields"]["labels"]
 
     def test_send_payload_labels_contain_technique(self, httpx_mock):
-        httpx_mock.add_response(url=f"{_BASE}/rest/api/3/issue", method="POST",
-                                json={"id": "1", "key": "SOC-1", "self": ""})
+        httpx_mock.add_response(
+            url=f"{_BASE}/rest/api/3/issue", method="POST", json={"id": "1", "key": "SOC-1", "self": ""}
+        )
         _provider().send(_draft(technique_ids=["T1003"]))
         body = json.loads(httpx_mock.get_requests()[0].content)
         assert "T1003" in body["fields"]["labels"]
 
     def test_send_payload_description_is_adf(self, httpx_mock):
-        httpx_mock.add_response(url=f"{_BASE}/rest/api/3/issue", method="POST",
-                                json={"id": "1", "key": "SOC-1", "self": ""})
+        httpx_mock.add_response(
+            url=f"{_BASE}/rest/api/3/issue", method="POST", json={"id": "1", "key": "SOC-1", "self": ""}
+        )
         _provider().send(_draft())
         body = json.loads(httpx_mock.get_requests()[0].content)
         desc = body["fields"]["description"]
@@ -118,23 +126,25 @@ class TestJiraProvider:
         assert isinstance(desc["content"], list)
 
     def test_send_issue_type_default(self, httpx_mock):
-        httpx_mock.add_response(url=f"{_BASE}/rest/api/3/issue", method="POST",
-                                json={"id": "1", "key": "SOC-1", "self": ""})
+        httpx_mock.add_response(
+            url=f"{_BASE}/rest/api/3/issue", method="POST", json={"id": "1", "key": "SOC-1", "self": ""}
+        )
         _provider().send(_draft())
         body = json.loads(httpx_mock.get_requests()[0].content)
         assert body["fields"]["issuetype"]["name"] == "Task"
 
     def test_send_issue_type_custom(self, httpx_mock):
-        httpx_mock.add_response(url=f"{_BASE}/rest/api/3/issue", method="POST",
-                                json={"id": "1", "key": "SOC-1", "self": ""})
+        httpx_mock.add_response(
+            url=f"{_BASE}/rest/api/3/issue", method="POST", json={"id": "1", "key": "SOC-1", "self": ""}
+        )
         _provider(issue_type="Incident").send(_draft())
         body = json.loads(httpx_mock.get_requests()[0].content)
         assert body["fields"]["issuetype"]["name"] == "Incident"
 
     def test_http_error_raises(self, httpx_mock):
-        httpx_mock.add_response(url=f"{_BASE}/rest/api/3/issue", method="POST",
-                                status_code=403)
+        httpx_mock.add_response(url=f"{_BASE}/rest/api/3/issue", method="POST", status_code=403)
         import httpx as _httpx
+
         with pytest.raises(_httpx.HTTPStatusError):
             _provider().send(_draft())
 
@@ -148,14 +158,14 @@ class TestJiraProvider:
         assert "analyst@company.com" in msg
 
     def test_healthcheck_401(self, httpx_mock):
-        httpx_mock.add_response(url=f"{_BASE}/rest/api/3/myself", status_code=401,
-                                text="Unauthorized")
+        httpx_mock.add_response(url=f"{_BASE}/rest/api/3/myself", status_code=401, text="Unauthorized")
         ok, msg = _provider().healthcheck()
         assert ok is False
         assert "401" in msg
 
     def test_healthcheck_connection_error(self, httpx_mock):
         import httpx as _httpx
+
         httpx_mock.add_exception(
             _httpx.ConnectError("refused"),
             url=f"{_BASE}/rest/api/3/myself",

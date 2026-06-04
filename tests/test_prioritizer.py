@@ -12,6 +12,7 @@ from sift.pipeline.prioritizer import prioritize, prioritize_all, score_cluster
 # Factories
 # ---------------------------------------------------------------------------
 
+
 def make_alert(severity: AlertSeverity) -> Alert:
     return Alert(id=str(uuid.uuid4()), title="t", severity=severity)
 
@@ -46,6 +47,7 @@ def make_technique(tech_id: str = "T1566") -> TechniqueRef:
 # score_cluster — base scoring
 # ---------------------------------------------------------------------------
 
+
 class TestScoreClusterBase:
     def test_single_medium_alert_default_confidence(self):
         """1 MEDIUM alert: base=5, multiplier=1.0 → score=5.0"""
@@ -70,6 +72,7 @@ class TestScoreClusterBase:
 # ---------------------------------------------------------------------------
 # score_cluster — multipliers
 # ---------------------------------------------------------------------------
+
 
 class TestScoreClusterMultipliers:
     def test_five_iocs_applies_1_2_multiplier(self):
@@ -99,6 +102,7 @@ class TestScoreClusterMultipliers:
 # ---------------------------------------------------------------------------
 # prioritize — threshold mapping
 # ---------------------------------------------------------------------------
+
 
 class TestPrioritizeThresholds:
     """Default thresholds: low=5, medium=20, high=50, critical=100."""
@@ -166,6 +170,7 @@ class TestPrioritizeThresholds:
 # prioritize — immutability (model_copy pattern)
 # ---------------------------------------------------------------------------
 
+
 class TestPrioritizeImmutability:
     def test_prioritize_returns_new_cluster(self):
         """prioritize must return a new Cluster instance, not mutate the original."""
@@ -187,12 +192,13 @@ class TestPrioritizeImmutability:
 # prioritize_all
 # ---------------------------------------------------------------------------
 
+
 class TestPrioritizeAll:
     def test_sorts_by_score_descending(self):
         """prioritize_all must return clusters sorted by score high → low."""
-        low = make_cluster([make_alert(AlertSeverity.LOW)])        # base=2
+        low = make_cluster([make_alert(AlertSeverity.LOW)])  # base=2
         medium = make_cluster([make_alert(AlertSeverity.MEDIUM)])  # base=5
-        high = make_cluster([make_alert(AlertSeverity.HIGH)])      # base=10
+        high = make_cluster([make_alert(AlertSeverity.HIGH)])  # base=10
         result = prioritize_all([low, high, medium])
         scores = [c.score for c in result]
         assert scores == sorted(scores, reverse=True)
@@ -207,12 +213,11 @@ class TestPrioritizeAll:
 # Custom thresholds
 # ---------------------------------------------------------------------------
 
+
 class TestCustomThresholds:
     def test_custom_critical_threshold_at_50(self):
         """Overriding critical=50 promotes a score of 50 to CRITICAL."""
-        custom_config = ScoringConfig(
-            thresholds=PriorityThresholds(low=5, medium=20, high=30, critical=50)
-        )
+        custom_config = ScoringConfig(thresholds=PriorityThresholds(low=5, medium=20, high=30, critical=50))
         # 5 HIGH alerts: base=50, no multipliers (< 3 HIGH count triggers × 1.3; we need exactly 50)
         # Use a MEDIUM alert with confidence=10.0 to get base=50 without multipliers.
         cluster = make_cluster([make_alert(AlertSeverity.MEDIUM)], confidence=10.0)

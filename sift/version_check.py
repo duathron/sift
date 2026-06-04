@@ -17,6 +17,7 @@ def _is_newer(latest: str, current: str) -> bool:
     """Return True only if latest is strictly newer than current."""
     try:
         from packaging.version import Version
+
         return Version(latest) > Version(current)
     except Exception:
         # Fallback: compare as integer tuples for simple x.y.z versions.
@@ -25,6 +26,7 @@ def _is_newer(latest: str, current: str) -> bool:
                 return tuple(int(x) for x in v.strip().split("."))
             except Exception:
                 return (0,)
+
         return _parse(latest) > _parse(current)
 
 

@@ -21,6 +21,7 @@ _FILE_MODE = 0o600
 # Sub-configs
 # ---------------------------------------------------------------------------
 
+
 class SeverityWeights(BaseModel):
     """Numeric score per alert severity (used in cluster priority calculation)."""
 
@@ -52,29 +53,29 @@ class ClusteringConfig(BaseModel):
     max_cluster_size: int = 50
     chunk_size: int = 0  # 0 = no chunking; >0 = process in batches of this size
     sub_chunk_threshold_mb: int = 500  # files above this get automatic sub-file chunking
-    sub_chunk_size: int = 100_000      # alerts per sub-chunk batch (within a single large file)
+    sub_chunk_size: int = 100_000  # alerts per sub-chunk batch (within a single large file)
 
 
 class SummarizeConfig(BaseModel):
     """AI summarization configuration."""
 
-    provider: str = "template"      # template | anthropic | openai | ollama
-    model: Optional[str] = None     # None = auto-select per provider
-    api_key: Optional[str] = None   # or SIFT_LLM_KEY env var
+    provider: str = "template"  # template | anthropic | openai | ollama
+    model: Optional[str] = None  # None = auto-select per provider
+    api_key: Optional[str] = None  # or SIFT_LLM_KEY env var
     max_tokens: int = 4096
     temperature: float = 0.1
-    redact_fields: list[str] = []   # field names to strip before LLM submission
+    redact_fields: list[str] = []  # field names to strip before LLM submission
 
 
 class OutputConfig(BaseModel):
-    default_format: str = "rich"    # rich | console | json | csv
+    default_format: str = "rich"  # rich | console | json | csv
     quiet: bool = False
 
 
 class EnrichConfig(BaseModel):
     """Settings for --enrich mode."""
 
-    consent_given: bool = False     # skip consent prompt when True
+    consent_given: bool = False  # skip consent prompt when True
 
 
 class UpdateCheckConfig(BaseModel):
@@ -85,29 +86,29 @@ class UpdateCheckConfig(BaseModel):
 class PromptInjectionConfig(BaseModel):
     """Configuration for prompt injection detection and prevention."""
 
-    enabled: bool = True              # Enable/disable injection detection
+    enabled: bool = True  # Enable/disable injection detection
     whitelist_patterns: list[str] = []  # Optional regex patterns for safe content
-    verbose: bool = False             # Per-alert warning lines (default: quiet summary)
-    log_file: Optional[str] = None    # Dump findings JSON to this path if set
+    verbose: bool = False  # Per-alert warning lines (default: quiet summary)
+    log_file: Optional[str] = None  # Dump findings JSON to this path if set
 
 
 class AlertRedactionConfig(BaseModel):
     """Configuration for alert-model-level field redaction."""
 
-    fields: list[str] = []      # field names to redact on the Alert object
-    redact_raw: bool = False     # if True, always redact the `raw` dict
+    fields: list[str] = []  # field names to redact on the Alert object
+    redact_raw: bool = False  # if True, always redact the `raw` dict
 
 
 class TicketingConfig(BaseModel):
     """Ticketing provider configuration (credentials stored separately in ~/.sift/.env)."""
 
-    provider: Optional[str] = None          # thehive | jira | dry-run
-    url: Optional[str] = None               # provider base URL
-    project_key: Optional[str] = None       # Jira: project key
-    jira_email: Optional[str] = None        # Jira: account email
-    jira_issue_type: str = "Task"           # Jira: issue type
-    thehive_tlp: int = 2                    # TheHive: TLP (0–3, AMBER=2)
-    timeout: float = 10.0                   # HTTP request timeout (seconds)
+    provider: Optional[str] = None  # thehive | jira | dry-run
+    url: Optional[str] = None  # provider base URL
+    project_key: Optional[str] = None  # Jira: project key
+    jira_email: Optional[str] = None  # Jira: account email
+    jira_issue_type: str = "Task"  # Jira: issue type
+    thehive_tlp: int = 2  # TheHive: TLP (0–3, AMBER=2)
+    timeout: float = 10.0  # HTTP request timeout (seconds)
 
 
 class AppConfig(BaseModel):
@@ -122,12 +123,13 @@ class AppConfig(BaseModel):
     injection: PromptInjectionConfig = PromptInjectionConfig()
     redaction: AlertRedactionConfig = AlertRedactionConfig()
     ticketing: TicketingConfig = TicketingConfig()
-    cache_enabled: bool = True   # Result caching on by default (use --no-cache to disable)
+    cache_enabled: bool = True  # Result caching on by default (use --no-cache to disable)
 
 
 # ---------------------------------------------------------------------------
 # Loader
 # ---------------------------------------------------------------------------
+
 
 def _ensure_app_dir() -> Path:
     _APP_DIR.mkdir(mode=_DIR_MODE, parents=True, exist_ok=True)
@@ -143,6 +145,7 @@ def load_config(config_path: Optional[Path] = None) -> AppConfig:
     _env_file = _APP_DIR / ".env"
     if _env_file.exists():
         from dotenv import load_dotenv
+
         load_dotenv(_env_file, override=False)
 
     data: dict = {}

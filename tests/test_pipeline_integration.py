@@ -26,6 +26,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _load_and_normalize(filename: str):
     """Read a fixture file and return normalized Alert list."""
     path = FIXTURES / filename
@@ -45,6 +46,7 @@ def _run_pipeline(filename: str):
 # ---------------------------------------------------------------------------
 # phishing_campaign.json — 10 alerts, active phishing campaign
 # ---------------------------------------------------------------------------
+
 
 class TestPhishingCampaignPipeline:
     """10 alerts representing a multi-recipient phishing campaign."""
@@ -84,6 +86,7 @@ class TestPhishingCampaignPipeline:
 # lateral_movement.json — 8 alerts, Mimikatz + lateral movement chain
 # ---------------------------------------------------------------------------
 
+
 class TestLateralMovementPipeline:
     """8 alerts representing a full Mimikatz-to-DC lateral movement chain."""
 
@@ -120,6 +123,7 @@ class TestLateralMovementPipeline:
 # ---------------------------------------------------------------------------
 # fp_cluster.json — 12 alerts, false-positive / low-noise cluster
 # ---------------------------------------------------------------------------
+
 
 class TestFPClusterPipeline:
     """12 alerts that are all INFO/LOW-severity noise events (scanners, lockouts,
@@ -163,6 +167,7 @@ class TestFPClusterPipeline:
 # mixed.json — 15 alerts, C2 beaconing + ransomware + background noise
 # ---------------------------------------------------------------------------
 
+
 class TestMixedPipeline:
     """15 alerts mixing CRITICAL ransomware, HIGH C2 beaconing, and
     routine INFO/LOW noise events from the same time window."""
@@ -199,6 +204,7 @@ class TestMixedPipeline:
 # ---------------------------------------------------------------------------
 # Full TriageReport construction from mixed.json
 # ---------------------------------------------------------------------------
+
 
 class TestTriageReportConstruction:
     """Verify that a complete TriageReport can be built from the mixed.json

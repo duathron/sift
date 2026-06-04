@@ -72,10 +72,7 @@ def _sanitize_report(report: "TriageReport") -> "TriageReport":
     sanitized = deepcopy(report)
 
     def _scrub(iocs: list[str]) -> list[str]:
-        return [
-            _ps_encoded_stub(i) if i.startswith("ps_encoded:") else i
-            for i in iocs
-        ]
+        return [_ps_encoded_stub(i) if i.startswith("ps_encoded:") else i for i in iocs]
 
     for cluster in sanitized.clusters:
         cluster.iocs = _scrub(cluster.iocs)
@@ -192,22 +189,12 @@ def export_csv(
     writer.writeheader()
 
     for cluster in report.clusters:
-        cluster_priority_val = (
-            cluster.priority.value
-            if hasattr(cluster.priority, "value")
-            else str(cluster.priority)
-        )
+        cluster_priority_val = cluster.priority.value if hasattr(cluster.priority, "value") else str(cluster.priority)
 
         for alert in cluster.alerts:
-            alert_severity_val = (
-                alert.severity.value
-                if hasattr(alert.severity, "value")
-                else str(alert.severity)
-            )
+            alert_severity_val = alert.severity.value if hasattr(alert.severity, "value") else str(alert.severity)
             timestamp_str = (
-                alert.timestamp.isoformat()
-                if hasattr(alert.timestamp, "isoformat")
-                else str(alert.timestamp)
+                alert.timestamp.isoformat() if hasattr(alert.timestamp, "isoformat") else str(alert.timestamp)
             )
 
             writer.writerow(
@@ -221,7 +208,9 @@ def export_csv(
                     "alert_dest_ip": alert.dest_ip or "",
                     "alert_user": alert.user or "",
                     "alert_host": alert.host or "",
-                    "alert_iocs": "|".join(_sanitize_ioc(i, include_raw_payload) for i in alert.iocs) if alert.iocs else "",
+                    "alert_iocs": "|".join(_sanitize_ioc(i, include_raw_payload) for i in alert.iocs)
+                    if alert.iocs
+                    else "",
                     "alert_ioc_types": _ioc_types(alert.iocs) if alert.iocs else "",
                     "cluster_id": cluster.id,
                     "cluster_label": cluster.label,
@@ -284,20 +273,12 @@ def export_cluster_csv(report: "TriageReport", path: Path | None = None) -> str:
     writer.writeheader()
 
     for cluster in report.clusters:
-        priority_val = (
-            cluster.priority.value
-            if hasattr(cluster.priority, "value")
-            else str(cluster.priority)
-        )
+        priority_val = cluster.priority.value if hasattr(cluster.priority, "value") else str(cluster.priority)
         first_seen_str = (
-            cluster.first_seen.isoformat()
-            if hasattr(cluster.first_seen, "isoformat")
-            else str(cluster.first_seen)
+            cluster.first_seen.isoformat() if hasattr(cluster.first_seen, "isoformat") else str(cluster.first_seen)
         )
         last_seen_str = (
-            cluster.last_seen.isoformat()
-            if hasattr(cluster.last_seen, "isoformat")
-            else str(cluster.last_seen)
+            cluster.last_seen.isoformat() if hasattr(cluster.last_seen, "isoformat") else str(cluster.last_seen)
         )
 
         technique_ids: list[str] = []

@@ -7,9 +7,7 @@ import math
 import re
 
 # Suspicious TLDs often used in phishing and malware campaigns
-_SUSPICIOUS_TLDS = frozenset(
-    {".tk", ".ml", ".ga", ".cf", ".gq", ".pw", ".top", ".xyz", ".click", ".loan", ".work"}
-)
+_SUSPICIOUS_TLDS = frozenset({".tk", ".ml", ".ga", ".cf", ".gq", ".pw", ".top", ".xyz", ".click", ".loan", ".work"})
 
 # Keywords in domains/URLs that suggest credential phishing
 _SUSPICIOUS_KEYWORDS = frozenset(
@@ -17,9 +15,7 @@ _SUSPICIOUS_KEYWORDS = frozenset(
 )
 
 # Regex for IP embedded in URL path or hostname
-_IP_IN_URL = re.compile(
-    r"https?://(\d{1,3}\.){3}\d{1,3}"
-)
+_IP_IN_URL = re.compile(r"https?://(\d{1,3}\.){3}\d{1,3}")
 
 # Hash patterns
 _MD5_RE = re.compile(r"^[0-9a-fA-F]{32}$")
@@ -43,7 +39,7 @@ def _extract_hostname(ioc: str) -> str:
     s = ioc.lower()
     for prefix in ("https://", "http://", "hxxps://", "hxxp://"):
         if s.startswith(prefix):
-            s = s[len(prefix):]
+            s = s[len(prefix) :]
     # Strip path
     s = s.split("/")[0].split("?")[0].split("#")[0].split(":")[0]
     return s

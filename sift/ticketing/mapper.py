@@ -12,7 +12,6 @@ from datetime import datetime, timezone
 
 from sift import __version__
 from sift.models import (
-    Alert,
     AlertSeverity,
     Cluster,
     ClusterPriority,
@@ -62,9 +61,7 @@ def report_to_draft(
     sev = _top_severity(target)
     cluster_summary = _find_cluster_summary(report, target.id)
 
-    ioc_types = list(dict.fromkeys(
-        detect_ioc_type(ioc) for ioc in sorted(target.iocs)
-    ))
+    ioc_types = list(dict.fromkeys(detect_ioc_type(ioc) for ioc in sorted(target.iocs)))
     cve_ids = [ioc for ioc in target.iocs if detect_ioc_type(ioc) == "cve"]
     mitre_ids = [ioc for ioc in target.iocs if detect_ioc_type(ioc) == "mitre_technique"]
     severity_hint = _max_severity_hint(target.iocs)
@@ -72,10 +69,7 @@ def report_to_draft(
     if include_raw_payload:
         ticket_iocs = sorted(target.iocs)
     else:
-        ticket_iocs = sorted(
-            _ps_encoded_stub(ioc) if ioc.startswith("ps_encoded:") else ioc
-            for ioc in target.iocs
-        )
+        ticket_iocs = sorted(_ps_encoded_stub(ioc) if ioc.startswith("ps_encoded:") else ioc for ioc in target.iocs)
 
     return TicketDraft(
         title=_build_title(target, sev),
@@ -122,13 +116,22 @@ def top_clusters_for_ticket(
 # Private helpers
 # ---------------------------------------------------------------------------
 
+
 def _top_cluster(report: TriageReport) -> Cluster | None:
     if not report.clusters:
         return None
-    _order = {p: i for i, p in enumerate([
-        ClusterPriority.CRITICAL, ClusterPriority.HIGH,
-        ClusterPriority.MEDIUM, ClusterPriority.LOW, ClusterPriority.NOISE,
-    ])}
+    _order = {
+        p: i
+        for i, p in enumerate(
+            [
+                ClusterPriority.CRITICAL,
+                ClusterPriority.HIGH,
+                ClusterPriority.MEDIUM,
+                ClusterPriority.LOW,
+                ClusterPriority.NOISE,
+            ]
+        )
+    }
     return min(report.clusters, key=lambda c: (_order.get(c.priority, 99), -c.score))
 
 
@@ -141,17 +144,14 @@ def _top_severity(cluster: Cluster) -> str:
 def _build_title(cluster: Cluster, severity: str) -> str:
     label = cluster.label
     if len(label) > _TITLE_MAX - 20:
-        label = label[:_TITLE_MAX - 23] + "..."
+        label = label[: _TITLE_MAX - 23] + "..."
     return f"[sift] {severity} | {label}"
 
 
 def _build_summary(cluster: Cluster, cs: ClusterSummary | None) -> str:
     if cs and cs.narrative:
         return cs.narrative
-    high_crit = sum(
-        1 for a in cluster.alerts
-        if a.severity in (AlertSeverity.HIGH, AlertSeverity.CRITICAL)
-    )
+    high_crit = sum(1 for a in cluster.alerts if a.severity in (AlertSeverity.HIGH, AlertSeverity.CRITICAL))
     return (
         f"Cluster '{cluster.label}' contains {len(cluster.alerts)} alert(s) "
         f"({high_crit} HIGH/CRITICAL) with priority {cluster.priority.value}. "
@@ -168,11 +168,7 @@ def _build_timeline(cluster: Cluster) -> list[str]:
     )
     lines: list[str] = []
     for alert in sorted_alerts[:_TIMELINE_MAX]:
-        ts = (
-            alert.timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
-            if alert.timestamp
-            else "unknown time"
-        )
+        ts = alert.timestamp.strftime("%Y-%m-%d %H:%M:%S UTC") if alert.timestamp else "unknown time"
         lines.append(f"[{ts}] [{alert.severity.value}] {alert.title}")
     remaining = len(cluster.alerts) - _TIMELINE_MAX
     if remaining > 0:

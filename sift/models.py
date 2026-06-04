@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, PrivateAttr
 # Alert severity
 # ---------------------------------------------------------------------------
 
+
 class AlertSeverity(str, Enum):
     """Severity level of a single alert (from SIEM or normalized)."""
 
@@ -31,6 +32,7 @@ class AlertSeverity(str, Enum):
 # Raw / normalized alert
 # ---------------------------------------------------------------------------
 
+
 class Alert(BaseModel):
     """A single normalized alert from any SIEM source."""
 
@@ -39,15 +41,15 @@ class Alert(BaseModel):
     severity: AlertSeverity = AlertSeverity.MEDIUM
     title: str
     description: Optional[str] = None
-    source: Optional[str] = None          # sensor / detection source name
+    source: Optional[str] = None  # sensor / detection source name
     source_ip: Optional[str] = None
     dest_ip: Optional[str] = None
     user: Optional[str] = None
     host: Optional[str] = None
-    category: Optional[str] = None       # e.g. "Malware", "Phishing", "Lateral Movement"
-    iocs: list[str] = Field(default_factory=list)          # extracted IOCs (IPs, hashes, URLs, domains)
-    technique_ids: list[str] = Field(default_factory=list) # ATT&CK technique IDs
-    raw: dict = Field(default_factory=dict)                # original untouched record
+    category: Optional[str] = None  # e.g. "Malware", "Phishing", "Lateral Movement"
+    iocs: list[str] = Field(default_factory=list)  # extracted IOCs (IPs, hashes, URLs, domains)
+    technique_ids: list[str] = Field(default_factory=list)  # ATT&CK technique IDs
+    raw: dict = Field(default_factory=dict)  # original untouched record
     _duplicate_of: Optional[str] = PrivateAttr(default=None)
 
     _REDACTABLE_FIELDS: frozenset[str] = frozenset(
@@ -63,9 +65,7 @@ class Alert(BaseModel):
         unknown = [f for f in fields if f not in self._REDACTABLE_FIELDS]
         if unknown:
             valid = sorted(self._REDACTABLE_FIELDS)
-            raise ValueError(
-                f"Unknown redaction field(s): {unknown!r}. Valid fields: {valid}"
-            )
+            raise ValueError(f"Unknown redaction field(s): {unknown!r}. Valid fields: {valid}")
         updates: dict = {}
         for field in fields:
             if field == "iocs":
@@ -92,6 +92,7 @@ class Alert(BaseModel):
 # ---------------------------------------------------------------------------
 # Cluster priority / verdict
 # ---------------------------------------------------------------------------
+
 
 class ClusterPriority(str, Enum):
     """Priority level of a cluster of related alerts."""
@@ -122,51 +123,54 @@ class ClusterPriority(str, Enum):
 # ATT&CK mapping
 # ---------------------------------------------------------------------------
 
+
 class TechniqueRef(BaseModel):
     """Reference to a MITRE ATT&CK technique."""
 
-    technique_id: str    # e.g. T1566.001
+    technique_id: str  # e.g. T1566.001
     technique_name: str  # e.g. Spearphishing Attachment
-    tactic: str          # e.g. Initial Access
+    tactic: str  # e.g. Initial Access
 
 
 # ---------------------------------------------------------------------------
 # Cluster
 # ---------------------------------------------------------------------------
 
+
 class Cluster(BaseModel):
     """A group of related alerts with a computed priority."""
 
     id: str
-    label: str                                              # short human-readable label
+    label: str  # short human-readable label
     alerts: list[Alert]
     priority: ClusterPriority
-    score: float                                            # sum of alert severity scores
-    confidence: float = 1.0                                 # clustering confidence [0.0–1.0]
+    score: float  # sum of alert severity scores
+    confidence: float = 1.0  # clustering confidence [0.0–1.0]
     techniques: list[TechniqueRef] = Field(default_factory=list)
-    iocs: list[str] = Field(default_factory=list)          # all unique IOCs across alerts
+    iocs: list[str] = Field(default_factory=list)  # all unique IOCs across alerts
     first_seen: Optional[datetime] = None
     last_seen: Optional[datetime] = None
-    cluster_reason: str = ""                               # why alerts were grouped
+    cluster_reason: str = ""  # why alerts were grouped
 
 
 # ---------------------------------------------------------------------------
 # Summary (LLM or template output)
 # ---------------------------------------------------------------------------
 
+
 class Recommendation(BaseModel):
     """A concrete, actionable recommendation for a SOC analyst."""
 
-    action: str           # e.g. "Block IP 10.0.0.5 at perimeter firewall"
-    priority: str         # IMMEDIATE | WITHIN_1H | WITHIN_24H | MONITOR
-    rationale: str        # one-sentence reason
+    action: str  # e.g. "Block IP 10.0.0.5 at perimeter firewall"
+    priority: str  # IMMEDIATE | WITHIN_1H | WITHIN_24H | MONITOR
+    rationale: str  # one-sentence reason
 
 
 class ClusterSummary(BaseModel):
     """AI or template-generated summary for a single cluster."""
 
     cluster_id: str
-    narrative: str                                                # 2-3 sentences
+    narrative: str  # 2-3 sentences
     recommendations: list[Recommendation] = Field(default_factory=list)
 
 
@@ -176,7 +180,7 @@ class SummaryResult(BaseModel):
     executive_summary: str
     cluster_summaries: list[ClusterSummary] = Field(default_factory=list)
     overall_priority: ClusterPriority
-    provider: str   # anthropic | openai | ollama | template
+    provider: str  # anthropic | openai | ollama | template
     generated_at: datetime
 
 
@@ -184,16 +188,18 @@ class SummaryResult(BaseModel):
 # Enrichment context (barb / vex output)
 # ---------------------------------------------------------------------------
 
+
 class EnrichmentContext(BaseModel):
     """Optional enrichment data from barb and/or vex."""
 
-    barb_results: list[dict] = Field(default_factory=list)   # barb AnalysisResult dicts
-    vex_results: list[dict] = Field(default_factory=list)    # vex TriageResult dicts
+    barb_results: list[dict] = Field(default_factory=list)  # barb AnalysisResult dicts
+    vex_results: list[dict] = Field(default_factory=list)  # vex TriageResult dicts
 
 
 # ---------------------------------------------------------------------------
 # Final triage report
 # ---------------------------------------------------------------------------
+
 
 class PipelineManifest(BaseModel):
     """Records which tools were involved in producing this report."""

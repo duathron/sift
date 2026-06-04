@@ -5,19 +5,16 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
 
-import pytest
-
 from sift.models import Alert, AlertSeverity, Cluster, ClusterPriority
-from sift.pipeline.dedup import deduplicate, DeduplicatorConfig
-
+from sift.pipeline.dedup import DeduplicatorConfig, deduplicate
 
 # ---------------------------------------------------------------------------
 # Item 12 — dedup fingerprint includes host + user
 # ---------------------------------------------------------------------------
+
 
 def _make_alert(id: str, **kwargs) -> Alert:
     defaults = {
@@ -57,6 +54,7 @@ def test_dedup_identical_host_user_deduped():
 # Item 14 — cache serialization helpers
 # ---------------------------------------------------------------------------
 
+
 def test_cache_stores_datetime_value(tmp_path):
     """Cache.put must handle datetime values without raising (item 14a)."""
     from sift.cache import AlertCache, CacheConfig
@@ -88,6 +86,7 @@ def test_cache_stores_path_value(tmp_path):
 # ---------------------------------------------------------------------------
 # Item 16 — TicketDraft extended fields
 # ---------------------------------------------------------------------------
+
 
 def test_ticket_draft_extended_fields():
     from sift.ticketing.protocol import TicketDraft
@@ -144,6 +143,7 @@ def test_thehive_tags_include_hint_and_cve():
 # Item 19 — formatter ps_encoded display
 # ---------------------------------------------------------------------------
 
+
 def test_fmt_ps_encoded_produces_short_label():
     from sift.output.formatter import _fmt_ps_encoded
 
@@ -185,9 +185,10 @@ def test_cluster_severity_hint_critical():
 # Item 20 — export sanitize ps_encoded + alert_ioc_types column
 # ---------------------------------------------------------------------------
 
+
 def test_export_csv_sanitizes_ps_encoded(tmp_path):
+    from sift.models import ClusterPriority, TriageReport
     from sift.output.export import export_csv
-    from sift.models import TriageReport, ClusterPriority
 
     raw = b"evil"
     b64 = base64.b64encode(raw).decode()
@@ -198,11 +199,17 @@ def test_export_csv_sanitizes_ps_encoded(tmp_path):
         iocs=[f"ps_encoded:{b64}", "1.2.3.4"],
     )
     cluster = Cluster(
-        id="c1", label="L", priority=ClusterPriority.HIGH,
-        confidence=0.8, score=5.0, alerts=[alert], iocs=[],
+        id="c1",
+        label="L",
+        priority=ClusterPriority.HIGH,
+        confidence=0.8,
+        score=5.0,
+        alerts=[alert],
+        iocs=[],
     )
     report = TriageReport(
-        alerts_ingested=1, alerts_after_dedup=1,
+        alerts_ingested=1,
+        alerts_after_dedup=1,
         clusters=[cluster],
         analyzed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
@@ -212,19 +219,27 @@ def test_export_csv_sanitizes_ps_encoded(tmp_path):
 
 
 def test_export_csv_alert_ioc_types_column(tmp_path):
+    from sift.models import ClusterPriority, TriageReport
     from sift.output.export import export_csv
-    from sift.models import TriageReport, ClusterPriority
 
     alert = Alert(
-        id="a1", title="T", severity=AlertSeverity.HIGH,
+        id="a1",
+        title="T",
+        severity=AlertSeverity.HIGH,
         iocs=["1.2.3.4", "evil.com"],
     )
     cluster = Cluster(
-        id="c1", label="L", priority=ClusterPriority.HIGH,
-        confidence=0.8, score=5.0, alerts=[alert], iocs=[],
+        id="c1",
+        label="L",
+        priority=ClusterPriority.HIGH,
+        confidence=0.8,
+        score=5.0,
+        alerts=[alert],
+        iocs=[],
     )
     report = TriageReport(
-        alerts_ingested=1, alerts_after_dedup=1,
+        alerts_ingested=1,
+        alerts_after_dedup=1,
         clusters=[cluster],
         analyzed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
@@ -238,10 +253,11 @@ def test_export_csv_alert_ioc_types_column(tmp_path):
 # Option B — JSON / ticket sanitisation + --include-raw-payload escape hatch
 # ---------------------------------------------------------------------------
 
+
 def test_export_json_sanitizes_ps_encoded_by_default():
     """export_json must replace ps_encoded base-64 with the SHA-256 stub."""
+    from sift.models import ClusterPriority, TriageReport
     from sift.output.export import export_json
-    from sift.models import TriageReport, ClusterPriority
 
     raw = b"Write-Host 'pwned'"
     b64 = base64.b64encode(raw).decode()
@@ -252,12 +268,17 @@ def test_export_json_sanitizes_ps_encoded_by_default():
         iocs=[f"ps_encoded:{b64}", "evil.com"],
     )
     cluster = Cluster(
-        id="c1", label="L", priority=ClusterPriority.HIGH,
-        confidence=0.8, score=5.0, alerts=[alert],
+        id="c1",
+        label="L",
+        priority=ClusterPriority.HIGH,
+        confidence=0.8,
+        score=5.0,
+        alerts=[alert],
         iocs=[f"ps_encoded:{b64}"],
     )
     report = TriageReport(
-        alerts_ingested=1, alerts_after_dedup=1,
+        alerts_ingested=1,
+        alerts_after_dedup=1,
         clusters=[cluster],
         analyzed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
@@ -273,21 +294,29 @@ def test_export_json_sanitizes_ps_encoded_by_default():
 
 def test_export_json_include_raw_payload_keeps_b64():
     """include_raw_payload=True must preserve the original base-64."""
+    from sift.models import ClusterPriority, TriageReport
     from sift.output.export import export_json
-    from sift.models import TriageReport, ClusterPriority
 
     raw = b"Write-Host 'pwned'"
     b64 = base64.b64encode(raw).decode()
     alert = Alert(
-        id="a1", title="T", severity=AlertSeverity.HIGH,
+        id="a1",
+        title="T",
+        severity=AlertSeverity.HIGH,
         iocs=[f"ps_encoded:{b64}"],
     )
     cluster = Cluster(
-        id="c1", label="L", priority=ClusterPriority.HIGH,
-        confidence=0.8, score=5.0, alerts=[alert], iocs=[],
+        id="c1",
+        label="L",
+        priority=ClusterPriority.HIGH,
+        confidence=0.8,
+        score=5.0,
+        alerts=[alert],
+        iocs=[],
     )
     report = TriageReport(
-        alerts_ingested=1, alerts_after_dedup=1,
+        alerts_ingested=1,
+        alerts_after_dedup=1,
         clusters=[cluster],
         analyzed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
@@ -298,22 +327,29 @@ def test_export_json_include_raw_payload_keeps_b64():
 
 def test_export_json_does_not_mutate_report():
     """The default sanitised path must not mutate the caller's report object."""
+    from sift.models import ClusterPriority, TriageReport
     from sift.output.export import export_json
-    from sift.models import TriageReport, ClusterPriority
 
     raw = b"Write-Host 'pwned'"
     b64 = base64.b64encode(raw).decode()
     alert = Alert(
-        id="a1", title="T", severity=AlertSeverity.HIGH,
+        id="a1",
+        title="T",
+        severity=AlertSeverity.HIGH,
         iocs=[f"ps_encoded:{b64}"],
     )
     cluster = Cluster(
-        id="c1", label="L", priority=ClusterPriority.HIGH,
-        confidence=0.8, score=5.0, alerts=[alert],
+        id="c1",
+        label="L",
+        priority=ClusterPriority.HIGH,
+        confidence=0.8,
+        score=5.0,
+        alerts=[alert],
         iocs=[f"ps_encoded:{b64}"],
     )
     report = TriageReport(
-        alerts_ingested=1, alerts_after_dedup=1,
+        alerts_ingested=1,
+        alerts_after_dedup=1,
         clusters=[cluster],
         analyzed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
@@ -326,22 +362,29 @@ def test_export_json_does_not_mutate_report():
 
 def test_ticket_draft_sanitizes_ps_encoded_by_default():
     """report_to_draft must scrub ps_encoded payloads from draft.iocs."""
+    from sift.models import ClusterPriority, TriageReport
     from sift.ticketing.mapper import report_to_draft
-    from sift.models import TriageReport, ClusterPriority
 
     raw = b"calc.exe"
     b64 = base64.b64encode(raw).decode()
     alert = Alert(
-        id="a1", title="T", severity=AlertSeverity.HIGH,
+        id="a1",
+        title="T",
+        severity=AlertSeverity.HIGH,
         iocs=[f"ps_encoded:{b64}"],
     )
     cluster = Cluster(
-        id="c1", label="L", priority=ClusterPriority.HIGH,
-        confidence=0.9, score=10.0, alerts=[alert],
+        id="c1",
+        label="L",
+        priority=ClusterPriority.HIGH,
+        confidence=0.9,
+        score=10.0,
+        alerts=[alert],
         iocs=[f"ps_encoded:{b64}", "evil.com"],
     )
     report = TriageReport(
-        alerts_ingested=1, alerts_after_dedup=1,
+        alerts_ingested=1,
+        alerts_after_dedup=1,
         clusters=[cluster],
         analyzed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
@@ -358,22 +401,29 @@ def test_ticket_draft_sanitizes_ps_encoded_by_default():
 
 def test_ticket_draft_include_raw_payload_keeps_b64():
     """include_raw_payload=True preserves base-64 in ticket drafts."""
+    from sift.models import ClusterPriority, TriageReport
     from sift.ticketing.mapper import report_to_draft
-    from sift.models import TriageReport, ClusterPriority
 
     raw = b"calc.exe"
     b64 = base64.b64encode(raw).decode()
     alert = Alert(
-        id="a1", title="T", severity=AlertSeverity.HIGH,
+        id="a1",
+        title="T",
+        severity=AlertSeverity.HIGH,
         iocs=[f"ps_encoded:{b64}"],
     )
     cluster = Cluster(
-        id="c1", label="L", priority=ClusterPriority.HIGH,
-        confidence=0.9, score=10.0, alerts=[alert],
+        id="c1",
+        label="L",
+        priority=ClusterPriority.HIGH,
+        confidence=0.9,
+        score=10.0,
+        alerts=[alert],
         iocs=[f"ps_encoded:{b64}"],
     )
     report = TriageReport(
-        alerts_ingested=1, alerts_after_dedup=1,
+        alerts_ingested=1,
+        alerts_after_dedup=1,
         clusters=[cluster],
         analyzed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
@@ -385,6 +435,7 @@ def test_ticket_draft_include_raw_payload_keeps_b64():
 # ---------------------------------------------------------------------------
 # Item 21 — injection detector NFKC + IOC field skip
 # ---------------------------------------------------------------------------
+
 
 def test_injection_detector_nfkc_normalizes():
     """Unicode lookalike for 'ignore' must still be caught after NFKC."""
@@ -408,7 +459,9 @@ def test_injection_detector_ioc_field_skips_base64():
     raw = b"Write-Host 'hello'"
     b64 = base64.b64encode(raw).decode()
     alert = Alert(
-        id="a1", title="Normal Alert", severity=AlertSeverity.HIGH,
+        id="a1",
+        title="Normal Alert",
+        severity=AlertSeverity.HIGH,
         iocs=[f"ps_encoded:{b64}"],
     )
     detector = PromptInjectionDetector()
@@ -421,13 +474,16 @@ def test_injection_detector_ioc_field_skips_base64():
 # Item 22 — splunk ndjson + _raw fallback
 # ---------------------------------------------------------------------------
 
+
 def test_splunk_can_handle_ndjson():
     from sift.normalizers.splunk import SplunkNormalizer
 
-    ndjson = '\n'.join([
-        json.dumps({"_time": "2026-01-01T00:00:00", "rule_name": "Alert1", "urgency": "high", "event_id": "e1"}),
-        json.dumps({"_time": "2026-01-01T00:01:00", "rule_name": "Alert2", "urgency": "medium", "event_id": "e2"}),
-    ])
+    ndjson = "\n".join(
+        [
+            json.dumps({"_time": "2026-01-01T00:00:00", "rule_name": "Alert1", "urgency": "high", "event_id": "e1"}),
+            json.dumps({"_time": "2026-01-01T00:01:00", "rule_name": "Alert2", "urgency": "medium", "event_id": "e2"}),
+        ]
+    )
     norm = SplunkNormalizer()
     assert norm.can_handle(ndjson)
 
@@ -435,10 +491,14 @@ def test_splunk_can_handle_ndjson():
 def test_splunk_normalize_ndjson():
     from sift.normalizers.splunk import SplunkNormalizer
 
-    ndjson = '\n'.join([
-        json.dumps({"_time": "2026-01-01T00:00:00", "rule_name": "Alert1", "urgency": "high", "event_id": "e1"}),
-        json.dumps({"_time": "2026-01-01T00:01:00", "rule_name": "Alert2", "urgency": "critical", "event_id": "e2"}),
-    ])
+    ndjson = "\n".join(
+        [
+            json.dumps({"_time": "2026-01-01T00:00:00", "rule_name": "Alert1", "urgency": "high", "event_id": "e1"}),
+            json.dumps(
+                {"_time": "2026-01-01T00:01:00", "rule_name": "Alert2", "urgency": "critical", "event_id": "e2"}
+            ),
+        ]
+    )
     norm = SplunkNormalizer()
     alerts = norm.normalize(ndjson)
     assert len(alerts) == 2
@@ -466,6 +526,7 @@ def test_splunk_raw_description_fallback():
 # Item 23 — generic.py naive datetime → UTC
 # ---------------------------------------------------------------------------
 
+
 def test_parse_timestamp_naive_fromisoformat_gets_utc():
     from sift.normalizers.generic import _parse_timestamp
 
@@ -483,6 +544,7 @@ def test_parse_timestamp_aware_preserves_tz():
     assert result.tzinfo is not None
     # Should NOT be forced to UTC — it already has tz info
     import datetime as _dt
+
     offset = result.utcoffset()
     assert offset == _dt.timedelta(hours=5)
 
@@ -491,8 +553,10 @@ def test_parse_timestamp_aware_preserves_tz():
 # Item 24 — doctor.py CheckStatus.WARN (not INFO)
 # ---------------------------------------------------------------------------
 
+
 def test_doctor_ticketing_no_provider_returns_warn():
-    from unittest.mock import patch, MagicMock
+    from unittest.mock import MagicMock, patch
+
     from sift.doctor import CheckStatus, _check_ticketing
 
     mock_cfg = MagicMock()
@@ -508,27 +572,40 @@ def test_doctor_ticketing_no_provider_returns_warn():
 # Item 25 — --no-llm forces template provider
 # ---------------------------------------------------------------------------
 
+
 def test_no_llm_forces_template(tmp_path):
     """sift triage --no-llm -f json -q must exit 0 with provider=template."""
     from typer.testing import CliRunner
+
     from sift.main import app
 
     alerts_file = tmp_path / "alerts.json"
-    alerts_file.write_text(json.dumps([
-        {
-            "id": "a1",
-            "title": "Test Alert",
-            "severity": "HIGH",
-            "timestamp": "2026-01-01T00:00:00Z",
-            "source_ip": "10.0.0.1",
-        }
-    ]))
+    alerts_file.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "a1",
+                    "title": "Test Alert",
+                    "severity": "HIGH",
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "source_ip": "10.0.0.1",
+                }
+            ]
+        )
+    )
 
     runner = CliRunner()
-    result = runner.invoke(app, [
-        "triage", str(alerts_file),
-        "--no-llm", "--format", "json", "--quiet",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "triage",
+            str(alerts_file),
+            "--no-llm",
+            "--format",
+            "json",
+            "--quiet",
+        ],
+    )
     assert result.exit_code == 0, f"exit_code={result.exit_code}\n{result.output}\n{result.exception}"
     output = json.loads(result.output)
     # Template summarizer either produces no summary or summary.provider == "template"
@@ -540,27 +617,43 @@ def test_no_llm_forces_template(tmp_path):
 # Item 26 — .jsonl suffix picked up by dir scan
 # ---------------------------------------------------------------------------
 
+
 def test_jsonl_suffix_in_supported_suffixes():
     from sift.main import _SUPPORTED_SUFFIXES
+
     assert ".jsonl" in _SUPPORTED_SUFFIXES
 
 
 def test_dir_scan_picks_up_jsonl(tmp_path):
     """Directory scan must include .jsonl files."""
     alerts = [
-        {"id": "a1", "title": "Alert A", "severity": "HIGH",
-         "timestamp": "2026-01-01T00:00:00Z", "source_ip": "10.0.0.1"},
+        {
+            "id": "a1",
+            "title": "Alert A",
+            "severity": "HIGH",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "source_ip": "10.0.0.1",
+        },
     ]
     jsonl_file = tmp_path / "alerts.jsonl"
     jsonl_file.write_text("\n".join(json.dumps(a) for a in alerts))
 
     from typer.testing import CliRunner
+
     from sift.main import app
 
     runner = CliRunner()
-    result = runner.invoke(app, [
-        "triage", str(tmp_path), "--no-llm", "--format", "json", "--quiet",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "triage",
+            str(tmp_path),
+            "--no-llm",
+            "--format",
+            "json",
+            "--quiet",
+        ],
+    )
     assert result.exit_code == 0, f"{result.output}\n{result.exception}"
     output = json.loads(result.output)
     assert output["alerts_ingested"] >= 1
@@ -570,18 +663,23 @@ def test_dir_scan_picks_up_jsonl(tmp_path):
 # Item 27 — mock summarizer uses fixed datetime
 # ---------------------------------------------------------------------------
 
+
 def test_mock_summarizer_fixed_datetime():
+    from sift.models import ClusterPriority, TriageReport
     from sift.summarizers.mock import MockSummarizer
-    from sift.models import TriageReport, ClusterPriority
 
     cluster = Cluster(
-        id="c1", label="L", priority=ClusterPriority.HIGH,
-        confidence=0.8, score=5.0,
+        id="c1",
+        label="L",
+        priority=ClusterPriority.HIGH,
+        confidence=0.8,
+        score=5.0,
         alerts=[Alert(id="a1", title="T", severity=AlertSeverity.HIGH)],
         iocs=[],
     )
     report = TriageReport(
-        alerts_ingested=1, alerts_after_dedup=1,
+        alerts_ingested=1,
+        alerts_after_dedup=1,
         clusters=[cluster],
         analyzed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
@@ -593,6 +691,7 @@ def test_mock_summarizer_fixed_datetime():
 # ---------------------------------------------------------------------------
 # Item 28 — version_check uses packaging.version.Version
 # ---------------------------------------------------------------------------
+
 
 def test_is_newer_simple():
     from sift.version_check import _is_newer
@@ -615,9 +714,11 @@ def test_is_newer_pre_release():
 # Item 29 — banner.py checks stderr.isatty()
 # ---------------------------------------------------------------------------
 
+
 def test_banner_checks_stderr_isatty(monkeypatch):
     """Banner must check sys.stderr.isatty(), not sys.stdout.isatty()."""
     import sys
+
     from sift import banner
 
     stderr_checked = []
@@ -626,8 +727,8 @@ def test_banner_checks_stderr_isatty(monkeypatch):
     original_stderr_isatty = sys.stderr.isatty
     original_stdout_isatty = sys.stdout.isatty
 
-    monkeypatch.setattr(sys.stderr, "isatty", lambda: (stderr_checked.append(True) or False))
-    monkeypatch.setattr(sys.stdout, "isatty", lambda: (stdout_checked.append(True) or False))
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: stderr_checked.append(True) or False)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: stdout_checked.append(True) or False)
 
     banner.show_banner(quiet=False, update_check_enabled=False)
 
@@ -638,6 +739,7 @@ def test_banner_checks_stderr_isatty(monkeypatch):
 # ---------------------------------------------------------------------------
 # Item 30 — models.py PrivateAttr for _duplicate_of
 # ---------------------------------------------------------------------------
+
 
 def test_duplicate_of_is_private_attr():
     """_duplicate_of must be a Pydantic PrivateAttr, not a model field."""
