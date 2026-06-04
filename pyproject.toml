@@ -74,5 +74,5 @@ dev = [
     "pytest>=9.0.2",
     "pytest-httpx>=0.36.2",
     "hypothesis>=6.0",
-    "shipwright-kit @ git+https://github.com/duathron/shipwright@main",
+    "shipwright-kit @ git+https://github.com/duathron/shipwright@v0.2.0",
 ]
