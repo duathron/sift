@@ -135,8 +135,13 @@ if [ "$OPT_DEV" = true ]; then
     if command -v pipx &>/dev/null; then
         warn "Dev mode uses pip, not pipx. Falling back to pip."
     fi
-    "$PYTHON" -m pip install --quiet --upgrade pip
-    "$PYTHON" -m pip install --quiet -e "${DEV_TARGET}[dev]"
+    # Dev deps live in [dependency-groups] dev (PEP 735), not a [dev] extra.
+    if command -v uv &>/dev/null; then
+        ( cd "$SCRIPT_DIR" && uv sync --dev )
+    else
+        "$PYTHON" -m pip install --quiet --upgrade pip
+        "$PYTHON" -m pip install --quiet -e "${DEV_TARGET}" --group dev
+    fi
     success "Editable dev install complete."
     echo ""
     echo -e "  Run ${BOLD}sift --help${RESET} to get started."

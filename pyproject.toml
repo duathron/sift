@@ -35,7 +35,6 @@ dependencies = [
 llm = ["anthropic>=0.30.0", "openai>=1.30.0"]
 enrich = ["barb-phish>=1.0.0"]
 all = ["anthropic>=0.30.0", "openai>=1.30.0", "barb-phish>=1.0.0", "httpx>=0.27.0"]
-dev = ["pytest>=8.0.0", "ruff>=0.4.0", "mypy>=1.10.0", "pytest-httpx>=0.30.0"]
 ticket = ["httpx>=0.27.0"]
 
 [project.scripts]
@@ -69,6 +68,8 @@ ignore_missing_imports = true
 
 [dependency-groups]
 dev = [
+    "ruff>=0.15.15,<0.16",
+    "mypy>=1.10.0",
     "httpx>=0.28.1",
     "pytest>=9.0.2",
     "pytest-httpx>=0.36.2",
