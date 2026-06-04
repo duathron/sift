@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from shipwright_kit.eval import EVAL_SCHEMA_VERSION
 from shipwright_kit.eval.corpus import load_corpus
 from shipwright_kit.eval.harness import EvalGateError, evaluate, gate
 from shipwright_kit.eval.metrics import EvalResult
@@ -55,6 +56,7 @@ def main(argv: Optional[list[str]] = None) -> None:
 
     result = run(args.corpus)
     summary = {
+        "schema_version": EVAL_SCHEMA_VERSION,
         "tp": result.tp,
         "fp": result.fp,
         "tn": result.tn,
