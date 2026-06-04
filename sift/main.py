@@ -122,6 +122,63 @@ def _build_summarizer(
 
 
 # ---------------------------------------------------------------------------
+# Helper: ticketing post-processing (shared by cache-miss + cache-hit paths)
+# ---------------------------------------------------------------------------
+
+
+def _run_ticketing(
+    report,
+    *,
+    ticket: Optional[str],
+    ticket_output: Optional[Path],
+    ticket_all: bool,
+    cfg,
+    include_raw_payload: bool,
+    quiet_mode: bool,
+) -> None:
+    """Create ticket(s) from a triage report. Never alters the triage exit code.
+
+    Runs on BOTH a fresh pipeline result and a cache hit, so caching can never
+    silently skip --ticket post-processing.
+    """
+    if not (ticket or ticket_output):
+        return
+    from sift.ticketing import build_provider, report_to_draft, top_clusters_for_ticket
+
+    _ticket_provider_name = ticket or "dry-run"
+    try:
+        _ticket_provider = build_provider(_ticket_provider_name, cfg, output_path=ticket_output)
+    except ValueError as exc:
+        console.print(f"[red]Ticket config error:[/red] {exc}")
+        raise typer.Exit(2)
+
+    if ticket_all:
+        _ticket_clusters = top_clusters_for_ticket(report)
+        if not _ticket_clusters and not quiet_mode:
+            console.print("[yellow]No HIGH/CRITICAL clusters found — no tickets created.[/yellow]")
+    else:
+        _ticket_clusters = [report.clusters[0]] if report.clusters else []
+
+    for _tc in _ticket_clusters:
+        try:
+            _draft = report_to_draft(report, _tc, include_raw_payload=include_raw_payload)
+            _result = _ticket_provider.send(_draft)
+            if _result.ticket_url and _result.ticket_url.startswith("file://"):
+                _saved_path = _result.ticket_url[len("file://") :]
+                console.print(f"[green]✓[/green] Ticket saved: {_markup_escape(_saved_path)}")
+            elif _result.ticket_url:
+                console.print(
+                    f"[green]✓[/green] Ticket created: "
+                    f"[link={_result.ticket_url}]{_markup_escape(_result.ticket_id or 'dry-run')}[/link] "
+                    f"({_ticket_provider_name})"
+                )
+            else:
+                console.print("[green]✓[/green] Ticket output generated (dry-run → stdout)")
+        except Exception as exc:
+            console.print(f"[red]✗[/red] Ticket failed ({_markup_escape(_tc.label[:40])}): {_markup_escape(str(exc))}")
+
+
+# ---------------------------------------------------------------------------
 # Helper: enrichment consent
 # ---------------------------------------------------------------------------
 
@@ -854,7 +911,17 @@ def triage(
                 console.print(f"[dim]Cache hit ({_cache_key[:12]}…) — skipping pipeline.[/dim]")
             _cached = TriageReport.model_validate(_cached_raw)
             _render_output(_cached, format=format, output_path=output, cfg=cfg, quiet=quiet)
-            raise typer.Exit(0)
+            # Ticketing is post-processing on the report — must run on cache hits too.
+            _run_ticketing(
+                _cached,
+                ticket=ticket,
+                ticket_output=ticket_output,
+                ticket_all=ticket_all,
+                cfg=cfg,
+                include_raw_payload=include_raw_payload,
+                quiet_mode=_quiet_mode,
+            )
+            raise typer.Exit(_cached.exit_code)
         if not _quiet_mode:
             console.print(f"[dim]Cache miss ({_cache_key[:12]}…) — running pipeline.[/dim]")
 
@@ -1218,42 +1285,15 @@ def triage(
     )
 
     # --- Ticketing (post-processing — failure never breaks triage exit code) ---
-    if ticket or ticket_output:
-        from sift.ticketing import build_provider, report_to_draft, top_clusters_for_ticket
-
-        _ticket_provider_name = ticket or "dry-run"
-        try:
-            _ticket_provider = build_provider(_ticket_provider_name, cfg, output_path=ticket_output)
-        except ValueError as exc:
-            console.print(f"[red]Ticket config error:[/red] {exc}")
-            raise typer.Exit(2)
-
-        if ticket_all:
-            _ticket_clusters = top_clusters_for_ticket(report)
-            if not _ticket_clusters and not _quiet_mode:
-                console.print("[yellow]No HIGH/CRITICAL clusters found — no tickets created.[/yellow]")
-        else:
-            _ticket_clusters = [report.clusters[0]] if report.clusters else []
-
-        for _tc in _ticket_clusters:
-            try:
-                _draft = report_to_draft(report, _tc, include_raw_payload=include_raw_payload)
-                _result = _ticket_provider.send(_draft)
-                if _result.ticket_url and _result.ticket_url.startswith("file://"):
-                    _saved_path = _result.ticket_url[len("file://") :]
-                    console.print(f"[green]✓[/green] Ticket saved: {_markup_escape(_saved_path)}")
-                elif _result.ticket_url:
-                    console.print(
-                        f"[green]✓[/green] Ticket created: "
-                        f"[link={_result.ticket_url}]{_markup_escape(_result.ticket_id or 'dry-run')}[/link] "
-                        f"({_ticket_provider_name})"
-                    )
-                else:
-                    console.print("[green]✓[/green] Ticket output generated (dry-run → stdout)")
-            except Exception as exc:
-                console.print(
-                    f"[red]✗[/red] Ticket failed ({_markup_escape(_tc.label[:40])}): {_markup_escape(str(exc))}"
-                )
+    _run_ticketing(
+        report,
+        ticket=ticket,
+        ticket_output=ticket_output,
+        ticket_all=ticket_all,
+        cfg=cfg,
+        include_raw_payload=include_raw_payload,
+        quiet_mode=_quiet_mode,
+    )
 
     # --- Exit code ---
     raise typer.Exit(report.exit_code)
