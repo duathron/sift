@@ -9,7 +9,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-06-05
+
+Minor release: shared Shipwright library adoption (eval + injection + config), new injection detections, and detection-quality eval gates.
+
+### Added
+- **Prompt-injection detection** now also flags **jailbreak / role-override** ("act as an unrestricted assistant", "you are now DAN", …) and **system-prompt exfiltration** ("print the contents of your system prompt", …) in alert fields before they reach LLM summarization. Precision-first — no benign SOC alert is redacted.
+- **Detection-quality eval gates in CI** via `shipwright_kit.eval`: prompt-injection precision/recall, IOC-classifier binary precision/recall, and **per-type IOC classification accuracy** (each IOC must classify to its exact type, not merely "is an IOC"). Eval `--json` output carries a `schema_version` (N6 schema-contract).
+
+### Changed
+- sift's injection detector now delegates to the shared `shipwright_kit.security.injection` engine; config loading delegates to `shipwright_kit.config`; eval delegates to `shipwright_kit.eval` — eliminating duplicated logic. Detection behaviour and config behaviour are preserved.
+- `shipwright-kit` is now a **runtime** dependency resolved from **PyPI** (`>=0.6.0,<0.7.0`) instead of a git URL, so `pip install sift-triage` resolves cleanly. (It was previously a dev-only dependency despite being imported at runtime.)
+
 ### Fixed
+- `sift triage <cached-input> --ticket X` now creates the ticket on a cache hit (previously the cache hit short-circuited and rendered before ticketing).
 - **Refang preprocessor — `[://]` bracketed scheme separator** (`hxxps[://]evil.com`
   now refangs correctly to `https://evil.com`). The pattern is inserted as the first
   entry in `_DEFANG_PATTERNS` so it fires before the `hxxp(s?)://` scheme substitution.
