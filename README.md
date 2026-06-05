@@ -661,6 +661,13 @@ Configuration is resolved in priority order: CLI flags > environment variables >
 
 ---
 
+## Author
+
+**Christian Huhn** — building security tooling for SOC/DFIR workflows.
+
+- GitHub: [@duathron](https://github.com/duathron)
+- LinkedIn: [Christian Huhn](https://www.linkedin.com/in/christian-huhn-76a407114)
+
 ## License
 
 MIT — see [LICENSE](LICENSE) for details.

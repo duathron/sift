@@ -9,9 +9,7 @@ description = "AI-powered alert triage summarizer for SOC teams"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
-authors = [
-    { name = "Christian Huhn", email = "duathron@gmail.com" },
-]
+authors = [{ name = "Christian Huhn" }]
 keywords = ["siem", "alert-triage", "soc", "dfir", "mitre-attack", "ai", "cli"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -45,6 +43,7 @@ sift = "sift.main:main"
 Homepage = "https://github.com/duathron/sift"
 Repository = "https://github.com/duathron/sift"
 "Bug Tracker" = "https://github.com/duathron/sift/issues"
+LinkedIn = "https://www.linkedin.com/in/christian-huhn-76a407114"
 
 [tool.setuptools.packages.find]
 include = ["sift*"]
