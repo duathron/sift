@@ -25,9 +25,10 @@ jobs:
       - run: uv sync --dev
       - run: uv run bash dogfood.sh   # SIFT_DOGFOOD_LLM unset → live skipped, exit 0
 
-  # Detection-quality gates — prompt-injection + IOC-classifier precision/recall on
-  # labeled corpora. Floors live in the harnesses (_DEFAULT_MIN_*) — single source of
-  # truth, no CLI flags. Either gate failing fails the job.
+  # Detection-quality gates — prompt-injection + IOC-classifier on labeled corpora:
+  # injection precision/recall, IOC binary precision/recall, and IOC per-type
+  # classification accuracy (exact type, not just != "unknown"). Floors live in the
+  # harnesses (_DEFAULT_MIN_*) — single source of truth, no CLI flags. Any gate fails the job.
   eval:
     name: Detection-quality gates (injection + IOC)
     runs-on: ubuntu-latest
@@ -37,3 +38,4 @@ jobs:
       - run: uv sync --dev
       - run: uv run python -m eval.run_injection_eval
       - run: uv run python -m eval.run_ioc_eval
+      - run: uv run python -m eval.run_ioc_type_eval

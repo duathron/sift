@@ -1,0 +1,24 @@
+text,type
+# Per-type classification accuracy: each IOC must classify to its EXACT type,
+# not merely != "unknown" (the binary gate). Expected types are the verified
+# detect_ioc_type() outputs (2026-06-05). Covers all 16 detected types.
+8.8.8.8,ip
+203.0.113.42,ip
+evil-domain.com,domain
+http://malware.test/payload,url
+user@phish.test,email
+5d41402abc4b2a76b9719d911017c592,hash_md5
+4835b19f14997673071435cb321f5445,hash_md5
+aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d,hash_sha1
+2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824,hash_sha256
+cafebabe1234567890deadbeefabcdef1234567890fedcba0987654321feedfa,hash_sha256
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,hash_sha512
+3:AXGBicFlgVNhBGcL6wCrFQEv:AXGHsNhxLsr2C,ssdeep
+T1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA,tlsh
+07d14d16d21d21d07c42d41d00041d24a458a375eef0c576d23a7bab9a9fb1,jarm
+ps_encoded:VGhpcyBpcyBhIHRlc3Q=,ps_encoded
+CVE-2024-3400,cve
+T1566.001,mitre_technique
+HKLM\Software\Microsoft\Windows\CurrentVersion\Run,registry_key
+OUTSTANDING_GUTTER.exe,filename
+malware.dll,filename
