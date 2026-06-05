@@ -719,8 +719,8 @@ wheels = [
 
 [[package]]
 name = "shipwright-kit"
-version = "0.4.0"
-source = { git = "https://github.com/duathron/shipwright?rev=v0.4.0#bb4eec1e6229798033c0aa92981d84c49250f79b" }
+version = "0.5.0"
+source = { git = "https://github.com/duathron/shipwright?rev=v0.5.0#6da3dc4e9b8e41eb75b9deb6a28874b7c90a13a8" }
 
 [[package]]
 name = "sift-triage"
@@ -789,7 +789,7 @@ dev = [
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "pytest-httpx", specifier = ">=0.36.2" },
     { name = "ruff", specifier = ">=0.15.15,<0.16" },
-    { name = "shipwright-kit", git = "https://github.com/duathron/shipwright?rev=v0.4.0" },
+    { name = "shipwright-kit", git = "https://github.com/duathron/shipwright?rev=v0.5.0" },
 ]
 
 [[package]]
