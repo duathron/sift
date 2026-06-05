@@ -127,6 +127,40 @@ class PromptInjectionDetector:
             flags,
         )
 
+        # Pattern 6: Jailbreak / role override ("act as an unrestricted assistant",
+        # "you are now DAN", "pretend to be an uncensored model"). The instruction-
+        # override pattern misses these (no instruction-noun). Requires a role verb
+        # AND a high-signal jailbreak marker: a restriction-removal ADJECTIVE bound to
+        # an AI-context noun (unrestricted assistant/model/...), or a known idiom
+        # (jailbroken / DAN / "do anything now"). Bare "do anything" / "no restrictions"
+        # / "unrestricted <benign noun>" are NOT enough — they false-fire on real SOC
+        # text ("act as relay; do anything mode", "you are now connected to the
+        # unrestricted network segment").
+        self.pattern_jailbreak = re.compile(
+            r"(?:act as|you are now|pretend to be|roleplay as|behave as)[\s\S]{0,40}?"
+            r"(?:"
+            r"(?:unrestricted|unfiltered|jailbroken|uncensored|unaligned)\s+"
+            r"(?:assistant|ai|model|chatbot|llm|gpt|bot|agent|persona|mode|version)"
+            r"|jailbroken"
+            r"|dan\b"
+            r"|do\s+anything\s+now"
+            r")",
+            flags | re.DOTALL,
+        )
+
+        # Pattern 7: System-prompt exfiltration ("print the contents of your system
+        # prompt", "reveal the system prompt"). Restricted to HIGH-SIGNAL prompt nouns
+        # (system prompt / your [system] prompt / system instructions) — bare "initial
+        # instructions" / "your instructions" false-fire on benign SOC text ("reveal.js
+        # initial instructions deck", "reveal your instructions during onboarding").
+        self.pattern_prompt_exfil = re.compile(
+            r"(?:reveal|print|show|output|repeat|leak|disclose|dump|expose|contents?\s+of)"
+            r"[\s\S]{0,40}?"
+            r"(?:system\s*prompt|system\s+instructions?"
+            r"|your\s+(?:system\s+)?prompt|your\s+system\s+instructions?)",
+            flags | re.DOTALL,
+        )
+
     def detect(self, alert: Alert) -> list[InjectionFinding]:
         """Scan alert fields for injection patterns.
 
@@ -225,6 +259,28 @@ class PromptInjectionDetector:
                         pattern_type="shell_injection",
                         severity=SeverityLevel.CRITICAL,
                         redaction="[REDACTED: shell command attempt]",
+                        value_preview=self._truncate(field_value),
+                    )
+                )
+
+            if self.pattern_jailbreak.search(normalized):
+                findings.append(
+                    InjectionFinding(
+                        field=field_name,
+                        pattern_type="jailbreak",
+                        severity=SeverityLevel.CRITICAL,
+                        redaction="[REDACTED: jailbreak / role-override attempt]",
+                        value_preview=self._truncate(field_value),
+                    )
+                )
+
+            if self.pattern_prompt_exfil.search(normalized):
+                findings.append(
+                    InjectionFinding(
+                        field=field_name,
+                        pattern_type="prompt_exfiltration",
+                        severity=SeverityLevel.CRITICAL,
+                        redaction="[REDACTED: system-prompt exfiltration attempt]",
                         value_preview=self._truncate(field_value),
                     )
                 )
