@@ -9,6 +9,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- Project metadata: added a LinkedIn link to the package URLs (shown in the PyPI sidebar) and a README **Author** section; removed the personal email from `authors` — contact is via GitHub issues / LinkedIn.
+
 ## [1.2.0] - 2026-06-05
 
 Minor release: shared Shipwright library adoption (eval + injection + config), new injection detections, and detection-quality eval gates.
