@@ -2,43 +2,30 @@
 
 Detects and optionally redacts suspicious patterns in alert data before
 LLM submission to mitigate prompt injection attacks.
+
+The pattern-matching engine (all 7 patterns, NFKC normalisation, and
+whitelist handling) is provided by ``shipwright_kit.security.injection``.
+This module supplies sift's Alert-shaped field extraction and redaction.
 """
 
 from __future__ import annotations
 
 import logging
-import re
-import unicodedata
-from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from shipwright_kit.security.injection import (
+    InjectionFinding,
+    SeverityLevel,
+)
+from shipwright_kit.security.injection import (
+    PromptInjectionDetector as _CoreDetector,
+)
 
 from sift.models import Alert
 
 logger = logging.getLogger(__name__)
 
-
-# ---------------------------------------------------------------------------
-# Models
-# ---------------------------------------------------------------------------
-
-
-class SeverityLevel(str, Enum):
-    """Severity of injection finding."""
-
-    WARNING = "WARNING"
-    CRITICAL = "CRITICAL"
-
-
-class InjectionFinding(BaseModel):
-    """A detected injection pattern in an alert field."""
-
-    field: str = Field(..., description="Alert field name where pattern was found")
-    pattern_type: str = Field(..., description="Type of injection pattern (e.g., 'instruction_override')")
-    severity: SeverityLevel = Field(..., description="Severity level of the finding")
-    redaction: str = Field(..., description="Redaction suggestion for the suspicious content")
-    value_preview: Optional[str] = Field(None, description="Preview of suspicious value (truncated)")
+__all__ = ["InjectionFinding", "PromptInjectionDetector", "SeverityLevel", "redact_alerts", "scan_alert"]
 
 
 # ---------------------------------------------------------------------------
@@ -47,132 +34,19 @@ class InjectionFinding(BaseModel):
 
 
 class PromptInjectionDetector:
-    """Detects prompt injection patterns in alert fields."""
+    """Scans Alert fields using the shared shipwright_kit injection engine."""
 
     def __init__(
         self,
         case_insensitive: bool = True,
         whitelist_patterns: list[str] | None = None,
-    ):
-        """Initialize detector with injection patterns.
-
-        Args:
-            case_insensitive: If True, perform case-insensitive matching.
-            whitelist_patterns: Optional list of regex patterns.  Any field
-                value matching one of these patterns is exempted from all
-                injection checks (e.g. known-safe alert templates).
-        """
-        self.case_insensitive = case_insensitive
-        flags = re.IGNORECASE if case_insensitive else 0
-        self._whitelist: list[re.Pattern] = [re.compile(p, flags) for p in (whitelist_patterns or [])]
-        self._compile_patterns()
-
-    def _compile_patterns(self) -> None:
-        """Compile regex patterns for injection detection."""
-        flags = re.IGNORECASE if self.case_insensitive else 0
-
-        # Pattern 1: "ignore previous instructions" variants
-        # re.DOTALL so . matches \n; NFKC normalisation applied before matching
-        # to defeat zero-width space and Unicode lookalike bypasses.
-        self.pattern_ignore_instructions = re.compile(
-            r"(ignore|disregard|forget|dismiss|bypass|override)[\s\S]{0,40}?"
-            r"(previous|prior|earlier|above|preceding)[\s\S]{0,40}?"
-            r"(instruction|directive|prompt|command|context|system)",
-            flags | re.DOTALL,
-        )
-
-        # Pattern 2: LLM-redirection via "instead" keyword (narrowed vs. original).
-        # Matches "verb instead" OR "instead verb" to catch injection while
-        # avoiding FP on normal log lines like "Generate report: failed".
-        # Optional punctuation (,;.) after "instead" handles "Instead, output ..."
-        self.pattern_instead_output = re.compile(
-            r"(?:"
-            r"(output|respond|return|generate|create|print|write)\s+instead"
-            r"|instead[\s,;.]+(?:of\s+)?(output|respond|return|generate|create|print|write)"
-            r"|rather\s+than\s+(?:summariz|analyz|triag|the\s+above)"
-            r")",
-            flags,
-        )
-
-        # Pattern 3: JSON escape sequences (escaped quotes, control chars)
-        self.pattern_json_escapes = re.compile(
-            r'\\(?:["\\/bfnrtu]|u[0-9a-fA-F]{4})',
-            flags,
-        )
-
-        # Pattern 4: Base64 or hex encoded payloads.
-        # Branch 1: 12+ base64 chars that contain at least one '+' or '/' — lookahead
-        #   rules out plain English words (e.g. "Exfiltration", "Configuration")
-        #   which are purely alphanumeric and never contain Base64 special chars.
-        # Branch 2/3: padded Base64 (== or =) — padding chars cannot appear in
-        #   normal prose, so any length is suspicious.
-        # Branch 4: 15+ purely-alphanumeric chars — raised from 12 so that common
-        #   security terms ("Exfiltration"=12, "Configuration"=13) are excluded
-        #   while long random-looking Base64 without special chars is still caught.
-        # Branch 5: hex-encoded bytes — 10+ two-hex-digit pairs (20+ hex chars).
-        self.pattern_base64_hex = re.compile(
-            r"(?:"
-            r"(?=[A-Za-z0-9+/]*[+/])[A-Za-z0-9+/]{12,}"  # Branch 1: 12+ with +/
-            r"|[A-Za-z0-9+/]{4,}=="  # Branch 2: == padded
-            r"|[A-Za-z0-9+/]{8,}="  # Branch 3: = padded
-            r"|(?:[0-9a-fA-F]{2}){10,}"  # Branch 5: hex pairs (before Branch 4 to preserve pair semantics)
-            r"|[A-Za-z0-9]{20,}"  # Branch 4: 20+ alphanumeric (raised from 15 — avoids FP on hostnames/process names)
-            r")",
-            flags,
-        )
-
-        # Pattern 5: Shell command injection ($(...), backticks, $var)
-        self.pattern_shell_commands = re.compile(
-            r"(?:\$\([^)]*\)|`[^`]*`|\$\w+)",
-            flags,
-        )
-
-        # Pattern 6: Jailbreak / role override ("act as an unrestricted assistant",
-        # "you are now DAN", "pretend to be an uncensored model"). The instruction-
-        # override pattern misses these (no instruction-noun). Requires a role verb
-        # AND a high-signal jailbreak marker: a restriction-removal ADJECTIVE bound to
-        # an AI-context noun (unrestricted assistant/model/...), or a known idiom
-        # (jailbroken / DAN / "do anything now"). Bare "do anything" / "no restrictions"
-        # / "unrestricted <benign noun>" are NOT enough — they false-fire on real SOC
-        # text ("act as relay; do anything mode", "you are now connected to the
-        # unrestricted network segment").
-        self.pattern_jailbreak = re.compile(
-            r"(?:act as|you are now|pretend to be|roleplay as|behave as)[\s\S]{0,40}?"
-            r"(?:"
-            r"(?:unrestricted|unfiltered|jailbroken|uncensored|unaligned)\s+"
-            r"(?:assistant|ai|model|chatbot|llm|gpt|bot|agent|persona|mode|version)"
-            r"|jailbroken"
-            r"|dan\b"
-            r"|do\s+anything\s+now"
-            r")",
-            flags | re.DOTALL,
-        )
-
-        # Pattern 7: System-prompt exfiltration ("print the contents of your system
-        # prompt", "reveal the system prompt"). Restricted to HIGH-SIGNAL prompt nouns
-        # (system prompt / your [system] prompt / system instructions) — bare "initial
-        # instructions" / "your instructions" false-fire on benign SOC text ("reveal.js
-        # initial instructions deck", "reveal your instructions during onboarding").
-        self.pattern_prompt_exfil = re.compile(
-            r"(?:reveal|print|show|output|repeat|leak|disclose|dump|expose|contents?\s+of)"
-            r"[\s\S]{0,40}?"
-            r"(?:system\s*prompt|system\s+instructions?"
-            r"|your\s+(?:system\s+)?prompt|your\s+system\s+instructions?)",
-            flags | re.DOTALL,
+    ) -> None:
+        self._core = _CoreDetector(
+            case_insensitive=case_insensitive,
+            whitelist_patterns=whitelist_patterns,
         )
 
     def detect(self, alert: Alert) -> list[InjectionFinding]:
-        """Scan alert fields for injection patterns.
-
-        Args:
-            alert: Alert instance to scan.
-
-        Returns:
-            List of InjectionFinding objects for each detected pattern.
-        """
-        findings: list[InjectionFinding] = []
-
-        # Fields to scan: title, description, and string-valued custom fields
         fields_to_scan: dict[str, str | None] = {
             "title": alert.title,
             "description": alert.description,
@@ -181,110 +55,24 @@ class PromptInjectionDetector:
             "user": alert.user,
             "host": alert.host,
         }
-
-        # Add raw dict values if they're strings
         if alert.raw:
             for key, val in alert.raw.items():
                 if isinstance(val, str):
                     fields_to_scan[f"raw.{key}"] = val
-
-        # Scan IOC list — ps_encoded base64 payloads are a prompt-injection vector.
         for i, ioc_val in enumerate(alert.iocs):
             fields_to_scan[f"ioc.{i}"] = ioc_val
 
+        findings: list[InjectionFinding] = []
         for field_name, field_value in fields_to_scan.items():
             if field_value is None or not isinstance(field_value, str):
                 continue
-
-            # NFKC normalisation defeats Unicode lookalike / zero-width bypasses.
-            normalized = unicodedata.normalize("NFKC", field_value)
-
-            # Skip fields that match an operator-defined whitelist pattern
-            if self._whitelist and any(p.search(normalized) for p in self._whitelist):
-                continue
-
-            is_ioc_field = field_name.startswith("ioc.")
-
-            # Check each pattern (use if, not elif, to detect all patterns in a field)
-            if self.pattern_ignore_instructions.search(normalized):
-                findings.append(
-                    InjectionFinding(
-                        field=field_name,
-                        pattern_type="instruction_override",
-                        severity=SeverityLevel.CRITICAL,
-                        redaction="[REDACTED: instruction override attempt]",
-                        value_preview=self._truncate(field_value),
-                    )
+            findings.extend(
+                self._core.detect(
+                    field_value,
+                    field_name=field_name,
+                    is_ioc_field=field_name.startswith("ioc."),
                 )
-
-            if self.pattern_instead_output.search(normalized):
-                findings.append(
-                    InjectionFinding(
-                        field=field_name,
-                        pattern_type="output_manipulation",
-                        severity=SeverityLevel.CRITICAL,
-                        redaction="[REDACTED: output manipulation attempt]",
-                        value_preview=self._truncate(field_value),
-                    )
-                )
-
-            if self.pattern_json_escapes.search(normalized):
-                findings.append(
-                    InjectionFinding(
-                        field=field_name,
-                        pattern_type="json_escape_sequence",
-                        severity=SeverityLevel.WARNING,
-                        redaction="[REDACTED: JSON escape sequences]",
-                        value_preview=self._truncate(field_value),
-                    )
-                )
-
-            # IOC fields legitimately contain hashes, base64 digests, etc.;
-            # skip encoded-payload check to avoid false positives.
-            if not is_ioc_field and self.pattern_base64_hex.search(normalized):
-                findings.append(
-                    InjectionFinding(
-                        field=field_name,
-                        pattern_type="encoded_payload",
-                        severity=SeverityLevel.WARNING,
-                        redaction="[REDACTED: encoded payload]",
-                        value_preview=self._truncate(field_value),
-                    )
-                )
-
-            if self.pattern_shell_commands.search(normalized):
-                findings.append(
-                    InjectionFinding(
-                        field=field_name,
-                        pattern_type="shell_injection",
-                        severity=SeverityLevel.CRITICAL,
-                        redaction="[REDACTED: shell command attempt]",
-                        value_preview=self._truncate(field_value),
-                    )
-                )
-
-            if self.pattern_jailbreak.search(normalized):
-                findings.append(
-                    InjectionFinding(
-                        field=field_name,
-                        pattern_type="jailbreak",
-                        severity=SeverityLevel.CRITICAL,
-                        redaction="[REDACTED: jailbreak / role-override attempt]",
-                        value_preview=self._truncate(field_value),
-                    )
-                )
-
-            if self.pattern_prompt_exfil.search(normalized):
-                findings.append(
-                    InjectionFinding(
-                        field=field_name,
-                        pattern_type="prompt_exfiltration",
-                        severity=SeverityLevel.CRITICAL,
-                        redaction="[REDACTED: system-prompt exfiltration attempt]",
-                        value_preview=self._truncate(field_value),
-                    )
-                )
-
+            )
         return findings
 
     def redact_alert(self, alert: Alert, findings: list[InjectionFinding]) -> Alert:
@@ -331,21 +119,6 @@ class PromptInjectionDetector:
                     alert_dict[field_name] = "[REDACTED]"
 
         return Alert(**alert_dict)
-
-    @staticmethod
-    def _truncate(value: str, max_len: int = 80) -> str:
-        """Truncate string for preview display.
-
-        Args:
-            value: String to truncate.
-            max_len: Maximum length of preview.
-
-        Returns:
-            Truncated string with ellipsis if needed.
-        """
-        if len(value) <= max_len:
-            return value
-        return value[:max_len] + "..."
 
 
 # ---------------------------------------------------------------------------
