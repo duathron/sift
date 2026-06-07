@@ -7,6 +7,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.2.1](https://github.com/duathron/sift/compare/v1.2.0...v1.2.1) (2026-06-07)
+
+
+### Documentation
+
+* add project_documentation.md (project history through v1.2.0) ([f858ed4](https://github.com/duathron/sift/commit/f858ed429b72c7cf7ba4e2e4218b6ed9cf32421e))
+* **changelog:** note attribution metadata change under Unreleased ([a577be5](https://github.com/duathron/sift/commit/a577be5517a80bc7b5f33485ffd45d0236618881))
+* **meta:** attribution — GitHub + LinkedIn; drop personal email from metadata ([ce8dae8](https://github.com/duathron/sift/commit/ce8dae8768d039e6b8a81eabeb3cebdd9bab77c2))
+
 ## [Unreleased]
 
 ### Changed
