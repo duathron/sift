@@ -1,0 +1,16 @@
+version: 2
+updates:
+  # GitHub Actions — keep SHA-pinned actions current (security-relevant per G7).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
+  # Python deps via the uv lockfile (uv is a GA dependabot ecosystem).
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "build"
