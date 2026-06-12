@@ -27,7 +27,7 @@ dependencies = [
     "pydantic>=2.7.0",
     "pyyaml>=6.0.1",
     "python-dotenv>=1.0.0",
-    "shipwright-kit>=0.6.0,<0.7.0", # runtime: sift.summarizers.injection_detector + sift.config import shipwright_kit
+    "shipwright-kit>=0.6.0,<0.8.0", # runtime: sift.summarizers.injection_detector + sift.config import shipwright_kit
 ]
 
 [project.optional-dependencies]
