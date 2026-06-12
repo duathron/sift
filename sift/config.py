@@ -102,7 +102,7 @@ class AlertRedactionConfig(BaseModel):
     """Configuration for alert-model-level field redaction."""
 
     fields: list[str] = []  # field names to redact on the Alert object
-    redact_raw: bool = False  # if True, always redact the `raw` dict
+    redact_raw: bool = False  # if True, KEEP raw in output even when redaction is active (forensic override)
 
 
 class TicketingConfig(BaseModel):

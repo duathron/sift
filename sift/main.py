@@ -414,7 +414,7 @@ def triage(
         typer.Option(
             "--format",
             "-f",
-            help="Output format: rich | console | json | csv | stix",
+            help="Output format: rich | console | json | csv | stix | html | md",
             rich_help_panel="Output",
         ),
     ] = "rich",
@@ -494,7 +494,23 @@ def triage(
         Optional[str],
         typer.Option(
             "--redact-fields",
-            help="Fields to redact before AI submission (e.g. 'user,host,source_ip').",
+            help=(
+                "Comma-separated alert fields to redact (e.g. 'user,host,source_ip'). "
+                "Phase 1 closes three leak channels: (1) raw dict is suppressed from "
+                "all output formats, (2) raw is not re-mined for IOCs, "
+                "(3) extracted IOCs matching the redacted value are dropped. "
+                "KNOWN RESIDUALS (both require also redacting the carrying field): "
+                "(a) if the value appears in the *text* of a non-redacted field "
+                "(e.g. description='scan from 1.2.3.4'), that text is not scrubbed; "
+                "(b) if the value is a substring of a larger IOC extracted from a "
+                "non-redacted field (e.g. description='see http://1.2.3.4/x' → url "
+                "IOC 'http://1.2.3.4/x'), the URL is not dropped — the IP appears "
+                "inside it. Fix: also add that field to --redact-fields. "
+                "Phase 2 (value-scrub) closes both without manual enumeration. "
+                "IOC counts decrease when redaction is active (expected). "
+                "Forensic override: set redaction.redact_raw=true in config.yaml to "
+                "keep raw in output even when redaction is active."
+            ),
             rich_help_panel="Privacy",
         ),
     ] = None,
@@ -725,11 +741,18 @@ def triage(
             _dedup_cfg = DeduplicatorConfig(time_window_minutes=cfg.clustering.time_window_minutes)
             _deduped, _ = deduplicate(_pending_alerts, _dedup_cfg)
             if _effective_redact:
+                # Phase 1 fix: same three-channel closure as the normal pipeline path.
+                from .pipeline.redaction import apply_redact_and_enrich
+
                 _fields = [f.strip() for f in _effective_redact.split(",") if f.strip()]
-                _deduped = [a.redact(_fields) for a in _deduped]
-            if drop_raw:
-                _deduped = [a.model_copy(update={"raw": {}}) for a in _deduped]
-            _deduped = enrich_alerts_iocs(_deduped)
+                _keep_raw_forensic = cfg.redaction.redact_raw
+                _deduped = [apply_redact_and_enrich(a, _fields, keep_raw=_keep_raw_forensic) for a in _deduped]
+                if drop_raw:
+                    _deduped = [a.model_copy(update={"raw": {}}) for a in _deduped]
+            else:
+                if drop_raw:
+                    _deduped = [a.model_copy(update={"raw": {}}) for a in _deduped]
+                _deduped = enrich_alerts_iocs(_deduped)
             _cls = cluster_alerts(_deduped, cfg.clustering)
             _cls = prioritize_all(_cls, cfg.scoring)
             all_source_alerts.append(
@@ -1094,18 +1117,30 @@ def triage(
         total_after_dedup += file_dedup_count
 
         # --- Field-level redaction (optional) ---
+        # Phase 1 fix: apply_redact_and_enrich closes all three leak channels:
+        #   Ch1: raw blanked (→ not serialised into output)
+        #   Ch2: raw blank means _collect_text_fields skips raw extraction
+        #   Ch3: IOC entries matching redacted values dropped post-extraction
+        # keep_raw support: wire cfg.redaction.redact_raw as the forensic override
+        # (redact_raw=True keeps raw even when redaction is active).
         if _effective_redact:
             fields_to_redact = [f.strip() for f in _effective_redact.split(",") if f.strip()]
+            from .pipeline.redaction import apply_redact_and_enrich
+
+            _keep_raw_forensic = cfg.redaction.redact_raw  # True → forensic override, preserve raw
             try:
-                alerts_for_clustering = [a.redact(fields_to_redact) for a in alerts_for_clustering]
+                alerts_for_clustering = [
+                    apply_redact_and_enrich(a, fields_to_redact, keep_raw=_keep_raw_forensic)
+                    for a in alerts_for_clustering
+                ]
             except ValueError as exc:
                 console.print(f"[red]Error:[/red] {_markup_escape(str(exc))}")
                 raise typer.Exit(2)
+        else:
+            # --- IOC extraction (no redaction path — behaviour unchanged) ---
+            from .pipeline.ioc_extractor import enrich_alerts_iocs
 
-        # --- IOC extraction ---
-        from .pipeline.ioc_extractor import enrich_alerts_iocs
-
-        alerts_for_clustering = enrich_alerts_iocs(alerts_for_clustering)
+            alerts_for_clustering = enrich_alerts_iocs(alerts_for_clustering)
 
         # --- Cluster + Prioritize ---
         if effective_chunk_size > 0:
@@ -1707,7 +1742,7 @@ def config_cmd(
         Optional[str],
         typer.Option(
             "--default-format",
-            help="Default output format: rich | console | json | csv | stix.",
+            help="Default output format: rich | console | json | csv | stix | html | md.",
             show_default=False,
         ),
     ] = None,

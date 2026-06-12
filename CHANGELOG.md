@@ -18,6 +18,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+- **Redaction value-level leak fix (Phase 1) — 3 channels closed.** When `--redact-fields` is active, a sensitive value (e.g. `source_ip=10.0.0.99`) could re-surface in `-f json/html/md/stix/console` output via three channels. All three are now closed:
+  - **Channel 1 (raw→output):** `alert.raw` is blanked (`{}`) before any output serialisation when redaction is active, so the raw dict never carries the value into JSON/HTML/MD/STIX export.
+  - **Channel 2 (raw→re-extracted IOC):** because `raw` is now `{}`, `_collect_text_fields` finds no string leaves to mine — the IOC extractor is gated without any changes to `ioc_extractor.py`.
+  - **Channel 3 (named-field IOC re-extraction):** the pre-redaction string values of each redacted field are captured before blanking; after IOC extraction, any `iocs`/`iocs_typed` entry whose `.value` matches a captured value is dropped. Applies to both the normal pipeline path and the streaming sub-chunk path.
+  - **Forensic override:** set `redaction.redact_raw = true` in `config.yaml` to keep `raw` in output even when redaction is active (forensic capture mode). IOC counts decrease when redaction is active — this is expected.
+  - **Known residuals (documented, Phase 2 scope):** two related residual forms exist when the redacted value is carried by a *non-redacted* field — both share the same root cause (channel 3 uses exact-value matching) and the same operator fix (also redact the carrying field):
+    - **(a) Plain-text residual:** the field text still contains the value (e.g. `description="scan from 10.0.0.99"`). The description text is not scrubbed; the extracted IOC *is* dropped (channel 3 works).
+    - **(b) IOC-substring residual:** if the redacted value is a *substring* of a larger IOC extracted from a non-redacted field (e.g. `description="see http://10.0.0.99/x"` → a `url` IOC `http://10.0.0.99/x`), the URL does not exactly match the redacted IP so it is NOT dropped — the IP appears inside the URL IOC in all output formats.
+    - **Operator fix (both forms):** add the carrying field to `--redact-fields` (e.g. `--redact-fields source_ip,description`). Phase 2 (value-scrub) would close both without requiring manual field enumeration.
+  - **Implementation:** new module `sift/pipeline/redaction.py` (`get_redacted_values`, `drop_redacted_iocs`, `redact_and_suppress_raw`, `apply_redact_and_enrich`); wired at the pipeline boundary in `main.py` (normal path lines ~1096–1116, streaming sub-chunk path lines ~727–742). +24 new tests in `tests/test_redaction_value_level.py`.
+
 ### Added
 - **`--version` eager flag:** `sift --version` now exits 0 and prints `sift v<version>`, matching barb's parity. The `version` subcommand is preserved for backward compatibility. (S2a)
 - **Tuning thresholds in config:** `ClusteringConfig` gains three new fields — `drop_raw_threshold_mb` (default 500), `chunk_threshold_mb` (default 200), `default_chunk_size` (default 100,000) — lifting the previously hardcoded module-level constants into `config.yaml`-overridable settings. Behaviour at default values is byte-identical. (S2b)
