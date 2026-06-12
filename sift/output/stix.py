@@ -187,8 +187,13 @@ class STIXExporter:
             grouping_id = grouping["id"]
 
             # 2. Indicator SDOs (one per IOC in cluster)
+            # Build a type lookup from iocs_typed so we avoid re-classifying known IOCs.
+            # Fallback to detect_ioc_type for any IOC not present in the lookup
+            # (e.g. clusters built without enrichment → iocs_typed empty).
+            ioc_type_lookup: dict[str, str] = {ioc.value: ioc.type for ioc in cluster.iocs_typed}
             for ioc in cluster.iocs:
-                indicator = self._create_indicator(ioc, grouping_id)
+                ioc_type = ioc_type_lookup.get(ioc) or detect_ioc_type(ioc)
+                indicator = self._create_indicator(ioc, grouping_id, ioc_type=ioc_type)
                 if indicator["id"] not in seen_ids:
                     self.objects.append(indicator)
                     seen_ids.add(indicator["id"])
@@ -236,17 +241,20 @@ class STIXExporter:
             "object_refs": [_deterministic_id("indicator", grouping_id, ioc) for ioc in cluster.iocs],
         }
 
-    def _create_indicator(self, ioc: str, grouping_id: str) -> dict[str, Any]:
+    def _create_indicator(self, ioc: str, grouping_id: str, ioc_type: str | None = None) -> dict[str, Any]:
         """Create an Indicator SDO for an IOC.
 
         Args:
             ioc: The IOC string (IP, domain, URL, hash, etc.).
             grouping_id: The ID of the parent Grouping SDO.
+            ioc_type: Pre-computed IOC type from iocs_typed lookup (avoids re-classify).
+                      Falls back to detect_ioc_type(ioc) when None.
 
         Returns:
             A valid STIX 2.1 Indicator SDO.
         """
         indicator_id = _deterministic_id("indicator", grouping_id, ioc)
+        resolved_type = ioc_type or detect_ioc_type(ioc)
 
         return {
             "type": "indicator",
@@ -256,7 +264,7 @@ class STIXExporter:
             "modified": self.now,
             "name": f"IOC: {ioc}",
             "description": "Indicator detected in cluster alerts",
-            "pattern": _pattern_from_ioc(ioc, detect_ioc_type(ioc)),
+            "pattern": _pattern_from_ioc(ioc, resolved_type),
             "pattern_type": "stix",
             "valid_from": self.now,
             "labels": ["malicious-activity"],

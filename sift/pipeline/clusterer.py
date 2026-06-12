@@ -25,7 +25,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from sift.config import ClusteringConfig
-from sift.models import Alert, Cluster, ClusterPriority, TechniqueRef
+from sift.models import IOC, Alert, Cluster, ClusterPriority, TechniqueRef
 
 # ---------------------------------------------------------------------------
 # Union-Find (Disjoint Set Union)
@@ -103,6 +103,16 @@ def _aggregate_iocs(alerts: list[Alert]) -> list[str]:
     return sorted(seen)
 
 
+def _aggregate_iocs_typed(alerts: list[Alert]) -> list[IOC]:
+    """Return a sorted, deduplicated list of typed IOCs across *alerts* (dedup by value)."""
+    seen: dict[str, IOC] = {}
+    for alert in alerts:
+        for ioc in alert.iocs_typed:
+            if ioc.value not in seen:
+                seen[ioc.value] = ioc
+    return sorted(seen.values(), key=lambda i: i.value)
+
+
 def _aggregate_techniques(alerts: list[Alert]) -> list[TechniqueRef]:
     """Return deduplicated TechniqueRefs (by technique_id) across *alerts*.
 
@@ -171,6 +181,7 @@ def _build_cluster(
         confidence=confidence,
         techniques=_aggregate_techniques(alerts),
         iocs=_aggregate_iocs(alerts),
+        iocs_typed=_aggregate_iocs_typed(alerts),
         first_seen=first_seen,
         last_seen=last_seen,
         cluster_reason=cluster_reason,

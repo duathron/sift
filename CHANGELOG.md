@@ -18,6 +18,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Typed IOCs (`iocs_typed`):** each `Alert` and `Cluster` now carries an `iocs_typed: list[IOC]` field alongside the existing `iocs: list[str]`. `IOC` is a Pydantic model with `value` (the IOC string) and `type` (one of `detect_ioc_type()`'s 16 labels). The field is populated automatically at extraction time and deduplicated at cluster aggregation. `iocs: list[str]` is **unchanged** in type, shape, and wire format — all downstream consumers (vex bridge, injection scanner, prompt, CSV `_ioc_types`) continue reading the string field.
+- **STIX type-aware indicators:** `_create_indicator` now reads `ioc.type` from the `iocs_typed` lookup instead of re-classifying at emit, with a fallback to `detect_ioc_type()` for clusters built without enrichment.
+- **Rich type-count header:** the cluster detail panel now shows a one-line type-count summary above the IOC list (e.g. `domain ×1  email ×4  ip ×4  url ×2`) when `iocs_typed` is populated.
+- **Redaction coverage:** `Alert.redact(["iocs"])` now blanks both `iocs` **and** `iocs_typed` in lockstep; `iocs_typed` is also added to `_REDACTABLE_FIELDS` for independent blanking. The injection detector's `redact_alert` path clears `iocs_typed` entirely when any `ioc.N` index is redacted.
+- **`ps_encoded` scrub extended:** `_sanitize_report` now also rewrites `ps_encoded:<b64>` values in `iocs_typed[].value` so the raw base64 payload never leaks to JSON/disk via the new field.
+
 ### Changed
 - Project metadata: added a LinkedIn link to the package URLs (shown in the PyPI sidebar) and a README **Author** section; removed the personal email from `authors` — contact is via GitHub issues / LinkedIn.
 

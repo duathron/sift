@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import uuid
 
-from sift.models import Alert, AlertSeverity
+from sift.models import IOC, Alert, AlertSeverity
 from sift.pipeline.ioc_extractor import (
     _refang,
     detect_ioc_type,
@@ -440,3 +440,47 @@ class TestRefang:
         """Running _refang twice on an already-clean URL is a no-op."""
         url = "https://google.com"
         assert _refang(_refang(url)) == _refang(url) == url
+
+
+# ---------------------------------------------------------------------------
+# Task 3 — enrich_alert_iocs populates iocs_typed
+# ---------------------------------------------------------------------------
+
+
+class TestEnrichAlertIocsTyped:
+    def test_enrich_populates_iocs_typed(self):
+        """After enrich_alert_iocs, iocs_typed has entries with correct types."""
+        sha256 = "a" * 64
+        alert = make_alert(
+            title="Connection from 1.2.3.4",
+            description=f"Dropped file hash: {sha256}",
+        )
+        enriched = enrich_alert_iocs(alert)
+
+        # iocs_typed must be populated
+        assert enriched.iocs_typed, "iocs_typed must not be empty after enrichment"
+
+        # The set of typed values must equal the set of iocs strings
+        typed_values = {ioc.value for ioc in enriched.iocs_typed}
+        assert typed_values == set(enriched.iocs), "iocs_typed values must match iocs strings"
+
+        # Every entry must have type == detect_ioc_type(value)
+        for ioc in enriched.iocs_typed:
+            expected_type = detect_ioc_type(ioc.value)
+            assert ioc.type == expected_type, (
+                f"Type mismatch for {ioc.value!r}: got {ioc.type!r}, expected {expected_type!r}"
+            )
+
+    def test_enrich_typed_values_are_ioc_instances(self):
+        """iocs_typed entries must be IOC model instances."""
+        alert = make_alert(title="Test 185.220.101.47")
+        enriched = enrich_alert_iocs(alert)
+        for entry in enriched.iocs_typed:
+            assert isinstance(entry, IOC)
+
+    def test_enrich_iocs_unchanged(self):
+        """enrich_alert_iocs must NOT change the type/shape of iocs (still list[str])."""
+        alert = make_alert(title="Test 185.220.101.47")
+        enriched = enrich_alert_iocs(alert)
+        assert isinstance(enriched.iocs, list)
+        assert all(isinstance(v, str) for v in enriched.iocs)

@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sift.models import (
+    IOC,
     Alert,
     AlertSeverity,
     Cluster,
@@ -243,3 +244,70 @@ class TestTriageReportAlertsAfterDedup:
         """No duplicates: after_dedup == ingested."""
         report = make_report(clusters=[], alerts_ingested=50, alerts_after_dedup=50)
         assert report.alerts_after_dedup == 50
+
+
+# ---------------------------------------------------------------------------
+# IOC model (Task 1)
+# ---------------------------------------------------------------------------
+
+
+class TestIOCModel:
+    def test_ioc_model_value_and_type(self):
+        ioc = IOC(value="1.2.3.4", type="ipv4")
+        assert ioc.model_dump() == {"value": "1.2.3.4", "type": "ipv4"}
+
+    def test_ioc_model_hash(self):
+        sha = "a" * 64
+        ioc = IOC(value=sha, type="hash_sha256")
+        assert ioc.value == sha
+        assert ioc.type == "hash_sha256"
+
+    def test_ioc_model_domain(self):
+        ioc = IOC(value="evil.com", type="domain")
+        assert ioc.model_dump() == {"value": "evil.com", "type": "domain"}
+
+
+# ---------------------------------------------------------------------------
+# Alert.iocs_typed (Task 2)
+# ---------------------------------------------------------------------------
+
+
+class TestAlertIocsTyped:
+    def test_alert_has_iocs_typed_default_empty(self):
+        alert = make_alert()
+        assert alert.iocs_typed == []
+
+    def test_alert_iocs_typed_accepts_ioc_list(self):
+        ioc = IOC(value="1.2.3.4", type="ip")
+        alert = Alert(
+            id="x",
+            title="Test",
+            iocs=["1.2.3.4"],
+            iocs_typed=[ioc],
+        )
+        assert len(alert.iocs_typed) == 1
+        assert alert.iocs_typed[0].value == "1.2.3.4"
+
+
+# ---------------------------------------------------------------------------
+# Cluster.iocs_typed (Task 2)
+# ---------------------------------------------------------------------------
+
+
+class TestClusterIocsTyped:
+    def test_cluster_has_iocs_typed_default_empty(self):
+        cluster = make_cluster()
+        assert cluster.iocs_typed == []
+
+    def test_cluster_iocs_typed_accepts_ioc_list(self):
+        ioc = IOC(value="evil.com", type="domain")
+        cluster = Cluster(
+            id="c1",
+            label="Test",
+            alerts=[make_alert()],
+            priority=ClusterPriority.HIGH,
+            score=5.0,
+            iocs_typed=[ioc],
+        )
+        assert len(cluster.iocs_typed) == 1
+        assert cluster.iocs_typed[0].type == "domain"

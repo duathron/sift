@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sift.models import (
+    IOC,
     Alert,
     AlertSeverity,
     Cluster,
@@ -566,3 +567,58 @@ class TestEdgeCases:
         # Must be valid JSON (no unescaped quotes)
         bundle = json.loads(json_str)
         assert bundle["type"] == "bundle"
+
+
+# ---------------------------------------------------------------------------
+# Task 8 — STIX uses ioc.type from iocs_typed (no re-classify when available)
+# ---------------------------------------------------------------------------
+
+
+class TestStixUsesTypedIocType:
+    def test_stix_uses_typed_ioc_type_sha256(self):
+        """STIX indicator pattern uses hash_sha256 from iocs_typed, not re-classify."""
+        sha256 = "a" * 64
+        cluster = make_cluster(
+            ClusterPriority.HIGH,
+            iocs=[sha256],
+        )
+        cluster = cluster.model_copy(update={"iocs_typed": [IOC(value=sha256, type="hash_sha256")]})
+        report = make_report([cluster])
+        bundle = json.loads(to_stix_bundle_string(report))
+
+        indicators = [obj for obj in bundle["objects"] if obj["type"] == "indicator"]
+        assert indicators, "Expected at least one STIX indicator"
+        sha_indicator = next((i for i in indicators if sha256 in i["pattern"]), None)
+        assert sha_indicator is not None, f"Expected indicator for {sha256!r}"
+        assert "SHA-256" in sha_indicator["pattern"], (
+            f"Expected SHA-256 in STIX pattern, got: {sha_indicator['pattern']!r}"
+        )
+
+    def test_stix_fallback_when_iocs_typed_empty(self):
+        """When iocs_typed is empty, STIX still emits correct indicators via fallback."""
+        sha256 = "b" * 64
+        cluster = make_cluster(ClusterPriority.HIGH, iocs=[sha256])
+        # No iocs_typed — fallback to detect_ioc_type
+        assert not cluster.iocs_typed, "Precondition: iocs_typed empty"
+        report = make_report([cluster])
+        bundle = json.loads(to_stix_bundle_string(report))
+
+        indicators = [obj for obj in bundle["objects"] if obj["type"] == "indicator"]
+        sha_indicator = next((i for i in indicators if sha256 in i["pattern"]), None)
+        assert sha_indicator is not None
+        assert "SHA-256" in sha_indicator["pattern"]
+
+    def test_stix_indicators_not_silently_dropped_when_iocs_typed_partial(self):
+        """All iocs string entries get indicators even if only some are in iocs_typed."""
+        sha256 = "c" * 64
+        domain = "evil.com"
+        cluster = make_cluster(ClusterPriority.HIGH, iocs=[sha256, domain])
+        # Only sha256 in iocs_typed — domain gets fallback
+        cluster = cluster.model_copy(update={"iocs_typed": [IOC(value=sha256, type="hash_sha256")]})
+        report = make_report([cluster])
+        bundle = json.loads(to_stix_bundle_string(report))
+        indicators = [obj for obj in bundle["objects"] if obj["type"] == "indicator"]
+        # Both sha256 and domain must have indicators
+        patterns = [i["pattern"] for i in indicators]
+        assert any(sha256 in p for p in patterns), "sha256 indicator missing"
+        assert any("evil.com" in p for p in patterns), "domain indicator missing"

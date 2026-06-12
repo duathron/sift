@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import json
+import uuid
+from datetime import datetime, timezone
+
 import pytest
 
 from sift.config import AlertRedactionConfig, AppConfig
-from sift.models import Alert, AlertSeverity
+from sift.models import IOC, Alert, AlertSeverity, Cluster, ClusterPriority, TriageReport
+from sift.output.export import export_json
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -205,3 +210,69 @@ class TestRedactionRegressions:
         redacted = alert.redact(["user", "raw"])
         assert redacted.user == "[REDACTED]"
         assert redacted.raw == {}  # explicit 'raw' overrides per-key redaction
+
+
+# ---------------------------------------------------------------------------
+# Task 5 — Redacting iocs MUST also blank iocs_typed (security: no bypass)
+# ---------------------------------------------------------------------------
+
+
+def _make_alert_with_typed_iocs() -> Alert:
+    """Alert with both iocs and iocs_typed populated."""
+    return Alert(
+        id="sec-test-1",
+        title="Security Test Alert",
+        severity=AlertSeverity.HIGH,
+        iocs=["1.2.3.4", "evil.com"],
+        iocs_typed=[
+            IOC(value="1.2.3.4", type="ip"),
+            IOC(value="evil.com", type="domain"),
+        ],
+    )
+
+
+class TestRedactionCoversIocsTyped:
+    def test_redacting_iocs_also_blanks_iocs_typed(self):
+        """redact(['iocs']) must blank BOTH iocs AND iocs_typed (no bypass)."""
+        alert = _make_alert_with_typed_iocs()
+        redacted = alert.redact(["iocs"])
+
+        assert redacted.iocs == [], f"iocs must be [], got {redacted.iocs!r}"
+        assert redacted.iocs_typed == [], f"iocs_typed must be [], got {redacted.iocs_typed!r}"
+
+    def test_redacting_iocs_typed_directly_blanks_iocs_typed(self):
+        """redact(['iocs_typed']) only blanks iocs_typed (iocs unchanged)."""
+        alert = _make_alert_with_typed_iocs()
+        redacted = alert.redact(["iocs_typed"])
+
+        assert redacted.iocs_typed == [], f"iocs_typed must be [], got {redacted.iocs_typed!r}"
+        assert redacted.iocs == ["1.2.3.4", "evil.com"], "iocs must be unchanged when only iocs_typed is redacted"
+
+    def test_redacted_iocs_typed_not_in_json(self):
+        """After redacting iocs, no IOC values appear in iocs_typed in export_json."""
+        alert = _make_alert_with_typed_iocs()
+        redacted = alert.redact(["iocs"])
+        cluster = Cluster(
+            id=str(uuid.uuid4()),
+            label="Test",
+            alerts=[redacted],
+            priority=ClusterPriority.HIGH,
+            score=10.0,
+        )
+        report = TriageReport(
+            alerts_ingested=1,
+            alerts_after_dedup=1,
+            clusters=[cluster],
+            analyzed_at=datetime.now(timezone.utc),
+        )
+        data = json.loads(export_json(report))
+        alert_data = data["clusters"][0]["alerts"][0]
+        assert alert_data["iocs"] == []
+        assert alert_data["iocs_typed"] == []
+
+    def test_iocs_typed_is_redactable_field(self):
+        """iocs_typed must be accepted by redact() without raising ValueError."""
+        alert = _make_alert_with_typed_iocs()
+        # redact(['iocs_typed']) must not raise — it's a valid redaction field
+        redacted = alert.redact(["iocs_typed"])
+        assert redacted.iocs_typed == []

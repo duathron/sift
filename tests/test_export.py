@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import csv
 import io
 import json
@@ -10,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from sift.models import (
+    IOC,
     Alert,
     AlertSeverity,
     Cluster,
@@ -182,3 +184,70 @@ class TestExportClusterCsv:
         assert out_file.exists()
         content = out_file.read_text()
         assert "cluster_id" in content
+
+
+# ---------------------------------------------------------------------------
+# Task 7 — ps_encoded scrub must cover iocs_typed[].value (no raw b64 leak)
+# ---------------------------------------------------------------------------
+
+
+def _make_ps_ioc() -> str:
+    """Build a ps_encoded:<b64> IOC value (100+ chars required by extractor)."""
+    payload = b"Write-Host 'evil'" * 10  # ensures 100+ base64 chars
+    b64 = base64.b64encode(payload).decode()
+    return f"ps_encoded:{b64}"
+
+
+class TestPsEncodedScrubInIocsTyped:
+    def test_ps_encoded_scrubbed_in_iocs_typed(self):
+        """export_json must scrub ps_encoded raw b64 from both iocs AND iocs_typed[].value."""
+        ps_ioc = _make_ps_ioc()
+        raw_b64 = ps_ioc[len("ps_encoded:") :]
+
+        alert = Alert(
+            id=str(uuid.uuid4()),
+            title="PS test",
+            severity=AlertSeverity.HIGH,
+            iocs=[ps_ioc],
+            iocs_typed=[IOC(value=ps_ioc, type="ps_encoded")],
+        )
+        cluster = make_cluster(
+            ClusterPriority.HIGH,
+            alerts=[alert],
+            iocs=[ps_ioc],
+        )
+        # Also set iocs_typed on the cluster
+        cluster = cluster.model_copy(update={"iocs_typed": [IOC(value=ps_ioc, type="ps_encoded")]})
+        report = make_report([cluster])
+
+        json_out = export_json(report)
+
+        # Raw base64 must NEVER appear in output
+        assert raw_b64 not in json_out, "Raw base64 payload leaked into JSON output"
+
+        # Both iocs and iocs_typed must have the stub form
+        data = json.loads(json_out)
+        alert_data = data["clusters"][0]["alerts"][0]
+        assert all(v.startswith("ps_encoded:") and len(v) < len(ps_ioc) for v in alert_data["iocs"])
+        assert all(
+            entry["value"].startswith("ps_encoded:") and len(entry["value"]) < len(ps_ioc)
+            for entry in alert_data["iocs_typed"]
+        )
+
+    def test_non_ps_ioc_unchanged_in_iocs_typed(self):
+        """Non-ps_encoded IOCs must pass through sanitization unchanged."""
+        ioc = "185.220.101.47"
+        alert = Alert(
+            id=str(uuid.uuid4()),
+            title="IP test",
+            severity=AlertSeverity.HIGH,
+            iocs=[ioc],
+            iocs_typed=[IOC(value=ioc, type="ip")],
+        )
+        cluster = make_cluster(ClusterPriority.HIGH, alerts=[alert], iocs=[ioc])
+        cluster = cluster.model_copy(update={"iocs_typed": [IOC(value=ioc, type="ip")]})
+        report = make_report([cluster])
+
+        data = json.loads(export_json(report))
+        typed_entries = data["clusters"][0]["alerts"][0]["iocs_typed"]
+        assert typed_entries[0]["value"] == ioc

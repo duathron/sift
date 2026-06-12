@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from sift.config import ClusteringConfig
-from sift.models import Alert, AlertSeverity, ClusterPriority
+from sift.models import IOC, Alert, AlertSeverity, ClusterPriority
 from sift.pipeline.clusterer import cluster_alerts
 
 # ---------------------------------------------------------------------------
@@ -260,3 +260,48 @@ class TestSortOrder:
         clusters = cluster_alerts([a1, a2, a3, a4])
         scores = [c.score for c in clusters]
         assert scores == sorted(scores, reverse=True)
+
+
+# ---------------------------------------------------------------------------
+# Task 4 — Cluster.iocs_typed aggregation (dedup by value)
+# ---------------------------------------------------------------------------
+
+
+class TestClusterIocsTyped:
+    def _make_enriched_alert(self, alert_id: str, iocs_typed: list[IOC]) -> Alert:
+        """Create an Alert with pre-populated iocs_typed (simulating post-enrich state)."""
+        ioc_strings = [ioc.value for ioc in iocs_typed]
+        return Alert(
+            id=alert_id,
+            title="Test",
+            iocs=ioc_strings,
+            iocs_typed=iocs_typed,
+        )
+
+    def test_cluster_iocs_typed_union_dedup_by_value(self):
+        """Two alerts sharing one IOC value → cluster iocs_typed has it once."""
+        shared_ioc = IOC(value="185.220.101.47", type="ip")
+        unique_ioc = IOC(value="evil.com", type="domain")
+
+        a1 = self._make_enriched_alert("a1", [shared_ioc])
+        a2 = self._make_enriched_alert("a2", [shared_ioc, unique_ioc])
+
+        clusters = cluster_alerts([a1, a2])
+        assert len(clusters) == 1
+        cluster = clusters[0]
+
+        typed_values = [ioc.value for ioc in cluster.iocs_typed]
+        assert typed_values.count("185.220.101.47") == 1, "shared IOC must appear exactly once"
+        assert "evil.com" in typed_values
+        # Types must be preserved
+        type_by_value = {ioc.value: ioc.type for ioc in cluster.iocs_typed}
+        assert type_by_value["185.220.101.47"] == "ip"
+        assert type_by_value["evil.com"] == "domain"
+
+    def test_cluster_iocs_string_still_unchanged(self):
+        """Existing iocs (strings) must still be the union dedup across alerts."""
+        a1 = make_alert("a1", iocs=["185.220.101.47"])
+        a2 = make_alert("a2", iocs=["185.220.101.47", "evil.com"])
+        clusters = cluster_alerts([a1, a2])
+        assert len(clusters) == 1
+        assert set(clusters[0].iocs) == {"185.220.101.47", "evil.com"}

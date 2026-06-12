@@ -97,14 +97,18 @@ class PromptInjectionDetector:
         # Create updated alert with redacted values
         alert_dict = alert.model_dump()
 
+        # Track if any ioc.N index was redacted — if so, clear iocs_typed entirely
+        any_ioc_index_redacted = False
+
         for field_name in fields_to_redact:
             if field_name.startswith("ioc."):
-                # Handle IOC list entries
+                # Handle IOC list entries (string iocs path — unchanged)
                 try:
                     idx = int(field_name[4:])
                     iocs_list = alert_dict.get("iocs", [])
                     if 0 <= idx < len(iocs_list):
                         iocs_list[idx] = "[REDACTED]"
+                    any_ioc_index_redacted = True
                 except (ValueError, TypeError):
                     pass
             elif "." in field_name:
@@ -117,6 +121,10 @@ class PromptInjectionDetector:
                 # Handle top-level fields
                 if field_name in alert_dict:
                     alert_dict[field_name] = "[REDACTED]"
+
+        # If any ioc.N was redacted, clear iocs_typed entirely (security: no bypass via typed field)
+        if any_ioc_index_redacted:
+            alert_dict["iocs_typed"] = []
 
         return Alert(**alert_dict)
 

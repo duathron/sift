@@ -301,6 +301,13 @@ def _render_cluster_detail(
     # Top IOCs
     if cluster.iocs:
         lines.append("\n[bold cyan]IOCs[/bold cyan] [dim](top 5)[/dim]")
+        # Type-count header (SOC top ask): only rendered when iocs_typed is available
+        if cluster.iocs_typed:
+            type_counts: dict[str, int] = {}
+            for ioc in cluster.iocs_typed:
+                type_counts[ioc.type] = type_counts.get(ioc.type, 0) + 1
+            count_parts = [f"[dim]{t}[/dim] ×{n}" for t, n in sorted(type_counts.items())]
+            lines.append("  " + "  ".join(count_parts))
         for ioc in cluster.iocs[:5]:
             display = _fmt_ps_encoded(ioc) if ioc.startswith("ps_encoded:") else ioc
             lines.append(f"  [yellow]{display}[/yellow]")

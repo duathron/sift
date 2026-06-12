@@ -731,7 +731,11 @@ def enrich_alert_iocs(alert: "Alert") -> "Alert":
     # Merge with any pre-existing IOCs already on the alert
     extracted.update(alert.iocs)
 
-    return alert.model_copy(update={"iocs": sorted(extracted)})
+    sorted_iocs = sorted(extracted)
+    from sift.models import IOC  # avoid circular at module level
+
+    typed = [IOC(value=v, type=detect_ioc_type(v)) for v in sorted_iocs]
+    return alert.model_copy(update={"iocs": sorted_iocs, "iocs_typed": typed})
 
 
 def enrich_alerts_iocs(alerts: "list[Alert]") -> "list[Alert]":

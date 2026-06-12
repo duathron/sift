@@ -29,6 +29,18 @@ class AlertSeverity(str, Enum):
 
 
 # ---------------------------------------------------------------------------
+# Typed IOC
+# ---------------------------------------------------------------------------
+
+
+class IOC(BaseModel):
+    """A typed indicator of compromise: the value plus its detected type."""
+
+    value: str
+    type: str  # one of detect_ioc_type()'s 16 labels
+
+
+# ---------------------------------------------------------------------------
 # Raw / normalized alert
 # ---------------------------------------------------------------------------
 
@@ -48,18 +60,20 @@ class Alert(BaseModel):
     host: Optional[str] = None
     category: Optional[str] = None  # e.g. "Malware", "Phishing", "Lateral Movement"
     iocs: list[str] = Field(default_factory=list)  # extracted IOCs (IPs, hashes, URLs, domains)
+    iocs_typed: list[IOC] = Field(default_factory=list)  # typed IOCs (value + detected type)
     technique_ids: list[str] = Field(default_factory=list)  # ATT&CK technique IDs
     raw: dict = Field(default_factory=dict)  # original untouched record
     _duplicate_of: Optional[str] = PrivateAttr(default=None)
 
     _REDACTABLE_FIELDS: frozenset[str] = frozenset(
-        {"title", "description", "source_ip", "dest_ip", "user", "host", "iocs", "raw"}
+        {"title", "description", "source_ip", "dest_ip", "user", "host", "iocs", "iocs_typed", "raw"}
     )
 
     def redact(self, fields: list[str]) -> "Alert":
         """Return a copy with the specified fields redacted.
 
-        String fields → ``"[REDACTED]"``, ``iocs`` → ``[]``, ``raw`` → ``{}``.
+        String fields → ``"[REDACTED]"``, ``iocs`` → ``[]``, ``iocs_typed`` → ``[]``,
+        ``raw`` → ``{}``.
         Unknown field names raise ``ValueError``.
         """
         unknown = [f for f in fields if f not in self._REDACTABLE_FIELDS]
@@ -69,7 +83,11 @@ class Alert(BaseModel):
         updates: dict = {}
         for field in fields:
             if field == "iocs":
-                updates[field] = []
+                # Blank both iocs AND iocs_typed in lockstep (security: no bypass via new field)
+                updates["iocs"] = []
+                updates["iocs_typed"] = []
+            elif field == "iocs_typed":
+                updates["iocs_typed"] = []
             elif field == "raw":
                 updates[field] = {}
             else:
@@ -78,7 +96,7 @@ class Alert(BaseModel):
         # Also redact matching key names inside alert.raw so that IOC extraction
         # cannot re-surface values from the original untouched record.
         # (e.g. redacting "user" clears raw["user"] if it exists)
-        named_fields = [f for f in fields if f not in ("raw", "iocs")]
+        named_fields = [f for f in fields if f not in ("raw", "iocs", "iocs_typed")]
         if named_fields and self.raw and "raw" not in updates:
             raw_copy = dict(self.raw)
             for f in named_fields:
@@ -148,6 +166,7 @@ class Cluster(BaseModel):
     confidence: float = 1.0  # clustering confidence [0.0–1.0]
     techniques: list[TechniqueRef] = Field(default_factory=list)
     iocs: list[str] = Field(default_factory=list)  # all unique IOCs across alerts
+    iocs_typed: list[IOC] = Field(default_factory=list)  # typed IOCs (value + detected type)
     first_seen: Optional[datetime] = None
     last_seen: Optional[datetime] = None
     cluster_reason: str = ""  # why alerts were grouped

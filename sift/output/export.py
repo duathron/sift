@@ -74,10 +74,20 @@ def _sanitize_report(report: "TriageReport") -> "TriageReport":
     def _scrub(iocs: list[str]) -> list[str]:
         return [_ps_encoded_stub(i) if i.startswith("ps_encoded:") else i for i in iocs]
 
+    def _scrub_typed(iocs_typed: list) -> list:
+        result = []
+        for ioc in iocs_typed:
+            if ioc.value.startswith("ps_encoded:"):
+                ioc = ioc.model_copy(update={"value": _ps_encoded_stub(ioc.value)})
+            result.append(ioc)
+        return result
+
     for cluster in sanitized.clusters:
         cluster.iocs = _scrub(cluster.iocs)
+        cluster.iocs_typed = _scrub_typed(cluster.iocs_typed)
         for alert in cluster.alerts:
             alert.iocs = _scrub(alert.iocs)
+            alert.iocs_typed = _scrub_typed(alert.iocs_typed)
 
     return sanitized
 
