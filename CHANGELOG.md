@@ -7,6 +7,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.0](https://github.com/duathron/sift/compare/v1.2.1...v1.3.0) (2026-06-12)
+
+
+### Features
+
+* --version flag, tuning config knobs, html/md handover reports (Tier-2) ([d2ebc4c](https://github.com/duathron/sift/commit/d2ebc4cf9a5e4628e2a5223aeff86a1c9c9dc548))
+* **models:** typed IOCs — additive iocs_typed on Alert + Cluster (S1) ([ea47f27](https://github.com/duathron/sift/commit/ea47f27613f31d8514b87c8ff2c288294ecc55f6))
+
+
+### Bug Fixes
+
+* **security:** value-level redaction — suppress raw, gate extraction, drop matching IOCs ([8543e4f](https://github.com/duathron/sift/commit/8543e4f8504c5623e52cd7c9f209623387765c8c))
+
+
+### Documentation
+
+* document on-main 1.3.0 features (typed IOCs, html/md, redaction) ([a4ae9ac](https://github.com/duathron/sift/commit/a4ae9ac547679bcf1a48313fd3895cc91c77d7e5))
+
 ## [1.2.1](https://github.com/duathron/sift/compare/v1.2.0...v1.2.1) (2026-06-07)
 
 
