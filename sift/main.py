@@ -31,6 +31,32 @@ console = Console(stderr=True)
 
 
 # ---------------------------------------------------------------------------
+# App callback — eager --version flag
+# ---------------------------------------------------------------------------
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"sift v{__version__}")
+        raise typer.Exit(0)
+
+
+@app.callback()
+def _app_callback(
+    version: Annotated[
+        Optional[bool],
+        typer.Option(
+            "--version",
+            callback=_version_callback,
+            is_eager=True,
+            help="Show version and exit.",
+        ),
+    ] = None,
+) -> None:
+    """AI-powered alert triage summarizer for SOC teams."""
+
+
+# ---------------------------------------------------------------------------
 # Format enum
 # ---------------------------------------------------------------------------
 
@@ -1369,9 +1395,34 @@ def _render_output(
             console.print(f"[red]Error:[/red] STIX export failed: {e}")
             raise typer.Exit(2)
 
+    elif fmt == "html":
+        from .output.html import render_html_report
+
+        data = render_html_report(report)
+        if output_path:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(data, encoding="utf-8")
+            if not quiet:
+                console.print(f"[dim]HTML report saved → {output_path}[/dim]")
+        else:
+            print(data)
+
+    elif fmt == "md":
+        from .output.md import render_md_report
+
+        data = render_md_report(report)
+        if output_path:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(data, encoding="utf-8")
+            if not quiet:
+                console.print(f"[dim]Markdown report saved → {output_path}[/dim]")
+        else:
+            print(data)
+
     else:
         console.print(
-            f"[red]Error:[/red] Unknown output format '{format}'. Valid formats: rich | console | json | csv | stix"
+            f"[red]Error:[/red] Unknown output format '{format}'. "
+            "Valid formats: rich | console | json | csv | stix | html | md"
         )
         raise typer.Exit(2)
 

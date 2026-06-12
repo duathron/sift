@@ -26,7 +26,11 @@ class TuneResult:
 
 
 # ---------------------------------------------------------------------------
-# Thresholds
+# Thresholds — module-level constants are the canonical defaults.
+# They are also reflected in ClusteringConfig fields (same values) so users
+# can override them in config.yaml.  auto_tune() reads from cfg when present,
+# falling back to these constants when cfg is None — guaranteeing byte-identical
+# behaviour at default config.
 # ---------------------------------------------------------------------------
 
 _DROP_RAW_BYTES = 500 * 1024 * 1024  # 500 MB — drop raw dict above this
@@ -57,6 +61,8 @@ def auto_tune(
         Size of the largest single file (for sub-file chunking decision).
     cfg:
         ClusteringConfig from user config.yaml (provides custom thresholds).
+        When supplied, the new ``drop_raw_threshold_mb``, ``chunk_threshold_mb``,
+        and ``default_chunk_size`` fields override the module-level constants.
     user_chunk_size:
         Explicit --chunk-size from CLI (None = not set by user).
     user_drop_raw:
@@ -68,14 +74,21 @@ def auto_tune(
     """
     reasons: list[str] = []
 
+    # Resolve effective thresholds: cfg fields > module constants
+    _mb = 1024 * 1024
+    drop_raw_bytes = (cfg.drop_raw_threshold_mb * _mb) if cfg else _DROP_RAW_BYTES
+    chunk_bytes = (cfg.chunk_threshold_mb * _mb) if cfg else _CHUNK_BYTES
+    default_chunk_sz = cfg.default_chunk_size if cfg else _DEFAULT_CHUNK_SIZE
+
     # --- Drop raw ---
     if user_drop_raw is not None:
         drop_raw = user_drop_raw
         if user_drop_raw:
             reasons.append("--drop-raw set by user")
-    elif total_bytes > _DROP_RAW_BYTES:
+    elif total_bytes > drop_raw_bytes:
         drop_raw = True
-        reasons.append(f"auto drop-raw: input {total_bytes / (1024**3):.1f} GB > 500 MB threshold")
+        drop_mb = drop_raw_bytes // _mb
+        reasons.append(f"auto drop-raw: input {total_bytes / (1024**3):.1f} GB > {drop_mb} MB threshold")
     else:
         drop_raw = False
 
@@ -87,14 +100,15 @@ def auto_tune(
     elif cfg_chunk > 0:
         chunk_size = cfg_chunk
         reasons.append(f"chunk_size {chunk_size} from config.yaml")
-    elif total_bytes > _CHUNK_BYTES:
-        chunk_size = _DEFAULT_CHUNK_SIZE
-        reasons.append(f"auto chunk-size: input {total_bytes / (1024**3):.1f} GB > 200 MB threshold")
+    elif total_bytes > chunk_bytes:
+        chunk_size = default_chunk_sz
+        chunk_mb = chunk_bytes // _mb
+        reasons.append(f"auto chunk-size: input {total_bytes / (1024**3):.1f} GB > {chunk_mb} MB threshold")
     else:
         chunk_size = 0
 
     # --- Sub-file chunking ---
-    sub_threshold = (cfg.sub_chunk_threshold_mb * 1024 * 1024) if cfg else _SUB_CHUNK_BYTES
+    sub_threshold = (cfg.sub_chunk_threshold_mb * _mb) if cfg else _SUB_CHUNK_BYTES
     sub_size = cfg.sub_chunk_size if cfg else _DEFAULT_SUB_CHUNK_SIZE
     if largest_file_bytes > sub_threshold:
         sub_chunk = True

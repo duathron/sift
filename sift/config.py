@@ -56,6 +56,10 @@ class ClusteringConfig(BaseModel):
     chunk_size: int = 0  # 0 = no chunking; >0 = process in batches of this size
     sub_chunk_threshold_mb: int = 500  # files above this get automatic sub-file chunking
     sub_chunk_size: int = 100_000  # alerts per sub-chunk batch (within a single large file)
+    # Auto-tuning thresholds (lifted from tuning.py module constants so users can override in config.yaml)
+    drop_raw_threshold_mb: int = 500  # total input above this → drop raw dicts to save RAM
+    chunk_threshold_mb: int = 200  # total input above this → enable chunking
+    default_chunk_size: int = 100_000  # alerts per chunk when auto-chunking kicks in
 
 
 class SummarizeConfig(BaseModel):
