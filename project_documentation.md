@@ -1,8 +1,8 @@
 # sift — Project History and Documentation
 
 **Author:** Christian Huhn (GitHub: [duathron](https://github.com/duathron))
-**Version:** 1.2.0
-**Date:** 2026-06-05
+**Version:** 1.2.1 (released) / 1.3.0 pending (on-main, unreleased)
+**Date:** 2026-06-12
 **Repository:** https://github.com/duathron/sift
 
 ---
@@ -22,7 +22,7 @@ sift is a Python CLI that ingests raw security alerts, deduplicates and clusters
 - **The core is rule-based, not AI.** Normalization, deduplication, IOC extraction, clustering, and prioritization are all deterministic. sift produces a complete, useful triage report with no LLM and no network access.
 - **AI summarization is strictly opt-in** via the `--summarize` flag. Without it, sift runs entirely offline. The base install works exactly the same whether or not an LLM is configured.
 - **sift works standalone.** It needs neither barb nor vex installed. An optional `--enrich` flag integrates them (barb for phishing-URL analysis, vex for VirusTotal reputation) when present, but standalone operation is always first-class.
-- **Alert data is never sent to a cloud LLM without a redaction-config check.** Field-level redaction and a prompt-injection scanner sit in front of every LLM submission; a local-only provider (Ollama) and a deterministic template provider are available for sensitive environments.
+- **Alert data is never sent to a cloud LLM without a redaction-config check.** Field-level redaction and a prompt-injection scanner sit in front of every LLM submission; a local-only provider (Ollama) and a deterministic template provider are available for sensitive environments. When `--redact-fields` is active, `alert.raw` is suppressed from every output format and the IOC extractor's raw-dict pass is gated — see the Redaction section.
 
 sift is the third stage of a SOC analyst trilogy — barb (URL analysis) → vex (IOC reputation) → sift (alert triage). Each tool stands alone; together they cover URL analysis → IOC reputation → alert prioritization in one scriptable pipeline.
 
@@ -78,7 +78,7 @@ sift/
 ├── banner.py                  # SIFT ASCII banner (TTY-aware suppression)
 ├── config.py                  # Pydantic AppConfig; load/save; delegates skeleton to shipwright_kit.config
 ├── cache.py                   # SQLite result cache (TTL, thread-safe RLock)
-├── models.py                  # Pydantic v2 models (Alert, Cluster, TriageReport, …)
+├── models.py                  # Pydantic v2 models (IOC, Alert, Cluster, TriageReport, …)
 ├── filtering.py               # boolean filter DSL for post-triage cluster selection
 ├── metrics.py                 # sift metrics — cluster / IOC distribution statistics
 ├── tuning.py                  # auto-tuning of chunk size / drop-raw by input size
@@ -86,11 +86,14 @@ sift/
 ├── version_check.py           # PyPI version-check advisory
 ├── normalizers/               # NormalizerProtocol: generic JSON, Splunk, CSV (+ Sysmon aliases)
 ├── pipeline/                  # dedup, ioc_extractor, clusterer, prioritizer, chunker, attck
+│   └── redaction.py           # Phase 1 value-level redaction: raw-suppress, extraction-gate, IOC-drop
 ├── summarizers/               # SummarizerProtocol: template, anthropic, openai, ollama, mock
 │                              #   + prompt builder, JSON-schema validation, injection_detector
 ├── enrichers/                 # barb_bridge, vex_bridge, runner, local_heuristics (EnricherProtocol)
 ├── ticketing/                 # TheHive 5, Jira, dry-run providers + mapper (TicketingProtocol)
-└── output/                    # formatter (Rich + console), export (JSON/CSV), STIX 2.1
+└── output/                    # formatter (Rich + console), export (JSON/CSV/HTML/MD), STIX 2.1
+    ├── html.py                # HTML shift-handover report (self-contained, embedded CSS)
+    └── md.py                  # Markdown shift-handover report
 
 eval/                          # detection-quality gates (run in CI), uses shipwright_kit.eval
 ├── run_injection_eval.py      # prompt-injection precision/recall
@@ -115,7 +118,9 @@ The `SummarizerProtocol` is backed by four providers — Anthropic Claude, OpenA
 
 #### Redaction Before Any Cloud LLM
 
-Before alert data reaches an LLM prompt, two guards run: field-level redaction (`--redact-fields`, or persisted config defaults) replaces named fields with `[REDACTED]`, and a prompt-injection scanner inspects every alert field. The constraint is hard: *never send alert data to a cloud LLM without a redaction-config check.* PowerShell-encoded base-64 payloads are sanitised to a SHA-256 stub before they can reach any prompt, and on a detected injection pattern the affected field is redacted and summarization can fall back to the template provider. The injection engine itself is single-sourced from `shipwright_kit.security.injection` (see below).
+Before alert data reaches an LLM prompt, two guards run: field-level redaction (`--redact-fields`, or persisted config defaults) replaces named fields with `[REDACTED]`, and a prompt-injection scanner inspects every alert field. The constraint is hard: *sift never sends alert data to a cloud LLM without a redaction-config check.* PowerShell-encoded base-64 payloads are sanitised to a SHA-256 stub before they can reach any prompt, and on a detected injection pattern the affected field is redacted and summarization can fall back to the template provider. The injection engine itself is single-sourced from `shipwright_kit.security.injection` (see below).
+
+On main (pending 1.3.0), `--redact-fields` also closes three output-path leak channels via `pipeline/redaction.py`: `alert.raw` is blanked before extraction (Channel 1), the IOC extractor's raw-dict pass is automatically gated by the blank raw (Channel 2), and extracted IOCs matching a pre-redaction field value are dropped (Channel 3). Two residuals remain in Phase 1 — see the "On-Main" section and "Known residuals" for the exact scope and operator fix. `redaction.redact_raw: true` in `config.yaml` is the forensic override that keeps raw in the output even when redaction is active.
 
 #### Configuration with Priority Hierarchy
 
@@ -161,7 +166,7 @@ The extractor recognises a wide indicator vocabulary: IPv4/IPv6, domains, URLs, 
 
 ### Output formats and filtering
 
-Five output formats: `rich` (default), `console`, `json`, `csv`, and STIX 2.1. PowerShell-encoded payloads are sanitised in every export path by default; `--include-raw-payload` is the forensic escape hatch. A boolean filter DSL (`--filter 'priority >= HIGH AND category IN (malware, phishing)'`) selects clusters post-triage over the fields `priority`, `category`, `ioc_count`, `alert_count`.
+Seven output formats: `rich` (default), `console`, `json`, `csv`, STIX 2.1, `html`, and `md`. PowerShell-encoded payloads are sanitised in every export path by default; `--include-raw-payload` is the forensic escape hatch. The two handover formats (`html` and `md`) are available on main, pending v1.3.0; they accept `-f html` / `-f md` on the `triage` command. A boolean filter DSL (`--filter 'priority >= HIGH AND category IN (malware, phishing)'`) selects clusters post-triage over the fields `priority`, `category`, `ioc_count`, `alert_count`.
 
 ### Enrichment (barb + vex)
 
@@ -248,6 +253,98 @@ A real packaging bug was caught and fixed before publish: `shipwright-kit` had b
 
 ---
 
+## On-Main (unreleased — pending v1.3.0)
+
+The following items are merged to main and included in the open release-please 1.3.0 PR. They are not yet on PyPI. The installed v1.2.1 build does not include them.
+
+### S1 — Typed IOCs (additive, MeetUp 2026-06-11, 4-1 vote)
+
+`IOC(value: str, type: str)` is a new Pydantic model. `Alert` and `Cluster` gain an `iocs_typed: list[IOC]` field alongside the existing `iocs: list[str]` — the existing list is **unchanged** (additive, preserves wire compatibility with the vex `sift_bridge` and all existing `jq` pipelines).
+
+**How it works.** IOCs were already being classified at extraction via `detect_ioc_type()` — the type was then discarded. `iocs_typed` stops discarding it: the type is kept on each IOC object and aggregated per cluster (deduped by value). Two real consumers were wired in the same PR so the field is not dead:
+
+- **STIX export** — `_create_indicator` reads `ioc.type` instead of re-classifying at emit, so STIX observables use the correct type label without a second pass.
+- **Rich terminal** — the formatter renders a per-cluster type-count header (for example `domain ×9  ip ×3  sha256 ×5`) giving analysts an at-a-glance IOC composition before reading the full table.
+
+**JSON output shape:**
+
+```json
+{
+  "clusters": [
+    {
+      "iocs": ["10.0.0.1", "evil.example.com"],
+      "iocs_typed": [
+        {"value": "10.0.0.1",        "type": "ip"},
+        {"value": "evil.example.com", "type": "domain"}
+      ]
+    }
+  ]
+}
+```
+
+**Redaction.** Both `Alert.redact()` and the injection `redact_alert()` path blank `iocs_typed` in lockstep with `iocs`. The `ps_encoded` payload scrub in `_sanitize_report` was extended to cover `iocs_typed[].value` so that no raw base-64 payload leaks through the new field.
+
+**Deferred (named, not dropped).** `source_field` provenance, per-IOC `confidence`, and the sift-2.0 collapse of `iocs` → `list[IOC]` (gated on a co-released vex `sift_bridge` patch that handles dict entries) are named follow-ups.
+
+### S2 — `--version` eager flag + tuning thresholds in `ClusteringConfig`
+
+`sift --version` now works as a top-level eager flag — it prints the version and exits without requiring a subcommand. The existing `sift version` subcommand is unchanged.
+
+Three auto-tuning thresholds that were previously hard-coded in `sift/tuning.py` are lifted into `ClusteringConfig` and are now overridable in `~/.sift/config.yaml`:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `drop_raw_threshold_mb` | 500 | Total input above this triggers automatic `--drop-raw` |
+| `chunk_threshold_mb` | 200 | Total input above this enables auto-chunking |
+| `default_chunk_size` | 100000 | Chunk size used when auto-chunking kicks in |
+
+Defaults are byte-identical to the previous hard-coded values — existing behavior is unchanged. Operators running on memory-constrained hardware can now lower these thresholds without touching CLI flags.
+
+### S3 — Shift-handover reports (`-f html` and `-f md`)
+
+Two new output formats produce human-readable shift-handover documents suitable for passing between analyst shifts, attaching to a ticket, or committing to a handover repository.
+
+| Format | Use case |
+|---|---|
+| `html` | Self-contained file with embedded CSS, cluster cards, priority badges, IOC tables, and AI narrative. Dark-themed, no external assets. |
+| `md` | Markdown document for Jira/Confluence, ticket attachments, or a shift-handover repository. Uses GitHub-flavored Markdown tables. |
+
+Both formats respect redaction at the model layer — fields already redacted on `Alert` and `Cluster` objects are rendered as-is. The modules never re-surface raw data.
+
+```bash
+sift triage alerts.json -f html -o handover.html
+sift triage alerts.json -f md   -o handover.md
+```
+
+### Value-level redaction fix (Phase 1, MeetUp 2026-06-12)
+
+Prior to this fix, `--redact-fields source_ip` replaced the named field with `[REDACTED]` but left the original value exposed through two additional channels:
+
+1. **`alert.raw` serialized verbatim** into every output format (`export_json → model_dump` always included the raw dict).
+2. **IOC re-extraction** — `_collect_text_fields` unconditionally mined raw strings, so a redacted value re-entered `alert.iocs` and `alert.iocs_typed` after redaction ran.
+
+Phase 1 closes three channels:
+
+| Channel | Fix |
+|---|---|
+| **Raw → output** | `alert.raw` is blanked (`{}`) before extraction when any redact field is active. The blank dict is not serialized into JSON/HTML/MD/STIX. |
+| **Raw → re-extracted IOC** | Because Channel 1 blanks raw first, `_collect_text_fields` has nothing to mine from raw — the extraction gate is automatic. |
+| **Named-field residual (IOC drop)** | After extraction, any IOC whose value exactly matches a pre-redaction field value is dropped from `iocs` and `iocs_typed`. IOC counts decrease when redaction is active — this is expected. |
+
+**Forensic override.** Set `redaction.redact_raw: true` in `~/.sift/config.yaml` to keep `alert.raw` in the output even when `--redact-fields` is active. This flag is wired on main (it was a dead configuration knob prior to this fix).
+
+**Known residuals (Phase 1 — documented, not closed):**
+
+Two forms of residual remain, both from the same root cause: a redacted value that also appears in a *non-redacted* named field.
+
+*(a) Plain-text residual.* If the value appears in the text of a non-redacted field — for example `description="scan from 10.0.0.1"` — that text is not scrubbed. The value will still appear in that field's output.
+
+*(b) Substring IOC residual.* If a larger IOC is extracted from a non-redacted field and the redacted value is a substring of it — for example `description="see http://10.0.0.1/x"` → a url IOC `http://10.0.0.1/x` — Channel 3's exact-value matching will not drop the URL. The IP appears inside it but the URL as a whole does not equal the redacted value.
+
+The operator fix for both: add the carrying field to `--redact-fields`. Phase 2 (value-scrub, deferred) closes these residuals without requiring the operator to enumerate every carrying field.
+
+---
+
 ## Design Decisions (from MeetUps)
 
 sift's feature decisions are made in recorded MeetUps (simple-majority vote, Architect as tie-breaker). The decisions that shaped the current architecture:
@@ -261,12 +358,16 @@ sift's feature decisions are made in recorded MeetUps (simple-majority vote, Arc
 | 2026-03-22 | **Protocol-based ingestion plugins** (Splunk, QRadar, Elastic), mirroring vex's `EnricherProtocol`. | Extensibility without coupling; supports diverse SIEM environments. |
 | 2026-04-13 | **Alert-type-distribution prompt representation** (distinct types + counts + max-severity, severity-sorted) instead of a first-5-alert slice. | The old `[:5]` truncation hid CRITICAL events — in a brute-force scenario the LLM saw only port scans and missed credential dumping. |
 | 2026-06-05 | **Onboard onto `shipwright-kit`** (eval + injection + config) and publish 1.2.0 consuming it from PyPI. | DRY across vex/barb/sift — a fix in the shared engine propagates to all. The git-only library was un-publishable as a tool runtime dependency, so it was published to PyPI; lesson: a runtime-imported dep must be in `[project.dependencies]`. |
+| 2026-06-11 | **Typed IOCs additive (S1, 4-1 vote).** `iocs_typed: list[IOC]` added; `iocs: list[str]` unchanged. | Breaking `list[dict]` would cause silent zero-IOC enrichment via vex `sift_bridge` with no error — unacceptable at 2am. DFIR's dissent (cleaner model) noted; sift-2.0 collapse is a named follow-up gated on a vex bridge patch. |
+| 2026-06-12 | **Value-level redaction Phase 1 (raw-suppression + extraction-gate + IOC-drop).** | Field-level redaction alone was a no-op on the output path — `export_json` serialized `alert.raw` verbatim. Three channels closed; two known residuals documented; Phase 2 (value-scrub) deferred. |
 
 Two standing constraints sit above the feature votes: AI summarization is opt-in and the core stays rule-based; and alert data is never sent to a cloud LLM without a redaction-config check.
 
 ### Deferred work
 
-- **The `Alert.iocs` redesign** — moving `iocs: list[str]` to `list[IOC]` with `{value, type, severity_hint, source}` is a breaking change scoped for a dedicated architecture MeetUp. It was the original v1.2.0 P2 headline and is explicitly **not** in this release.
+- **The sift-2.0 `Alert.iocs` collapse** — `iocs` → `list[IOC]` (dropping the legacy string list) is a breaking change gated on a co-released vex `sift_bridge` patch and a soak period with the additive `iocs_typed` field (DFIR's end-state, reached safely). The intermediate additive step (S1, typed IOCs) is already on main.
+- **`source_field` IOC provenance** — distinguishing an IP in `source_ip` from the same IP in `description.raw` is DFIR's top follow-up ask; deferred pending a field-tagged extraction refactor and a Code-Security policy for `raw.*` key names.
+- **Phase 2 value-scrub redaction** — closing the two known residuals (plain-text and substring-IOC forms) without requiring the operator to enumerate every carrying field. A `--redact-values` flag and a `shipwright_kit.security.redaction.scrub_values` primitive are the named design (Expansionist dissent from the 2026-06-12 MeetUp).
 - **ServiceNow ticketing** — deferred from v1.1.0 (high integration complexity).
 - Further backlog items (e.g. `attck.py`/extractor MITRE-range alignment, process-safe cache eviction, an `IOCSeverityWeights` config sub-model, HTML-entity defang, full ATT&CK TA/S/G ID coverage, recursive `ps_encoded` decode) remain in the P2/P3 backlog.
 
@@ -274,20 +375,22 @@ Two standing constraints sit above the feature votes: AI summarization is opt-in
 
 ## Current Status and Outlook
 
-### Status v1.2.0
+### Status v1.2.1 / v1.3.0 pending
 
-sift 1.2.0 is released and live on PyPI as **`sift-triage`** (`pip install sift-triage`). It is covered by **1190 automated tests plus 3 CI eval gates** (all green; tests deterministic, no network). The state of the tool:
+**v1.2.1** is the current PyPI release (`pip install sift-triage`). It is covered by 1224 automated tests plus 3 CI eval gates (all green; tests deterministic, no network). The state of the released tool:
 
 - The deterministic core — normalize / dedup / IOC-extract / cluster / prioritize — runs fully offline with no LLM and no API key.
 - Industry-standard IOC coverage across 16 types, with a defang/refang preprocessor at full parity with barb and vex.
 - Opt-in AI summarization across four providers (Anthropic / OpenAI / Ollama / Template) with a Mock provider for tests, fronted by field redaction and a shared prompt-injection engine.
 - Opt-in enrichment via barb and vex (subprocess bridges, concurrent, consent-gated, 20-IOC cap), and a pure-heuristic local mode.
 - Ticketing to TheHive 5 and Jira with severity-hint-aware priority promotion; JSON / CSV / STIX 2.1 export with default payload sanitisation.
-- v1.2.0 onboards sift onto **shipwright-kit** (consumed from PyPI): the injection detector delegates to the shared engine and gained jailbreak + system-prompt-exfiltration detection; config delegates to `shipwright_kit.config`; and three detection-quality eval gates (injection, IOC-binary, per-type IOC accuracy) run in CI via `shipwright_kit.eval`.
+- v1.2.0 onboarded sift onto **shipwright-kit** (consumed from PyPI): the injection detector delegates to the shared engine and gained jailbreak + system-prompt-exfiltration detection; config delegates to `shipwright_kit.config`; and three detection-quality eval gates (injection, IOC-binary, per-type IOC accuracy) run in CI via `shipwright_kit.eval`. v1.2.1 added the `__version__` literal fix and attribution metadata.
+
+**On main (unreleased, pending release-please v1.3.0):** typed IOCs (S1, additive `iocs_typed`), `sift --version` eager flag and tuning thresholds in `ClusteringConfig` (S2), HTML and Markdown shift-handover reports (S3), and value-level redaction Phase 1 (raw suppression + extraction gate + IOC-value drop). 1280 tests, 3 eval gates 1.0, Skeptic clean-APPROVE. See the "On-Main" section above for the full feature descriptions.
 
 ### Outlook
 
-The next significant item is the deferred **`Alert.iocs` redesign** — a breaking move to a structured IOC model — which is scoped for its own architecture MeetUp. ServiceNow ticketing and the remaining P2/P3 backlog (MITRE-range alignment, cache hardening, extended defang/ATT&CK coverage, recursive `ps_encoded` decode) follow as demand warrants. The shared-library onboarding makes the cross-tool security and eval surface single-sourced, so future detection improvements land once and reach all three tools.
+The next release (v1.3.0) folds in the on-main features described above. After that: the `Alert.iocs` sift-2.0 collapse to `list[IOC]` is gated on a co-released vex `sift_bridge` patch and a soak period with the additive `iocs_typed` field. ServiceNow ticketing and the remaining P2/P3 backlog (MITRE-range alignment, cache hardening, extended defang/ATT&CK coverage, recursive `ps_encoded` decode, Phase 2 value-scrub redaction) follow as demand warrants. The shared-library onboarding keeps the cross-tool security and eval surface single-sourced — detection improvements land once and reach all three tools.
 
 ---
 

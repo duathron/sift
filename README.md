@@ -53,9 +53,9 @@
   template provider for fully offline / keyless triage.
 - Rich terminal output with priority-colored cluster table and a
   per-cluster severity-hint column.
-- Export to JSON, CSV, or STIX 2.1 for downstream tooling. PowerShell-encoded
-  payloads are sanitised in every export path by default; pass
-  `--include-raw-payload` for forensic-mode output.
+- Export to JSON, CSV, STIX 2.1, HTML, or Markdown for downstream tooling.
+  PowerShell-encoded payloads are sanitised in every export path by default;
+  pass `--include-raw-payload` for forensic-mode output.
 - Filter clusters using a boolean DSL (`--filter 'priority >= HIGH AND ...'`)
 - Enrich IOCs via barb (phishing URL analysis) and vex (VirusTotal reputation)
   with `--enrich`. Bridges run concurrently (`ThreadPoolExecutor`); IOCs are
@@ -69,8 +69,17 @@
 - Ticketing for TheHive 5 and Jira Service Management with severity-hint
   aware priority promotion (e.g. a cluster containing PowerShell-encoded
   IOCs goes straight to `Highest` in Jira).
+- **Typed IOC model** — every extracted IOC carries its detected type
+  (`ioc`, `domain`, `url`, `sha256`, …) in a new `iocs_typed` field alongside
+  the existing `iocs: list[str]` (additive; wire format unchanged). STIX
+  export uses the detected type directly; the Rich terminal view shows a
+  per-cluster type-count header (e.g. `ip ×3  domain ×9  sha256 ×5`).
+- **Shift-handover reports** — `-f html` and `-f md` produce self-contained,
+  human-readable shift-handover documents (cluster cards, priority, IOC tables,
+  AI narrative). Both formats respect field-level redaction at the model layer.
 - `sift metrics <file>` command for cluster and IOC distribution statistics
 - `sift doctor` diagnostics to verify configuration, LLM connectivity, and dependencies
+- `sift --version` eager flag (works without a subcommand) alongside the existing `version` subcommand
 - PyPI version check on startup
 
 ---
@@ -177,7 +186,7 @@ sift triage alerts.json --enrich --summarize
 
 **Enrich only via barb (no VirusTotal API key needed):**
 ```bash
-sift triage alerts.json --enrich --enrich-mode barb
+sift triage alerts.json --enrich barb
 ```
 
 **Correlate alerts across multiple sources:**
@@ -190,6 +199,20 @@ sift triage baseline.json new_alerts/ --filter 'priority >= HIGH'
 
 # All .json/.csv files in a folder
 sift triage /var/log/siem/ --summarize --provider anthropic
+```
+
+**Generate a shift-handover report:**
+```bash
+# HTML (self-contained, embedded CSS)
+sift triage alerts.json -f html -o handover.html
+
+# Markdown (paste into Jira/Confluence or commit to a repository)
+sift triage alerts.json -f md -o handover.md
+```
+
+**Redact sensitive fields before any output or LLM submission:**
+```bash
+sift triage alerts.json --redact-fields source_ip,user,host
 ```
 
 ---
@@ -322,7 +345,12 @@ clustering:
   chunk_size: 100000               # alerts per batch (0 = auto)
   sub_chunk_threshold_mb: 500      # files above this get sub-file chunking
   sub_chunk_size: 100000           # alerts per sub-file batch
+  drop_raw_threshold_mb: 500       # total input above this triggers --drop-raw automatically
+  chunk_threshold_mb: 200          # total input above this enables auto-chunking
+  default_chunk_size: 100000       # chunk size used when auto-chunking kicks in
 ```
+
+The three auto-tuning thresholds (`drop_raw_threshold_mb`, `chunk_threshold_mb`, `default_chunk_size`) were previously hard-coded in the pipeline's tuning module. They now live in `ClusteringConfig` so you can override them in `config.yaml` without touching CLI flags. Defaults are byte-identical to the previous behavior.
 
 ---
 
@@ -432,14 +460,17 @@ The `--enrich` flag enriches extracted IOCs using the sister tools:
 # Install enrichment extras
 pip install "sift-triage[enrich]"
 
-# Run with enrichment
-sift triage alerts.json --enrich
+# Run with enrichment (barb + vex)
+sift triage alerts.json --enrich all
 
 # Barb only (no API key needed)
-sift triage alerts.json --enrich --enrich-mode barb
+sift triage alerts.json --enrich barb
+
+# vex only
+sift triage alerts.json --enrich vex
 
 # Skip consent prompt
-sift triage alerts.json --enrich --yes
+sift triage alerts.json --enrich all --yes
 ```
 
 sift limits enrichment to 20 IOCs per run to avoid API rate limits.
@@ -521,8 +552,83 @@ Each ticket contains:
 | `json` | Structured JSON with all cluster and IOC data |
 | `csv` | Flat CSV suitable for SIEM import or spreadsheets |
 | `stix` | STIX 2.1 bundle JSON for threat intelligence platforms |
+| `html` | Self-contained HTML shift-handover report (embedded CSS, cluster cards, IOC table) |
+| `md` | Markdown shift-handover report suitable for Jira/Confluence, ticket attachments, or a shift-handover repository |
 
 Use `-f` / `--format` to select output format, and `-o` / `--output` to write to a file.
+
+```bash
+# Save an HTML handover report
+sift triage alerts.json -f html -o handover.html
+
+# Save a Markdown handover report
+sift triage alerts.json -f md -o handover.md
+```
+
+---
+
+## Typed IOCs
+
+Every extracted IOC has a detected type. The `-o json` output carries `iocs_typed` (new) alongside the existing `iocs` list — both are always present and the existing `iocs: list[str]` shape is unchanged:
+
+```json
+{
+  "clusters": [
+    {
+      "iocs": ["10.0.0.1", "evil.example.com", "d41d8cd98f00b204..."],
+      "iocs_typed": [
+        {"value": "10.0.0.1",             "type": "ip"},
+        {"value": "evil.example.com",      "type": "domain"},
+        {"value": "d41d8cd98f00b204...",   "type": "md5"}
+      ]
+    }
+  ]
+}
+```
+
+The typed field is present on both cluster and alert objects. STIX export uses the detected type to select the correct STIX observable. The Rich terminal view shows a type-count header per cluster — for example `domain ×9  ip ×3  sha256 ×5` — giving analysts a quick sense of what indicators are present before reading the full table.
+
+When redaction is active, `iocs_typed` is blanked in lockstep with `iocs` — no IOC value leaks through the typed field.
+
+---
+
+## Field Redaction
+
+`--redact-fields` closes three leak channels when any field is active:
+
+1. **Raw dict suppression** — `alert.raw` is blanked from all output formats (JSON, HTML, Markdown, STIX). Without this, raw verbatim data would appear in the output even when named fields were redacted.
+2. **Extraction gate** — because `alert.raw` is blank, the IOC extractor's raw-dict pass has nothing to mine. IOC extraction from non-redacted named fields continues unchanged.
+3. **IOC-value drop** — any extracted IOC whose value exactly matches a redacted field's pre-redaction value is dropped from both `iocs` and `iocs_typed`. IOC counts decrease when redaction is active — this is expected behavior.
+
+```bash
+# Redact specific fields
+sift triage alerts.json --redact-fields source_ip,user,host
+
+# Persist redaction defaults in config
+sift config --redact-fields source_ip,user,host
+```
+
+**Forensic override.** Setting `redaction.redact_raw: true` in `~/.sift/config.yaml` keeps `alert.raw` in the output even when `--redact-fields` is active — for forensic captures where the raw dict is needed despite redaction.
+
+```yaml
+# ~/.sift/config.yaml
+redaction:
+  redact_raw: true   # Keep raw in output for forensic captures (default: false = suppress raw)
+```
+
+> **Security invariant:** sift never sends alert data to a cloud LLM without a redaction-config check.
+
+### Known residuals (Phase 1)
+
+Phase 1 closes the three channels above. Two residual forms remain and are not yet closed — both share the same root cause:
+
+**a) Plain-text residual.** If the redacted value also appears in the *text* of a non-redacted field (for example `description="scan from 10.0.0.1"`), that text is not scrubbed. The value will still appear in that field's output.
+
+**b) Substring IOC residual.** If a *larger* IOC is extracted from a non-redacted field and the redacted value is a substring of it (for example `description="see http://10.0.0.1/x"` → the url IOC `http://10.0.0.1/x`), the IOC is not dropped — channel 3 uses exact-value matching, not substring matching, so the URL is not caught even though the IP appears inside it.
+
+**Operator fix for both:** add the carrying field to `--redact-fields` (for example `--redact-fields source_ip,description`). That blanks the field text, prevents the larger IOC from being extracted, and removes the plain-text occurrence.
+
+Phase 2 (value-scrub) is required to close both residuals without requiring the operator to enumerate every carrying field.
 
 ---
 
@@ -617,14 +723,16 @@ sift metrics alerts.json --config /path/to/config.yaml
 
 ## Validation and Security
 
-sift validates all LLM outputs against a strict JSON schema (`--validate-only` runs parse and validate only, then exits):
+sift validates all LLM outputs against a strict JSON schema. Use `sift validate` to parse and report format and count without running the full pipeline:
 
 ```bash
-# Validate parsed structure without rendering output
-sift triage alerts.json --validate-only
+# Validate alert file structure without running triage
+sift validate alerts.json
 ```
 
-A built-in prompt injection detector scans LLM inputs for five pattern categories: instruction overrides, output manipulation, JSON escapes, encoded payloads, and shell injection. Suspicious content is flagged and summarization falls back to the template provider automatically.
+A built-in prompt injection detector scans alert fields for five pattern categories: instruction overrides, output manipulation, JSON escapes, encoded payloads, and shell injection. Suspicious content is flagged and summarization falls back to the template provider automatically. The injection engine is shared with barb and vex via `shipwright_kit.security.injection` so a fix propagates to all three tools at once.
+
+> **Security invariant:** sift never sends alert data to a cloud LLM without a redaction-config check. Core clustering is rule-based and deterministic; AI summarization is opt-in.
 
 ---
 
