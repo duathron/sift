@@ -1,0 +1,17 @@
+# Canonical ruff config — single source of truth for the framework and all
+# scaffolded projects. Projects receive a copy via the Copier template; the
+# framework itself extends this file from its pyproject.toml.
+target-version = "py311"
+line-length = 120
+
+# S101 only (flake8-bandit assert rule) — targets the "dangerous use of assert"
+# finding precisely. NOT the full `S` family: full bandit flags S603/S607
+# (subprocess) in shipped code (e.g. sift's vex_bridge) + test files across the
+# fleet — out of scope for the assert finding. Full-bandit adoption is a separate
+# decision (named follow-up).
+[lint]
+select = ["E", "F", "I", "W", "S101"]
+
+[lint.per-file-ignores]
+"../tests/*" = ["S101"]
+"../**/tests/**" = ["S101"]

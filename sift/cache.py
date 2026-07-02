@@ -387,7 +387,8 @@ class AlertCache:
         """Return the open SQLite connection, opening it if necessary."""
         if self._conn is None:
             self._ensure_db()
-        assert self._conn is not None
+        if self._conn is None:
+            raise RuntimeError("cache connection not initialized")
         return self._conn
 
     def close(self) -> None:

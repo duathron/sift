@@ -448,11 +448,13 @@ def _merge_with_sliding_window(
     window_deque: deque[int] = deque()
     for idx in sorted_ts:
         ts = alerts[idx].timestamp
-        assert ts is not None  # guaranteed by the partition above
+        if ts is None:
+            raise ValueError("timestamp missing after partition — invariant violated")
         # Evict indices from the left that have moved outside the window.
         while window_deque:
             front_ts = alerts[window_deque[0]].timestamp
-            assert front_ts is not None
+            if front_ts is None:
+                raise ValueError("timestamp missing after partition — invariant violated")
             if abs((ts - front_ts).total_seconds()) > window_secs:
                 window_deque.popleft()
             else:

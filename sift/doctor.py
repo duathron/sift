@@ -297,9 +297,12 @@ def _check_attck_module() -> CheckResult:
     try:
         from sift.pipeline.attck import TECHNIQUE_PATTERN, is_valid_technique_id  # noqa: F401
 
-        assert is_valid_technique_id("T1566")
-        assert is_valid_technique_id("T1566.001")
-        assert not is_valid_technique_id("invalid")
+        if not is_valid_technique_id("T1566"):
+            raise AssertionError("doctor self-test: expected T1566 valid")
+        if not is_valid_technique_id("T1566.001"):
+            raise AssertionError("doctor self-test: expected T1566.001 valid")
+        if is_valid_technique_id("invalid"):
+            raise AssertionError("doctor self-test: expected 'invalid' to be rejected")
         return CheckResult(
             name="ATT&CK validation",
             status=CheckStatus.PASS,
