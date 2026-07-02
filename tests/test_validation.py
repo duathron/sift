@@ -306,12 +306,13 @@ class TestAnthropicWithValidation:
     These tests verify that the validation layer integrates correctly
     with the real Anthropic summarizer (mocked API calls).
 
-    Note: These tests are skipped if anthropic package is not installed.
+    Note: These tests are skipped if the anthropic package is not installed
+    (it's an optional extra: ``pip install sift-triage[llm]``).
     """
 
-    @pytest.mark.skip(reason="anthropic package not installed in test environment")
     def test_anthropic_valid_response_passes_validation(self, monkeypatch):
         """Valid Anthropic response is validated and returned as-is."""
+        pytest.importorskip("anthropic", reason="anthropic extra not installed — see pyproject [llm]")
         from unittest.mock import MagicMock
 
         from sift.config import SummarizeConfig
@@ -335,9 +336,9 @@ class TestAnthropicWithValidation:
         assert result.provider == "anthropic"
         assert result.overall_priority == ClusterPriority.HIGH
 
-    @pytest.mark.skip(reason="anthropic package not installed in test environment")
     def test_anthropic_invalid_response_falls_back_to_template(self, monkeypatch):
         """Invalid Anthropic response falls back to template summarizer."""
+        pytest.importorskip("anthropic", reason="anthropic extra not installed — see pyproject [llm]")
         from unittest.mock import MagicMock
 
         from sift.config import SummarizeConfig
@@ -360,9 +361,9 @@ class TestAnthropicWithValidation:
         assert isinstance(result, SummaryResult)
         assert result.provider == "template"
 
-    @pytest.mark.skip(reason="anthropic package not installed in test environment")
     def test_anthropic_missing_required_fields_falls_back(self, monkeypatch):
         """Anthropic response missing required fields falls back to template."""
+        pytest.importorskip("anthropic", reason="anthropic extra not installed — see pyproject [llm]")
         from unittest.mock import MagicMock
 
         from sift.config import SummarizeConfig
