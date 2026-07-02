@@ -719,16 +719,16 @@ wheels = [
 
 [[package]]
 name = "shipwright-kit"
-version = "0.6.0"
+version = "0.10.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/eb/04/3e1e405d9bbf1d5ed8fa06ce37735b0f0e9a5f3f1f975101466693ea8d8e/shipwright_kit-0.6.0.tar.gz", hash = "sha256:95c0e04dc490a95116649510a9e488901011166b55a2ccffec17d92429731d12", size = 20871, upload-time = "2026-06-05T15:22:18.479Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e5/ca/577f14c0778bf633dcf4a6709ef7840e0dffb4b2eb017b504aedd38548b9/shipwright_kit-0.10.1.tar.gz", hash = "sha256:99d79b1d6044ff8f258f05b5c8c91ba145d7fa2b221d53288dbc637206a93b11", size = 30571, upload-time = "2026-07-02T19:53:25.36Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/93/ef/c857ad2f3f54d25a7f3a88976c146d2b9f822263974bb922e8e8dcb024ca/shipwright_kit-0.6.0-py3-none-any.whl", hash = "sha256:8deca89448e789e2e201f6d5ab6f3ff4addfcde2f77d5c38ea5bdc0da6f30315", size = 19845, upload-time = "2026-06-05T15:22:17.242Z" },
+    { url = "https://files.pythonhosted.org/packages/df/2e/385ffa8f9be68e357d1e58becc7da185e853dd911c535249c42175820c36/shipwright_kit-0.10.1-py3-none-any.whl", hash = "sha256:3b8698b3be218ab1dafe166f9d8927705aa1b802ade4f08f04c7ef45aa52f081", size = 26321, upload-time = "2026-07-02T19:53:24.05Z" },
 ]
 
 [[package]]
 name = "sift-triage"
-version = "1.2.1"
+version = "1.3.1"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
@@ -781,7 +781,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "pyyaml", specifier = ">=6.0.1" },
     { name = "rich", specifier = ">=13.7.0" },
-    { name = "shipwright-kit", specifier = ">=0.6.0,<0.7.0" },
+    { name = "shipwright-kit", specifier = ">=0.10.1,<0.11.0" },
     { name = "typer", specifier = ">=0.12.0" },
 ]
 provides-extras = ["llm", "enrich", "all", "ticket"]

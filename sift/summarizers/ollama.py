@@ -7,10 +7,15 @@ Ollama SDK required.  Requires a running Ollama instance (default:
 
 from __future__ import annotations
 
+# NOTE: `urllib.request` is not called directly in this file anymore (the POST now
+# goes through shipwright_kit.llm.ollama_generate), but the import must stay: tests
+# patch it via the "sift.summarizers.ollama.urllib.request.urlopen" path, and since
+# shipwright_kit.llm imports the same singleton urllib.request module, patching it
+# here transparently patches the call ollama_generate() makes too.
 import json
 import re
 import urllib.error
-import urllib.request
+import urllib.request  # noqa: F401
 
 from ..config import SummarizeConfig
 from ..models import (
@@ -105,32 +110,19 @@ class OllamaSummarizer:
                 LLM output cannot be parsed as JSON.
             KeyError: If the Ollama response is missing the ``"response"`` field.
         """
+        from shipwright_kit.llm import ollama_generate  # noqa: PLC0415
+
         system_prompt = get_system_prompt(self.name)
         user_prompt = build_cluster_prompt_with_examples(report, self._config, self.name)
 
-        # Prepend system prompt inline — works across all Ollama versions.
-        combined_prompt = f"{system_prompt}\n\n{user_prompt}"
-
-        payload = json.dumps(
-            {
-                "model": self._model,
-                "prompt": combined_prompt,
-                "stream": False,
-            }
-        ).encode("utf-8")
-
-        req = urllib.request.Request(
-            self._generate_url,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
+        llm_text = ollama_generate(
+            base_url=self._base_url,
+            model=self._model,
+            system=system_prompt,
+            user=user_prompt,
+            timeout=None,
+            system_mode="fold",
         )
-
-        with urllib.request.urlopen(req) as resp:
-            body = resp.read().decode("utf-8")
-
-        outer = json.loads(body)
-        llm_text: str = outer["response"]
 
         return self._parse_and_validate_response(llm_text, report)
 

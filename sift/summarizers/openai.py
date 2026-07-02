@@ -90,23 +90,22 @@ class OpenAISummarizer:
             RuntimeError: Wraps any :class:`openai.OpenAIError` with a friendly
                 message.
         """
+        from shipwright_kit.llm import openai_complete  # noqa: PLC0415
+
         system_prompt = get_system_prompt(self.name)
         prompt = build_cluster_prompt_with_examples(report, self._config, self.name)
 
         try:
-            response = self._client.chat.completions.create(
+            response_text = openai_complete(
+                client=self._client,
                 model=self._model,
                 max_tokens=self._config.max_tokens,
+                system=system_prompt,
+                user=prompt,
                 temperature=self._config.temperature,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt},
-                ],
             )
         except self._openai.OpenAIError as exc:
             raise RuntimeError(f"OpenAI API error while generating summary: {exc}") from exc
-
-        response_text = response.choices[0].message.content or ""
 
         return self._parse_and_validate_response(response_text, report)
 

@@ -90,25 +90,22 @@ class AnthropicSummarizer:
             RuntimeError: Wraps any :class:`anthropic.APIError` with a friendly
                 message.
         """
+        from shipwright_kit.llm import anthropic_complete  # noqa: PLC0415
+
         system_prompt = get_system_prompt(self.name)
         prompt = build_cluster_prompt_with_examples(report, self._config, self.name)
 
         try:
-            message = self._client.messages.create(
+            response_text = anthropic_complete(
+                client=self._client,
                 model=self._model,
                 max_tokens=self._config.max_tokens,
                 system=system_prompt,
-                messages=[{"role": "user", "content": prompt}],
+                user=prompt,
+                extract="first_text_block",
             )
         except self._anthropic.APIError as exc:
             raise RuntimeError(f"Anthropic API error while generating summary: {exc}") from exc
-
-        # Extract text content from the first content block
-        response_text = ""
-        for block in message.content:
-            if hasattr(block, "text"):
-                response_text = block.text
-                break
 
         return self._parse_and_validate_response(response_text, report)
 
