@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.1](https://github.com/duathron/sift/compare/v1.3.0...v1.3.1) (2026-07-02)
+
+
+### Bug Fixes
+
+* harden workflows + dangerous asserts against aikido findings ([57e1fce](https://github.com/duathron/sift/commit/57e1fcebf79a5874f63c4e5698ba36372599e776))
+
 ## [1.3.0](https://github.com/duathron/sift/compare/v1.2.1...v1.3.0) (2026-06-12)
 
 
