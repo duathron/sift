@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.2](https://github.com/duathron/sift/compare/v1.3.1...v1.3.2) (2026-07-02)
+
+
+### Bug Fixes
+
+* retrofit LLM summarizers onto shipwright_kit.llm transport (W3 cut-1) ([ce001bf](https://github.com/duathron/sift/commit/ce001bf8b974e3675e718a81cce5f8ca7a60d2b7))
+
 ## [1.3.1](https://github.com/duathron/sift/compare/v1.3.0...v1.3.1) (2026-07-02)
 
 
