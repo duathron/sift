@@ -2,11 +2,20 @@
 
 This test module ensures that:
 1. Valid summaries pass validation and are returned as-is.
-2. Invalid/missing fields fail gracefully with fallback to template.
+2. Invalid/missing fields raise RuntimeError (see F2 cut-1 note below).
 3. Type coercion works correctly (string → ClusterPriority enum).
 4. Max length validation is enforced.
 5. Nested structure validation works for cluster summaries and recommendations.
 6. Integration with LLM summarizers (anthropic) works end-to-end.
+
+F2 cut-1 (2026-07-03 MeetUp — ``2026-07-03-f2-llm-failure-posture.md``, signed
+off): `SummaryValidator.validate()` used to silently fall back to
+`TemplateSummarizer` on a schema-validation failure. That is a deliberate,
+signed-off BEHAVIOR CHANGE: it now raises `RuntimeError` instead — the
+deepest of the three template-substitution seams the F2 decision closed (see
+`sift/summarizers/validation.py`'s module docstring). Tests that used to
+assert `result.provider == "template"` on a validation failure now assert
+`pytest.raises(RuntimeError)`.
 """
 
 from __future__ import annotations
@@ -205,25 +214,26 @@ class TestSummaryValidator:
         assert result.provider == "test-provider"
         assert result.overall_priority == ClusterPriority.HIGH
 
-    def test_missing_executive_summary_falls_back_to_template(self, caplog):
-        """When executive_summary is missing, falls back to template with warning."""
+    def test_missing_executive_summary_raises_not_falls_back(self):
+        """F2 cut-1 flip. OLD: missing `executive_summary` fell back to a
+        template summary (`result.provider == "template"`) with a
+        `logging.warning` — invisible unless logging was configured. NEW: it
+        raises RuntimeError with the same "Validation failed" message content,
+        now impossible to miss. Signed off: 2026-07-03 MeetUp F2 cut-1."""
         data = make_valid_raw_dict()
         del data["executive_summary"]
         report = make_report()
-        with caplog.at_level(logging.WARNING):
-            result = SummaryValidator.validate(data, "bad-provider", report)
-        assert isinstance(result, SummaryResult)
-        assert result.provider == "template"  # Fallback used
-        assert "Validation failed" in caplog.text
+        with pytest.raises(RuntimeError, match="Validation failed for bad-provider summary"):
+            SummaryValidator.validate(data, "bad-provider", report)
 
-    def test_invalid_json_data_falls_back(self, caplog):
-        """When validation fails with invalid data, falls back to template."""
+    def test_invalid_json_data_raises_not_falls_back(self):
+        """F2 cut-1 flip. OLD: invalid data (`None`, causing a TypeError) fell
+        back to a template summary. NEW: it raises RuntimeError instead.
+        Signed off: 2026-07-03 MeetUp F2 cut-1."""
         data = None  # This will cause TypeError
         report = make_report()
-        with caplog.at_level(logging.WARNING):
-            result = SummaryValidator.validate(data, "bad-provider", report)
-        assert isinstance(result, SummaryResult)
-        assert result.provider == "template"
+        with pytest.raises(RuntimeError, match="Validation failed for bad-provider summary"):
+            SummaryValidator.validate(data, "bad-provider", report)
 
     def test_priority_coercion_in_validate(self):
         """Priority string is coerced to ClusterPriority enum in validate()."""
@@ -264,13 +274,14 @@ class TestSummaryValidator:
         assert len(result.cluster_summaries[0].recommendations) == 1
 
     def test_max_length_validation_on_executive_summary(self):
-        """Very long executive_summary is rejected during schema validation."""
+        """F2 cut-1 flip. OLD: a too-long executive_summary failed validation
+        and fell back to a template (`result.provider == "template"`). NEW: it
+        raises RuntimeError instead. Signed off: 2026-07-03 MeetUp F2 cut-1."""
         data = make_valid_raw_dict()
         data["executive_summary"] = "x" * 10001  # Exceeds max_length=10000
         report = make_report()
-        # This should fail validation and fall back to template
-        result = SummaryValidator.validate(data, "test", report)
-        assert result.provider == "template"  # Fallback
+        with pytest.raises(RuntimeError, match="Validation failed for test summary"):
+            SummaryValidator.validate(data, "test", report)
 
 
 # ---------------------------------------------------------------------------
@@ -336,8 +347,11 @@ class TestAnthropicWithValidation:
         assert result.provider == "anthropic"
         assert result.overall_priority == ClusterPriority.HIGH
 
-    def test_anthropic_invalid_response_falls_back_to_template(self, monkeypatch):
-        """Invalid Anthropic response falls back to template summarizer."""
+    def test_anthropic_invalid_response_raises_not_falls_back(self, monkeypatch):
+        """F2 cut-1 flip. OLD: an invalid Anthropic response fell back to a
+        template summarizer (`result.provider == "template"`). NEW: it raises
+        RuntimeError instead — no template substitution for a failed Claude
+        call. Signed off: 2026-07-03 MeetUp F2 cut-1."""
         pytest.importorskip("anthropic", reason="anthropic extra not installed — see pyproject [llm]")
         from unittest.mock import MagicMock
 
@@ -355,14 +369,14 @@ class TestAnthropicWithValidation:
         summarizer._client = mock_client
 
         report = make_report()
-        result = summarizer.summarize(report)
+        with pytest.raises(RuntimeError, match="Failed to parse/validate Anthropic response"):
+            summarizer.summarize(report)
 
-        # Should fall back to template
-        assert isinstance(result, SummaryResult)
-        assert result.provider == "template"
-
-    def test_anthropic_missing_required_fields_falls_back(self, monkeypatch):
-        """Anthropic response missing required fields falls back to template."""
+    def test_anthropic_missing_required_fields_raises_not_falls_back(self, monkeypatch):
+        """F2 cut-1 flip. OLD: an Anthropic response missing required fields
+        fell back to a template summarizer. NEW: it raises RuntimeError from
+        SummaryValidator.validate() instead. Signed off: 2026-07-03 MeetUp F2
+        cut-1."""
         pytest.importorskip("anthropic", reason="anthropic extra not installed — see pyproject [llm]")
         from unittest.mock import MagicMock
 
@@ -387,11 +401,8 @@ class TestAnthropicWithValidation:
         summarizer._client = mock_client
 
         report = make_report()
-        result = summarizer.summarize(report)
-
-        # Should fall back to template
-        assert isinstance(result, SummaryResult)
-        assert result.provider == "template"
+        with pytest.raises(RuntimeError, match="Validation failed for anthropic summary"):
+            summarizer.summarize(report)
 
 
 # ---------------------------------------------------------------------------

@@ -5,9 +5,20 @@ OllamaSummarizer *actually do today* — the request they build, how they parse 
 response, and their error/fallback behavior — before the provider logic is
 extracted into a shared ``shipwright_kit.llm`` layer. This is characterization,
 not specification: where a provider's current behavior looks inconsistent or
-odd (e.g. the temperature-passing asymmetry, or Ollama's blanket exception
-swallow), the test pins the ODD behavior as-is and calls it out in a comment.
-Nothing under ``sift/summarizers/`` is changed by this file.
+odd (e.g. the temperature-passing asymmetry), the test pins the ODD behavior
+as-is and calls it out in a comment.
+
+F2 cut-1 (2026-07-03 MeetUp — ``2026-07-03-f2-llm-failure-posture.md``, signed
+off): the "silently fall back to TemplateSummarizer on ANY failure" posture
+this file used to pin (Ollama's blanket exception swallow, and all three
+providers' malformed/invalid-JSON degrade) is a BUG, not a spec — the analyst
+receives a template summary while believing it is an LLM analysis. This is a
+deliberate, signed-off BEHAVIOR CHANGE: every test below that used to assert
+``result.provider == "template"`` on an LLM-side failure now asserts
+``pytest.raises(RuntimeError)`` instead (no template substitution — the
+caller in ``sift/main.py`` is responsible for the loud notice + degraded exit
+code). Each flipped test carries a docstring noting the OLD assertion, the
+NEW assertion, and why.
 
 All external clients are mocked — the ``anthropic`` SDK client, the ``openai``
 SDK client, and ``urllib.request.urlopen`` for Ollama. No live network, no real
@@ -196,25 +207,35 @@ class TestAnthropicResponseParsing:
         result = self._run_with_content_blocks(blocks)
         assert result.provider == "anthropic"
 
-    def test_no_text_bearing_block_yields_empty_string_and_falls_back(self):
-        """CURRENT quirk: if no content block exposes `.text`, response_text stays ""
-        and json.JSONDecodeError triggers the template fallback (not a crash)."""
+    def test_no_text_bearing_block_yields_empty_string_and_raises(self):
+        """F2 cut-1 flip. OLD: if no content block exposes `.text`, response_text
+        stayed "" and json.JSONDecodeError triggered a silent template fallback
+        (`result.provider == "template"`) — not a crash, but a masquerade. NEW:
+        the same JSONDecodeError now propagates as RuntimeError — no template
+        substitution. Signed off: 2026-07-03 MeetUp F2 cut-1."""
 
         class NoTextBlock:
             type = "tool_use"
 
-        result = self._run_with_content_blocks([NoTextBlock()])
-        assert result.provider == "template"
+        with pytest.raises(RuntimeError, match="Failed to parse/validate Anthropic response"):
+            self._run_with_content_blocks([NoTextBlock()])
 
-    def test_invalid_json_falls_back_to_template(self):
-        result = self._run_with_content_blocks([MagicMock(text="not json at all {")])
-        assert result.provider == "template"
+    def test_invalid_json_raises_not_falls_back(self):
+        """F2 cut-1 flip. OLD: `result.provider == "template"`. NEW: malformed
+        JSON from the LLM raises RuntimeError instead of silently degrading to
+        a template summary. Signed off: 2026-07-03 MeetUp F2 cut-1."""
+        with pytest.raises(RuntimeError, match="Failed to parse/validate Anthropic response"):
+            self._run_with_content_blocks([MagicMock(text="not json at all {")])
 
-    def test_missing_required_field_falls_back_to_template(self):
+    def test_missing_required_field_raises_not_falls_back(self):
+        """F2 cut-1 flip. OLD: `result.provider == "template"`. NEW: a
+        schema-validation failure (missing `executive_summary`) raises
+        RuntimeError from SummaryValidator.validate() instead of silently
+        falling back to a template. Signed off: 2026-07-03 MeetUp F2 cut-1."""
         bad = valid_llm_dict()
         del bad["executive_summary"]
-        result = self._run_with_content_blocks([MagicMock(text=json.dumps(bad))])
-        assert result.provider == "template"
+        with pytest.raises(RuntimeError, match="Validation failed for anthropic summary"):
+            self._run_with_content_blocks([MagicMock(text=json.dumps(bad))])
 
 
 # ---------------------------------------------------------------------------
@@ -223,8 +244,15 @@ class TestAnthropicResponseParsing:
 
 
 class TestAnthropicErrorHandling:
+    """F2 cut-1: UNCHANGED by this behavior change — confirmed still holds.
+    Anthropic already re-raised API-level errors as RuntimeError before F2;
+    that is now the UNIFIED posture across all three providers (see
+    TestOllamaErrorHandling), so this test needed no flip."""
+
     def test_api_error_is_reraised_as_runtime_error_not_swallowed(self):
-        """ASYMMETRY vs Ollama: Anthropic re-raises API-level errors loudly."""
+        """No longer an asymmetry vs Ollama post-F2 — this is now the shared
+        posture: Anthropic re-raises API-level errors loudly, and Ollama does
+        too (see TestOllamaErrorHandling)."""
         config = SummarizeConfig(provider="anthropic", api_key="fake-key")
         summarizer = AnthropicSummarizer(config)
         mock_client = MagicMock()
@@ -339,22 +367,32 @@ class TestOpenAIResponseParsing:
         result = self._run_with_content(fenced(json.dumps(valid_llm_dict()), ""))
         assert result.provider == "openai"
 
-    def test_none_content_falls_back_to_template(self):
-        """CURRENT quirk: `response.choices[0].message.content or ""` — a None content
-        (e.g. the model returned only a tool call) degrades to "" and fails JSON parse
-        rather than raising, so it's caught by the same fallback path."""
-        result = self._run_with_content(None)
-        assert result.provider == "template"
+    def test_none_content_raises_not_falls_back(self):
+        """F2 cut-1 flip. `response.choices[0].message.content or ""` — a None
+        content (e.g. the model returned only a tool call) still degrades to ""
+        and fails JSON parse (that quirk is unchanged), but OLD: the failure was
+        caught and silently returned `result.provider == "template"`. NEW: it
+        raises RuntimeError — no template substitution. Signed off: 2026-07-03
+        MeetUp F2 cut-1."""
+        with pytest.raises(RuntimeError, match="Failed to parse/validate OpenAI response"):
+            self._run_with_content(None)
 
-    def test_invalid_json_falls_back_to_template(self):
-        result = self._run_with_content("not json {")
-        assert result.provider == "template"
+    def test_invalid_json_raises_not_falls_back(self):
+        """F2 cut-1 flip. OLD: `result.provider == "template"`. NEW: malformed
+        JSON from the LLM raises RuntimeError instead of silently degrading to
+        a template summary. Signed off: 2026-07-03 MeetUp F2 cut-1."""
+        with pytest.raises(RuntimeError, match="Failed to parse/validate OpenAI response"):
+            self._run_with_content("not json {")
 
-    def test_missing_required_field_falls_back_to_template(self):
+    def test_missing_required_field_raises_not_falls_back(self):
+        """F2 cut-1 flip. OLD: `result.provider == "template"`. NEW: a
+        schema-validation failure (missing `executive_summary`) raises
+        RuntimeError from SummaryValidator.validate() instead of silently
+        falling back to a template. Signed off: 2026-07-03 MeetUp F2 cut-1."""
         bad = valid_llm_dict()
         del bad["executive_summary"]
-        result = self._run_with_content(json.dumps(bad))
-        assert result.provider == "template"
+        with pytest.raises(RuntimeError, match="Validation failed for openai summary"):
+            self._run_with_content(json.dumps(bad))
 
 
 # ---------------------------------------------------------------------------
@@ -363,8 +401,14 @@ class TestOpenAIResponseParsing:
 
 
 class TestOpenAIErrorHandling:
+    """F2 cut-1: UNCHANGED by this behavior change — confirmed still holds.
+    OpenAI already re-raised API-level errors as RuntimeError before F2; that
+    is now the UNIFIED posture across all three providers (see
+    TestOllamaErrorHandling), so this test needed no flip."""
+
     def test_api_error_is_reraised_as_runtime_error_not_swallowed(self):
-        """Same pattern as Anthropic: API-level errors are re-raised, not swallowed."""
+        """Same pattern as Anthropic: API-level errors are re-raised, not
+        swallowed. Post-F2 this is the shared posture across all providers."""
         config = SummarizeConfig(provider="openai", api_key="fake-key")
         summarizer = OpenAISummarizer(config)
         mock_client = MagicMock()
@@ -490,27 +534,39 @@ class TestOllamaResponseParsing:
         result = summarizer.summarize(make_report())
         assert result.provider == "ollama"
 
-    def test_outer_response_missing_response_key_falls_back_silently(self, monkeypatch):
-        """CURRENT quirk: a KeyError on outer['response'] is caught by the summarize()
-        blanket `except Exception` and silently falls back — same as a network error."""
+    def test_outer_response_missing_response_key_raises_not_falls_back(self, monkeypatch):
+        """F2 cut-1 flip. OLD: a KeyError on outer['response'] was caught by
+        summarize()'s blanket `except Exception` and silently fell back to a
+        template (same as a network error) — `result.provider == "template"`.
+        NEW: `summarize()` no longer has a bare except-to-template; the KeyError
+        is wrapped as RuntimeError and propagates. Signed off: 2026-07-03 MeetUp
+        F2 cut-1."""
         _install_fake_urlopen(monkeypatch, {"unexpected_key": "oops"})
         summarizer = OllamaSummarizer(SummarizeConfig(provider="ollama"))
-        result = summarizer.summarize(make_report())
-        assert result.provider == "template"
+        with pytest.raises(RuntimeError, match="Ollama request failed"):
+            summarizer.summarize(make_report())
 
-    def test_invalid_inner_json_falls_back_to_template(self, monkeypatch):
+    def test_invalid_inner_json_raises_not_falls_back(self, monkeypatch):
+        """F2 cut-1 flip. OLD: `result.provider == "template"`. NEW: malformed
+        JSON in the Ollama `response` field raises RuntimeError instead of
+        silently degrading to a template summary. Signed off: 2026-07-03 MeetUp
+        F2 cut-1."""
         _install_fake_urlopen(monkeypatch, {"response": "not json {"})
         summarizer = OllamaSummarizer(SummarizeConfig(provider="ollama"))
-        result = summarizer.summarize(make_report())
-        assert result.provider == "template"
+        with pytest.raises(RuntimeError, match="Failed to parse/validate Ollama response"):
+            summarizer.summarize(make_report())
 
-    def test_missing_required_field_falls_back_to_template(self, monkeypatch):
+    def test_missing_required_field_raises_not_falls_back(self, monkeypatch):
+        """F2 cut-1 flip. OLD: `result.provider == "template"`. NEW: a
+        schema-validation failure (missing `executive_summary`) raises
+        RuntimeError from SummaryValidator.validate() instead of silently
+        falling back to a template. Signed off: 2026-07-03 MeetUp F2 cut-1."""
         bad = valid_llm_dict()
         del bad["executive_summary"]
         _install_fake_urlopen(monkeypatch, {"response": json.dumps(bad)})
         summarizer = OllamaSummarizer(SummarizeConfig(provider="ollama"))
-        result = summarizer.summarize(make_report())
-        assert result.provider == "template"
+        with pytest.raises(RuntimeError, match="Validation failed for ollama summary"):
+            summarizer.summarize(make_report())
 
 
 # ---------------------------------------------------------------------------
@@ -519,32 +575,53 @@ class TestOllamaResponseParsing:
 
 
 class TestOllamaErrorHandling:
-    """ASYMMETRY (real quirk, reported not fixed): unlike Anthropic/OpenAI, which
-    only fall back to the template on a JSON-parse/validation failure and RE-RAISE
-    on API-level errors, Ollama's `summarize()` wraps the entire call in a bare
-    `except Exception` and ALWAYS falls back silently — including on network
-    failures (server down / unreachable), HTTP errors, and malformed bodies. A
-    misconfigured or offline Ollama server therefore produces no visible error to
-    the caller, whereas the same misconfiguration on Anthropic/OpenAI raises a
-    RuntimeError. W3's shared layer needs to decide whether this divergence is
-    intentional (Ollama = "best effort local" vs cloud providers = "must succeed
-    or fail loudly") or should be unified.
+    """F2 cut-1 (2026-07-03 MeetUp — ``2026-07-03-f2-llm-failure-posture.md``,
+    signed off): this class used to pin an ASYMMETRY where, unlike
+    Anthropic/OpenAI (which RE-RAISE on API-level errors), Ollama's
+    `summarize()` wrapped the entire call in a bare `except Exception` and
+    ALWAYS fell back silently — including on network failures (server down /
+    unreachable) and HTTP errors — with ZERO logging. A misconfigured or
+    offline Ollama server therefore produced no visible error to the caller,
+    silently handing the analyst a template summary while they believed it
+    was an LLM analysis. That was the real bug behind the F2 MeetUp (a live
+    smoke test: `sift triage --provider ollama` with a missing model → 404 →
+    silent template fallback).
+
+    UNIFIED POSTURE (this class now pins): Ollama's bare-except-to-template is
+    REMOVED. Network/HTTP errors — and, symmetrically, Anthropic/OpenAI's own
+    malformed-JSON degrade (see `TestOllamaResponseParsing` et al.) — all now
+    raise RuntimeError, exactly like an Anthropic/OpenAI API-level error
+    always did. The three providers are no longer asymmetric: NO provider ever
+    silently substitutes a template for a failed LLM call. The caller
+    (`sift/main.py`) converts the RuntimeError into a loud stderr notice + a
+    machine-legible degraded marker + the reserved exit code (4) — the
+    rule-based cluster analysis itself is still rendered, never discarded.
     """
 
-    def test_network_error_falls_back_to_template_silently_no_raise(self, monkeypatch):
+    def test_network_error_raises_not_silently_falls_back(self, monkeypatch):
+        """F2 cut-1 flip. OLD assertion: `summarizer.summarize(report)` must NOT
+        raise and returns `result.provider == "template"`. NEW assertion: it
+        DOES raise RuntimeError — the network failure is never masked. Signed
+        off: 2026-07-03 MeetUp F2 cut-1 (this was the exact bug the MeetUp was
+        triggered by)."""
         _install_fake_urlopen(monkeypatch, error=urllib.error.URLError("connection refused"))
         summarizer = OllamaSummarizer(SummarizeConfig(provider="ollama"))
-        result = summarizer.summarize(make_report())  # must NOT raise
-        assert result.provider == "template"
+        with pytest.raises(RuntimeError, match="Ollama request failed"):
+            summarizer.summarize(make_report())
 
-    def test_http_error_falls_back_to_template_silently_no_raise(self, monkeypatch):
+    def test_http_error_raises_not_silently_falls_back(self, monkeypatch):
+        """F2 cut-1 flip. OLD assertion: `summarizer.summarize(report)` must NOT
+        raise and returns `result.provider == "template"`. NEW assertion: it
+        DOES raise RuntimeError — an HTTP-level failure (e.g. 404 model not
+        found, 500 server error) is never masked. Signed off: 2026-07-03 MeetUp
+        F2 cut-1."""
         http_err = urllib.error.HTTPError(
             url="http://localhost:11434/api/generate", code=500, msg="Internal Server Error", hdrs=None, fp=None
         )
         _install_fake_urlopen(monkeypatch, error=http_err)
         summarizer = OllamaSummarizer(SummarizeConfig(provider="ollama"))
-        result = summarizer.summarize(make_report())
-        assert result.provider == "template"
+        with pytest.raises(RuntimeError, match="Ollama request failed"):
+            summarizer.summarize(make_report())
 
 
 # ---------------------------------------------------------------------------

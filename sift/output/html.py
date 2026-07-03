@@ -303,7 +303,9 @@ def render_html_report(report: "TriageReport") -> str:
     # Render cluster cards
     cluster_html = "\n".join(_render_cluster(c) for c in sorted_clusters)
 
-    # Summary section (AI or template narrative)
+    # Summary section (AI or template narrative) — or a loud unavailable
+    # notice if a REQUESTED LLM provider failed (F2 cut-1; never shown for a
+    # deliberate template run — see sift/main.py).
     summary_html = ""
     if report.summary:
         s = report.summary
@@ -315,6 +317,15 @@ def render_html_report(report: "TriageReport") -> str:
             f'<p style="font-size:0.8rem; color:#888;">Overall priority: '
             f"{_priority_badge(overall)} &bull; "
             f"Provider: {_esc(s.provider)}</p>"
+            "</section>"
+        )
+    elif report.summary_error:
+        provider = _esc(report.summary_provider or "unknown")
+        error = _esc(report.summary_error)
+        summary_html = (
+            '<section style="margin-bottom:1.5rem;">'
+            '<h2 style="font-size:1rem; color:#f77;">&#9888; LLM Summary Unavailable</h2>'
+            f'<div class="narrative">Provider &#39;{provider}&#39; failed: {error}</div>'
             "</section>"
         )
 

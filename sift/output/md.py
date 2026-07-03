@@ -164,7 +164,8 @@ def render_md_report(report: "TriageReport") -> str:
     lines.append(f"| sift version | {_md_escape(__version__)} |")
     lines.append("")
 
-    # Executive summary
+    # Executive summary — or a loud unavailable notice if a REQUESTED LLM
+    # provider failed (F2 cut-1; never shown for a deliberate template run).
     if report.summary:
         s = report.summary
         overall = s.overall_priority.value if hasattr(s.overall_priority, "value") else str(s.overall_priority)
@@ -173,6 +174,13 @@ def render_md_report(report: "TriageReport") -> str:
         lines.append(f"**Overall Priority:** {_priority_label(overall)}")
         lines.append("")
         lines.append(s.executive_summary)
+        lines.append("")
+    elif report.summary_error:
+        provider = _md_escape(report.summary_provider or "unknown")
+        error = _md_escape(report.summary_error)
+        lines.append("## Executive Summary")
+        lines.append("")
+        lines.append(f"> ⚠ **LLM SUMMARY UNAVAILABLE** — provider `{provider}` failed: {error}")
         lines.append("")
 
     # Clusters

@@ -238,6 +238,15 @@ class TriageReport(BaseModel):
     alerts_after_dedup: int
     clusters: list[Cluster]
     summary: Optional[SummaryResult] = None
+    # F2 cut-1 (2026-07-03 MeetUp — 2026-07-03-f2-llm-failure-posture.md):
+    # machine-legible degraded marker. When a REQUESTED LLM provider
+    # (anthropic/openai/ollama) fails, `summary` stays None and these two
+    # sibling fields are populated instead — additive fields, chosen over
+    # reshaping `summary` itself so existing consumers of a populated
+    # `summary` are unaffected. A deliberately-chosen `template`/`mock` run
+    # (no LLM requested) never sets these, even if it errors.
+    summary_error: Optional[str] = None
+    summary_provider: Optional[str] = None
     enrichment: Optional[EnrichmentContext] = None
     manifest: Optional[PipelineManifest] = None
     analyzed_at: datetime
@@ -248,5 +257,13 @@ class TriageReport(BaseModel):
 
     @property
     def exit_code(self) -> int:
-        """0 = no high/critical clusters, 1 = high/critical found, 2 = error."""
+        """0 = no high/critical clusters, 1 = high/critical found, 2 = generic error,
+        4 = a requested LLM summary was unavailable (provider failed — see
+        `summary_error`). 4 takes priority over the cluster-priority codes:
+        a degraded run always needs operator attention regardless of the
+        underlying cluster severity, and 4 is reserved distinctly from the
+        0/1 cluster-priority codes and the generic error code 2 (3 is
+        unused/reserved)."""
+        if self.summary_error is not None:
+            return 4
         return 1 if any(c.priority.exit_code == 1 for c in self.clusters) else 0

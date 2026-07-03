@@ -1,12 +1,21 @@
 """Validation layer for LLM-generated summaries.
 
 This module provides strict validation of :class:`~sift.models.SummaryResult`
-objects returned by LLM summarizers, with automatic fallback to the template
-summarizer on validation failure.
+objects returned by LLM summarizers.
 
 The validation ensures that all required fields are populated with sensible
 values and that nested structures conform to expected schema. Type coercion
 is performed where appropriate (e.g., string → :class:`~sift.models.ClusterPriority`).
+
+F2 cut-1 (2026-07-03 MeetUp — ``2026-07-03-f2-llm-failure-posture.md``):
+:meth:`SummaryValidator.validate` used to catch a schema-validation failure
+and silently return a :class:`~sift.summarizers.template.TemplateSummarizer`
+result instead — the deepest of the three template-substitution seams (the
+provider-level ``_parse_and_validate_response`` methods only ever call this
+once ``json.loads`` has already succeeded). It now raises
+:class:`RuntimeError` so provider summarizers, and ultimately ``sift/main.py``,
+can surface a loud, machine-legible failure instead of masquerading a template
+as an LLM analysis.
 """
 
 from __future__ import annotations
@@ -160,16 +169,20 @@ class SummaryValidator:
         provider: str,
         report: TriageReport,
     ) -> SummaryResult:
-        """Validate a raw dictionary as a SummaryResult, with fallback to template.
+        """Validate a raw dictionary as a SummaryResult.
 
         Args:
             raw_data: Dictionary parsed from LLM JSON output.
             provider: Short provider identifier (e.g., "anthropic", "openai").
-            report: The triage report being summarized (used for fallback context).
+            report: The triage report being summarized (unused now that
+                validation failures raise instead of falling back to a
+                template built from it — kept for call-site compatibility).
 
         Returns:
-            A valid :class:`SummaryResult`. On validation failure, falls back to
-            the template summarizer and logs a warning.
+            A valid :class:`SummaryResult`.
+
+        Raises:
+            RuntimeError: If *raw_data* fails schema validation.
         """
         try:
             schema = SummaryResultSchema(**raw_data)
@@ -183,10 +196,7 @@ class SummaryValidator:
                 generated_at=schema.generated_at or datetime.now(tz=timezone.utc),
             )
         except (ValidationError, ValueError, KeyError, TypeError) as exc:
-            logger.warning(f"Validation failed for {provider} summary: {exc}. Falling back to template summarizer.")
-            from .template import TemplateSummarizer  # noqa: PLC0415
-
-            return TemplateSummarizer().summarize(report)
+            raise RuntimeError(f"Validation failed for {provider} summary: {exc}") from exc
 
     @staticmethod
     def validate_field(field_name: str, value: Any, field_type: type) -> bool:

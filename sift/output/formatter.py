@@ -216,6 +216,26 @@ def _render_executive_summary(report: TriageReport, con: Console) -> None:
     )
 
 
+def _render_summary_unavailable(report: TriageReport, con: Console) -> None:
+    """Print a loud panel when a REQUESTED LLM summary failed (F2 cut-1).
+
+    Only called when ``report.summary_error`` is set — i.e. an LLM provider
+    was explicitly requested and failed. Never called for a deliberate
+    ``template``/``mock`` run (see ``sift/main.py``'s summarize call site).
+    This must be impossible to mistake for a real executive summary.
+    """
+    provider = report.summary_provider or "unknown"
+    message = f"⚠ LLM SUMMARY UNAVAILABLE — provider '{provider}' failed: {report.summary_error}"
+    con.print(
+        Panel(
+            Text(message, style="bold red"),
+            title="[bold red]LLM Summary Unavailable[/bold red]",
+            border_style="red",
+            padding=(1, 2),
+        )
+    )
+
+
 def _render_clusters_table(report: TriageReport, con: Console) -> None:
     """Print the clusters overview table."""
     clusters = _sorted_clusters(report.clusters)
@@ -359,9 +379,13 @@ def format_report_rich(
     _render_header(report, con)
     con.print()
 
-    # (b) Executive summary
+    # (b) Executive summary — or a loud unavailable notice if a REQUESTED
+    # LLM provider failed (F2 cut-1; never shown for a deliberate template run)
     if report.summary:
         _render_executive_summary(report, con)
+        con.print()
+    elif report.summary_error:
+        _render_summary_unavailable(report, con)
         con.print()
 
     # (c) Clusters overview table
@@ -405,6 +429,13 @@ def format_report_console(report: TriageReport) -> None:
         f"|  priority: {overall}  |  file: {input_file}"
     )
     print()
+
+    # F2 cut-1: loud, unmissable notice when a REQUESTED LLM provider failed
+    # (never shown for a deliberate template run — see sift/main.py).
+    if report.summary_error and not report.summary:
+        provider = report.summary_provider or "unknown"
+        print(f"⚠ LLM SUMMARY UNAVAILABLE — provider '{provider}' failed: {report.summary_error}")
+        print()
 
     sorted_clusters = _sorted_clusters(report.clusters)
     for cluster in sorted_clusters:

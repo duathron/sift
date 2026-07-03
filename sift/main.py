@@ -124,9 +124,11 @@ def _build_summarizer(
 
             return AnthropicSummarizer(config.summarize)
         except ImportError as e:
-            console.print(f"[yellow]Warning:[/yellow] {_markup_escape(str(e))}")
-            console.print("[dim]Falling back to template summarizer.[/dim]")
-            return TemplateSummarizer()
+            # F2 (2026-07-03): a REQUESTED LLM provider whose SDK is not installed
+            # must NOT silently degrade to a template — raise so the call site
+            # marks it unavailable (loud + summary_error + exit 4), same as a
+            # runtime LLM failure. `pip install sift-triage[llm]` to enable it.
+            raise RuntimeError(f"provider 'anthropic' requested but its package is not installed: {e}") from e
 
     if provider == "openai":
         try:
@@ -134,9 +136,9 @@ def _build_summarizer(
 
             return OpenAISummarizer(config.summarize)
         except ImportError as e:
-            console.print(f"[yellow]Warning:[/yellow] {_markup_escape(str(e))}")
-            console.print("[dim]Falling back to template summarizer.[/dim]")
-            return TemplateSummarizer()
+            # F2 (2026-07-03): see the anthropic branch — raise, never silently
+            # template. `pip install sift-triage[llm]` to enable it.
+            raise RuntimeError(f"provider 'openai' requested but its package is not installed: {e}") from e
 
     if provider == "ollama":
         from .summarizers.ollama import OllamaSummarizer
@@ -1289,12 +1291,6 @@ def triage(
         if max_tokens is not None:
             # Use model_copy to avoid mutating the live cfg object (prevents accidental persist)
             cfg = cfg.model_copy(update={"summarize": cfg.summarize.model_copy(update={"max_tokens": max_tokens})})
-        summarizer = _build_summarizer(
-            effective_provider,
-            cfg,
-            injection_verbose=injection_detail,
-            injection_log_file=findings_file,
-        )
         if summarize and effective_provider == "template" and cfg.summarize.api_key:
             _quiet_mode = quiet or cfg.output.quiet
             if not _quiet_mode:
@@ -1302,10 +1298,44 @@ def triage(
                     "[dim]Tip: API key is set — for AI summary add [bold]--provider anthropic[/bold] "
                     "(or set default: sift config --provider anthropic).[/dim]"
                 )
+        # F2 cut-1 (2026-07-03 MeetUp — 2026-07-03-f2-llm-failure-posture.md):
+        # a REQUESTED LLM provider (anthropic/openai/ollama) that fails must
+        # never silently degrade to a template summary. The triage still
+        # completes — clusters/IOCs/everything else render normally — but the
+        # summary section is left unavailable (no template substitution),
+        # loudly flagged (stderr-only; see the renderers), machine-marked
+        # (`summary_error`/`summary_provider`), and the run exits with the
+        # reserved LLM-unavailable code (models.py: 4). `template`/`mock` are
+        # NOT LLM requests (default posture, no key needed) — a failure there
+        # keeps the old warn-and-continue behavior and is never "degraded".
+        _llm_requested = effective_provider not in ("template", "mock")
         try:
+            # Build INSIDE the try so a build-time failure (e.g. the requested
+            # provider's SDK not installed → RuntimeError) routes through the
+            # same never-silent-template handler as a runtime LLM failure (F2).
+            summarizer = _build_summarizer(
+                effective_provider,
+                cfg,
+                injection_verbose=injection_detail,
+                injection_log_file=findings_file,
+            )
             report = report.model_copy(update={"summary": summarizer.summarize(report)})
         except Exception as exc:
-            console.print(f"[yellow]Warning:[/yellow] Summarization failed: {_markup_escape(str(exc))}")
+            if _llm_requested:
+                short_err = _markup_escape(str(exc))
+                console.print(
+                    f"[bold red]⚠ LLM SUMMARY UNAVAILABLE[/bold red] — "
+                    f"provider '{effective_provider}' failed: {short_err}"
+                )
+                report = report.model_copy(
+                    update={
+                        "summary": None,
+                        "summary_error": str(exc),
+                        "summary_provider": effective_provider,
+                    }
+                )
+            else:
+                console.print(f"[yellow]Warning:[/yellow] Summarization failed: {_markup_escape(str(exc))}")
 
     # --- Validation-only mode ---
     if validate_only:

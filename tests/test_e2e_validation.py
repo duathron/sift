@@ -293,10 +293,17 @@ class TestE2EConfigInjectionControl:
 
 
 class TestE2EValidationFallback:
-    """E2E validation with automatic fallback to template summarizer."""
+    """F2 cut-1 (2026-07-03 MeetUp — ``2026-07-03-f2-llm-failure-posture.md``,
+    signed off): this class used to pin "automatic fallback to template
+    summarizer" as E2E validation behavior. That silent substitution is
+    removed — a validation failure now raises, so the class name is retained
+    for history but the test body pins a raise, not a fallback."""
 
-    def test_invalid_summary_dict_falls_back_to_template(self, realistic_triage_report: TriageReport):
-        """SummaryValidator falls back to TemplateSummarizer on validation failure."""
+    def test_invalid_summary_dict_raises_not_falls_back(self, realistic_triage_report: TriageReport):
+        """F2 cut-1 flip. OLD: SummaryValidator fell back to TemplateSummarizer
+        on validation failure (`result.provider == "template"`). NEW: it raises
+        RuntimeError instead — no template masquerading as a real summary.
+        Signed off: 2026-07-03 MeetUp F2 cut-1."""
         # Provide an invalid summary dict (missing executive_summary)
         invalid_data = {
             "executive_summary": "",  # Empty — should fail validation
@@ -304,12 +311,8 @@ class TestE2EValidationFallback:
             "overall_priority": "INVALID_PRIORITY",
         }
 
-        result = SummaryValidator.validate(invalid_data, "test", realistic_triage_report)
-
-        # Should have fallen back to template
-        assert isinstance(result, SummaryResult)
-        assert result.provider == "template"  # Fallback provider
-        assert len(result.executive_summary) > 0
+        with pytest.raises(RuntimeError, match="Validation failed for test summary"):
+            SummaryValidator.validate(invalid_data, "test", realistic_triage_report)
 
     def test_malformed_cluster_summary_is_skipped(self, realistic_triage_report: TriageReport):
         """SummaryValidator skips malformed cluster summaries during validation."""

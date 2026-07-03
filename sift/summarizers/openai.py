@@ -75,20 +75,25 @@ class OpenAISummarizer:
         sends it to the OpenAI Chat Completions API, and parses the JSON response
         into a :class:`SummaryResult`.
 
-        On JSON parse failure, falls back to :class:`~.template.TemplateSummarizer`
-        and logs a warning.  On API-level errors the exception is re-raised with
-        a human-friendly message prepended.
+        F2 cut-1 (2026-07-03 MeetUp — ``2026-07-03-f2-llm-failure-posture.md``):
+        a JSON parse/validation failure used to silently fall back to
+        :class:`~.template.TemplateSummarizer` (with only a ``logging.warning``).
+        That silent substitution is now REMOVED: both API-level errors and
+        parse/validation failures raise :class:`RuntimeError`. The caller
+        (``sift/main.py``) catches it, prints a loud ``LLM SUMMARY UNAVAILABLE``
+        notice, and marks the report degraded (exit code 4) — the rule-based
+        cluster analysis still renders.
 
         Args:
             report: The completed :class:`TriageReport` to summarise.
 
         Returns:
             A :class:`SummaryResult` populated with the LLM's narrative and
-            recommendations, or a template-generated fallback.
+            recommendations.
 
         Raises:
-            RuntimeError: Wraps any :class:`openai.OpenAIError` with a friendly
-                message.
+            RuntimeError: Wraps any :class:`openai.OpenAIError`, or a
+                parse/validation failure, with a friendly message.
         """
         from shipwright_kit.llm import openai_complete  # noqa: PLC0415
 
@@ -110,32 +115,34 @@ class OpenAISummarizer:
         return self._parse_and_validate_response(response_text, report)
 
     def _parse_and_validate_response(self, response_text: str, report: TriageReport) -> SummaryResult:
-        """Parse and validate LLM response with fallback to template on failure.
+        """Parse and validate the LLM response.
+
+        F2 cut-1: this used to catch parse/validation failures and silently
+        degrade to :class:`~.template.TemplateSummarizer`. It now raises
+        :class:`RuntimeError` so the caller can surface a loud, machine-legible
+        failure instead of masquerading a template as an LLM analysis.
 
         Args:
             response_text: Raw text response from OpenAI.
             report: The triage report being summarized.
 
         Returns:
-            A validated :class:`SummaryResult`, or a template-generated fallback.
+            A validated :class:`SummaryResult`.
+
+        Raises:
+            RuntimeError: If the response cannot be parsed as JSON or fails
+                schema validation.
         """
+        # Strip markdown code fences if present: ```json ... ``` or ``` ... ```
+        stripped = response_text.strip()
+        fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", stripped)
+        if fence_match:
+            stripped = fence_match.group(1).strip()
+
         try:
-            # Strip markdown code fences if present: ```json ... ``` or ``` ... ```
-            stripped = response_text.strip()
-            fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", stripped)
-            if fence_match:
-                stripped = fence_match.group(1).strip()
-
             data = json.loads(stripped)
-
-            # Validate the parsed JSON against schema
+            # Validate the parsed JSON against schema (raises RuntimeError on
+            # failure — see SummaryValidator.validate).
             return SummaryValidator.validate(data, self.name, report)
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-            # Graceful degradation: fall back to rule-based template summarizer
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.warning(f"Failed to parse/validate OpenAI response: {exc}. Falling back to template summarizer.")
-            from .template import TemplateSummarizer  # noqa: PLC0415
-
-            return TemplateSummarizer().summarize(report)
+            raise RuntimeError(f"Failed to parse/validate OpenAI response: {exc}") from exc

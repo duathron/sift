@@ -73,23 +73,37 @@ class OllamaSummarizer:
         so the system prompt is prepended inline), POSTs to the Ollama API, and
         parses the JSON response.
 
-        On *any* error (network, HTTP, JSON parse), falls back to
-        :class:`~.template.TemplateSummarizer` to ensure the CLI always produces
-        output.
+        F2 cut-1 (2026-07-03 MeetUp — ``2026-07-03-f2-llm-failure-posture.md``):
+        previously *any* error (network, HTTP, JSON parse) was swallowed by a
+        bare ``except Exception`` and silently degraded to
+        :class:`~.template.TemplateSummarizer` — the analyst would receive a
+        template summary believing it was an LLM analysis, with zero logging.
+        That silent substitution is now REMOVED: on any failure this method
+        raises :class:`RuntimeError` instead. The caller (``sift/main.py``)
+        catches it, prints a loud ``LLM SUMMARY UNAVAILABLE`` notice, marks the
+        report as degraded (machine-legible marker + reserved exit code 4),
+        and still renders the rule-based cluster analysis — nothing is thrown
+        away, but nothing masquerades as an LLM summary either.
 
         Args:
             report: The completed :class:`TriageReport` to summarise.
 
         Returns:
             A :class:`SummaryResult` populated with the model's narrative and
-            recommendations, or a template-generated fallback on any failure.
+            recommendations.
+
+        Raises:
+            RuntimeError: On any network, HTTP, or response-parsing/validation
+                failure.
         """
         try:
             return self._call_ollama(report)
-        except Exception:  # noqa: BLE001
-            from .template import TemplateSummarizer  # noqa: PLC0415
-
-            return TemplateSummarizer().summarize(report)
+        except RuntimeError:
+            # Already a friendly, well-formed error (e.g. from
+            # _parse_and_validate_response) — propagate as-is.
+            raise
+        except Exception as exc:  # noqa: BLE001 — network/HTTP errors from urllib
+            raise RuntimeError(f"Ollama request failed: {exc}") from exc
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -127,32 +141,36 @@ class OllamaSummarizer:
         return self._parse_and_validate_response(llm_text, report)
 
     def _parse_and_validate_response(self, response_text: str, report: TriageReport) -> SummaryResult:
-        """Parse and validate LLM response with fallback to template on failure.
+        """Parse and validate the LLM response.
+
+        F2 cut-1: this used to catch parse/validation failures and silently
+        degrade to :class:`~.template.TemplateSummarizer` (with only a
+        ``logging.warning`` — invisible unless logging was configured). It now
+        raises :class:`RuntimeError` so the caller can surface a loud,
+        machine-legible failure instead of masquerading a template as an LLM
+        analysis.
 
         Args:
             response_text: Raw text response from Ollama.
             report: The triage report being summarized.
 
         Returns:
-            A validated :class:`SummaryResult`, or a template-generated fallback.
+            A validated :class:`SummaryResult`.
+
+        Raises:
+            RuntimeError: If the response cannot be parsed as JSON or fails
+                schema validation.
         """
+        # Strip markdown code fences if present: ```json ... ``` or ``` ... ```
+        stripped = response_text.strip()
+        fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", stripped)
+        if fence_match:
+            stripped = fence_match.group(1).strip()
+
         try:
-            # Strip markdown code fences if present: ```json ... ``` or ``` ... ```
-            stripped = response_text.strip()
-            fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", stripped)
-            if fence_match:
-                stripped = fence_match.group(1).strip()
-
             data = json.loads(stripped)
-
-            # Validate the parsed JSON against schema
+            # Validate the parsed JSON against schema (raises RuntimeError on
+            # failure — see SummaryValidator.validate).
             return SummaryValidator.validate(data, self.name, report)
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-            # Graceful degradation: fall back to rule-based template summarizer
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.warning(f"Failed to parse/validate Ollama response: {exc}. Falling back to template summarizer.")
-            from .template import TemplateSummarizer  # noqa: PLC0415
-
-            return TemplateSummarizer().summarize(report)
+            raise RuntimeError(f"Failed to parse/validate Ollama response: {exc}") from exc
