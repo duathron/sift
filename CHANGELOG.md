@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.3](https://github.com/duathron/sift/compare/v1.3.2...v1.3.3) (2026-07-03)
+
+
+### Bug Fixes
+
+* never silently substitute a template for a failed LLM summary (F2 cut-1) ([8073e15](https://github.com/duathron/sift/commit/8073e1563416fc80314eee8cca4cc0fca1e497ce))
+
 ## [1.3.2](https://github.com/duathron/sift/compare/v1.3.1...v1.3.2) (2026-07-02)
 
 
