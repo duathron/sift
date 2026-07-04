@@ -66,10 +66,21 @@ class OllamaSummarizer:
     def summarize(self, report: TriageReport) -> SummaryResult:
         """Generate a triage summary using a locally-running Ollama model.
 
-        Constructs a combined system+user prompt (Ollama's ``/api/generate``
-        endpoint does not have a dedicated system-message field in all versions,
-        so the system prompt is prepended inline), POSTs to the Ollama API, and
-        parses the JSON response.
+        Sends ``system`` and ``user`` as two structurally separate fields on
+        Ollama's ``/api/generate`` payload (top-level ``"system"`` key plus a
+        ``"prompt"`` holding the user content only — Ollama's model template
+        places ``system`` in the privileged system turn), POSTs to the Ollama
+        API, and parses the JSON response.
+
+        W3 F3 (2026-07-04): previously the system and user prompts were
+        folded together into one combined ``"prompt"`` string
+        (``f"{system}\\n\\n{user}"``, no dedicated ``system`` field). This
+        structural system/user separation ("field" mode) is more
+        prompt-injection-resistant than folding trusted instructions and
+        untrusted alert data into a single channel, since it confines the
+        untrusted alert content to the user turn. This sits *behind* sift's
+        primary defense (the pre-submit injection detector + redaction),
+        which is unchanged.
 
         F2 cut-1 (2026-07-03 MeetUp — ``2026-07-03-f2-llm-failure-posture.md``):
         previously *any* error (network, HTTP, JSON parse) was swallowed by a
@@ -133,7 +144,7 @@ class OllamaSummarizer:
             system=system_prompt,
             user=user_prompt,
             timeout=None,
-            system_mode="fold",
+            system_mode="field",
         )
 
         return parse_and_validate_response(llm_text, self.name, "Ollama", report)

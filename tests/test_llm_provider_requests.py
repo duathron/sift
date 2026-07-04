@@ -473,7 +473,17 @@ class TestOllamaRequestConstruction:
         summarizer.summarize(make_report())
         assert captured["url"] == "http://gpu-box:11434/api/generate"
 
-    def test_payload_has_model_prompt_stream_false_only(self, monkeypatch):
+    def test_payload_has_model_system_prompt_stream_false_only(self, monkeypatch):
+        """W3 F3 (2026-07-04) flip. OLD: payload had exactly 3 keys
+        (``model``, ``prompt``, ``stream``) — no dedicated ``system`` field,
+        because ``system_mode="fold"`` prepended the system prompt into
+        ``prompt``. NEW: ``system_mode="field"`` sends ``system`` as its own
+        top-level key, so the payload now has exactly 4 keys. This is a
+        deliberate SECURITY hardening: structural system/user separation
+        confines the untrusted SOC-alert data (carried in ``user``/``prompt``)
+        to Ollama's user turn rather than folding it into the same channel as
+        the trusted system instructions, making the request more
+        prompt-injection-resistant. Still no "options", no temperature."""
         captured = _install_fake_urlopen(monkeypatch, {"response": json.dumps(valid_llm_dict())})
         config = SummarizeConfig(provider="ollama", model="llama3.2:70b")
         summarizer = OllamaSummarizer(config)
@@ -482,8 +492,7 @@ class TestOllamaRequestConstruction:
         payload = captured["payload"]
         assert payload["model"] == "llama3.2:70b"
         assert payload["stream"] is False
-        # CURRENT behavior: exactly these 3 keys — no "system", no "options", no temperature.
-        assert set(payload.keys()) == {"model", "prompt", "stream"}
+        assert set(payload.keys()) == {"model", "system", "prompt", "stream"}
 
     def test_default_model_used_when_config_model_is_none(self, monkeypatch):
         captured = _install_fake_urlopen(monkeypatch, {"response": json.dumps(valid_llm_dict())})
@@ -491,10 +500,21 @@ class TestOllamaRequestConstruction:
         summarizer.summarize(make_report())
         assert captured["payload"]["model"] == "llama3.2"
 
-    def test_system_prompt_is_prepended_inline_not_a_separate_field(self, monkeypatch):
-        """CURRENT behavior: Ollama's /api/generate has no dedicated system-message
-        field in all versions, so sift prepends system + '\\n\\n' + user prompt into
-        a single combined 'prompt' string."""
+    def test_system_prompt_is_sent_as_separate_top_level_field(self, monkeypatch):
+        """W3 F3 (2026-07-04) flip. OLD: ``system_mode="fold"`` — Ollama's
+        ``/api/generate`` was treated as having no dedicated system-message
+        field, so sift prepended ``system + '\\n\\n' + user`` into a single
+        combined ``"prompt"`` string (no top-level ``"system"`` key). NEW:
+        ``system_mode="field"`` — ``system`` is sent as its own top-level
+        payload key and ``"prompt"`` carries the user content alone. This is
+        a deliberate SECURITY hardening: sift's ``user`` prompt carries
+        UNTRUSTED SOC-alert data, and folding trusted system instructions and
+        untrusted data into one prompt channel (injection-prone data last) is
+        more prompt-injection-susceptible than Ollama's structural
+        system/user turn separation. This sits behind, and does not replace,
+        sift's primary defense (the pre-submit injection detector +
+        redaction — see test_injection_scan_runs_on_provider_path.py, left
+        unchanged by this flip)."""
         from sift.summarizers.prompt import build_cluster_prompt_with_examples, get_system_prompt
 
         captured = _install_fake_urlopen(monkeypatch, {"response": json.dumps(valid_llm_dict())})
@@ -505,7 +525,8 @@ class TestOllamaRequestConstruction:
 
         expected_system = get_system_prompt("ollama")
         expected_user = build_cluster_prompt_with_examples(report, config, "ollama")
-        assert captured["payload"]["prompt"] == f"{expected_system}\n\n{expected_user}"
+        assert captured["payload"]["system"] == expected_system
+        assert captured["payload"]["prompt"] == expected_user
 
     def test_content_type_header_is_json(self, monkeypatch):
         captured = _install_fake_urlopen(monkeypatch, {"response": json.dumps(valid_llm_dict())})
