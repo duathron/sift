@@ -29,6 +29,13 @@ from .prompt import (
 _DEFAULT_MODEL = "llama3.2"
 _DEFAULT_BASE_URL = "http://localhost:11434"
 
+# Bounded default so an unattended run cannot hang forever on a slow/adversarial
+# local endpoint (OWASP LLM10). Mirrors barb's OllamaExplainer._TIMEOUT (=60);
+# sift summarizes clusters (larger prompts) so allow more headroom. On timeout,
+# ollama_generate raises -> sift's F2 fail-loud posture surfaces it (never a
+# silent template).
+_OLLAMA_TIMEOUT_SECONDS = 120
+
 
 # ---------------------------------------------------------------------------
 # Summarizer
@@ -143,7 +150,7 @@ class OllamaSummarizer:
             model=self._model,
             system=system_prompt,
             user=user_prompt,
-            timeout=None,
+            timeout=_OLLAMA_TIMEOUT_SECONDS,
             system_mode="field",
         )
 
