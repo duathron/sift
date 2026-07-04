@@ -7,8 +7,6 @@ Requires the ``anthropic`` package, available via::
 
 from __future__ import annotations
 
-import json
-import re
 from typing import TYPE_CHECKING
 
 from ..config import SummarizeConfig
@@ -16,11 +14,11 @@ from ..models import (
     SummaryResult,
     TriageReport,
 )
+from ._response import parse_and_validate_response
 from .prompt import (
     build_cluster_prompt_with_examples,
     get_system_prompt,
 )
-from .validation import SummaryValidator
 
 if TYPE_CHECKING:
     pass
@@ -112,37 +110,4 @@ class AnthropicSummarizer:
         except self._anthropic.APIError as exc:
             raise RuntimeError(f"Anthropic API error while generating summary: {exc}") from exc
 
-        return self._parse_and_validate_response(response_text, report)
-
-    def _parse_and_validate_response(self, response_text: str, report: TriageReport) -> SummaryResult:
-        """Parse and validate the LLM response.
-
-        F2 cut-1: this used to catch parse/validation failures and silently
-        degrade to :class:`~.template.TemplateSummarizer`. It now raises
-        :class:`RuntimeError` so the caller can surface a loud, machine-legible
-        failure instead of masquerading a template as an LLM analysis.
-
-        Args:
-            response_text: Raw text response from Claude.
-            report: The triage report being summarized.
-
-        Returns:
-            A validated :class:`SummaryResult`.
-
-        Raises:
-            RuntimeError: If the response cannot be parsed as JSON or fails
-                schema validation.
-        """
-        # Strip markdown code fences if present: ```json ... ``` or ``` ... ```
-        stripped = response_text.strip()
-        fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", stripped)
-        if fence_match:
-            stripped = fence_match.group(1).strip()
-
-        try:
-            data = json.loads(stripped)
-            # Validate the parsed JSON against schema (raises RuntimeError on
-            # failure — see SummaryValidator.validate).
-            return SummaryValidator.validate(data, self.name, report)
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-            raise RuntimeError(f"Failed to parse/validate Anthropic response: {exc}") from exc
+        return parse_and_validate_response(response_text, self.name, "Anthropic", report)

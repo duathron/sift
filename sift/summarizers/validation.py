@@ -11,8 +11,9 @@ F2 cut-1 (2026-07-03 MeetUp — ``2026-07-03-f2-llm-failure-posture.md``):
 :meth:`SummaryValidator.validate` used to catch a schema-validation failure
 and silently return a :class:`~sift.summarizers.template.TemplateSummarizer`
 result instead — the deepest of the three template-substitution seams (the
-provider-level ``_parse_and_validate_response`` methods only ever call this
-once ``json.loads`` has already succeeded). It now raises
+shared ``parse_and_validate_response`` helper in
+:mod:`sift.summarizers._response` only ever calls this once ``json.loads`` has
+already succeeded). It now raises
 :class:`RuntimeError` so provider summarizers, and ultimately ``sift/main.py``,
 can surface a loud, machine-legible failure instead of masquerading a template
 as an LLM analysis.
