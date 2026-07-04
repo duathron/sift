@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.4](https://github.com/duathron/sift/compare/v1.3.3...v1.3.4) (2026-07-04)
+
+
+### Bug Fixes
+
+* send Ollama system prompt as a top-level field, not folded into the user prompt (W3 F3) ([40288c6](https://github.com/duathron/sift/commit/40288c6444ac4720baeff9d3f15e8102cc9dcb25))
+
 ## [1.3.3](https://github.com/duathron/sift/compare/v1.3.2...v1.3.3) (2026-07-03)
 
 
