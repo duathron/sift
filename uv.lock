@@ -54,18 +54,19 @@ wheels = [
 
 [[package]]
 name = "barb-phish"
-version = "1.0.0"
+version = "1.7.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "rich" },
+    { name = "shipwright-kit" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/83/72/728a0c8d8105a3be57828f4337b75a3fc9452f959ab968893965abe4d745/barb_phish-1.0.0.tar.gz", hash = "sha256:9b609893b3c74c9edf0c0dfcff7906cc7308b092da5c72715e2018f7515b524b", size = 26553, upload-time = "2026-03-18T09:10:13.345Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bd/4f/a8280e25070e5ee803e7b70223ba7d698b040d4ce1b690958ca187c8cc20/barb_phish-1.7.2.tar.gz", hash = "sha256:46828e801a9d9704f9e2ae9559bb93edcbdb156c6ef12cf4807b5b9872d4bd04", size = 102842, upload-time = "2026-07-03T05:57:58.276Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/74/b3/2edb83cd94cee2da014fcbacaa67cbab37ad283f3d4626eae7c97b9aebf7/barb_phish-1.0.0-py3-none-any.whl", hash = "sha256:93fce5b221c595ece2f8df45062e263f0b23f2002be66f75ecff64b2a64bd0e6", size = 29609, upload-time = "2026-03-18T09:10:12.11Z" },
+    { url = "https://files.pythonhosted.org/packages/34/05/a21870dda1f3ce79f6998281927d02fff1fe1b15132758111e282be37cae/barb_phish-1.7.2-py3-none-any.whl", hash = "sha256:8726c221374b094198b1b4c783582a650b0ffd8d0f9ab927cd5a7a69a33c6d92", size = 69931, upload-time = "2026-07-03T05:57:56.955Z" },
 ]
 
 [[package]]
@@ -728,7 +729,7 @@ wheels = [
 
 [[package]]
 name = "sift-triage"
-version = "1.3.1"
+version = "1.3.3"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
