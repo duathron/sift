@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+from shipwright_kit.security.render import safe_render
 
 from ..models import (
     AlertSeverity,
@@ -208,7 +209,7 @@ def _render_executive_summary(report: TriageReport, con: Console) -> None:
     border = priority_color(overall)
     con.print(
         Panel(
-            report.summary.executive_summary,
+            safe_render(report.summary.executive_summary),
             title="[bold]Executive Summary[/bold]",
             border_style=border,
             padding=(1, 2),

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from sift.models import Alert, AlertSeverity, Cluster, ClusterPriority, TriageReport
+from sift.models import Alert, AlertSeverity, Cluster, ClusterPriority, TechniqueRef, TriageReport
 from sift.normalizers.generic import GenericNormalizer
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -127,7 +127,18 @@ def sample_cluster(sample_alert_high: Alert, sample_alert_critical: Alert) -> Cl
         priority=ClusterPriority.HIGH,
         score=30.0,
         confidence=0.85,
-        techniques=["T1566.002", "T1486"],
+        techniques=[
+            TechniqueRef(
+                technique_id="T1566.002",
+                technique_name="Spearphishing Link",
+                tactic="Initial Access",
+            ),
+            TechniqueRef(
+                technique_id="T1486",
+                technique_name="Data Encrypted for Impact",
+                tactic="Impact",
+            ),
+        ],
         iocs=["185.220.101.47", "evil.phish.ru", "c2.ransomgroup.onion"],
         first_seen=sample_alert_high.timestamp,
         last_seen=sample_alert_critical.timestamp,
@@ -144,7 +155,7 @@ def sample_report(sample_cluster: Cluster) -> TriageReport:
         alerts_after_dedup=2,
         clusters=[sample_cluster],
         summary=None,
-        enrichment={},
-        manifest={},
+        enrichment=None,
+        manifest=None,
         analyzed_at=datetime(2026, 3, 22, 10, 0, 0, tzinfo=timezone.utc),
     )

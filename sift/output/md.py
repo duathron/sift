@@ -41,8 +41,9 @@ _PRIORITY_ICON: dict[str, str] = {
 
 def _md_escape(text: str) -> str:
     """Escape Markdown special characters in inline text."""
-    # Escape characters that affect Markdown formatting
-    for ch in ("|", "`", "*", "_", "[", "]", "<", ">", "#", "\\"):
+    # Backslash first — escaping it last would double every backslash the
+    # earlier steps insert (e.g. "|" -> "\|" -> "\\|").
+    for ch in ("\\", "|", "`", "*", "_", "[", "]", "<", ">", "#"):
         text = text.replace(ch, f"\\{ch}")
     return text
 
@@ -173,7 +174,7 @@ def render_md_report(report: "TriageReport") -> str:
         lines.append("")
         lines.append(f"**Overall Priority:** {_priority_label(overall)}")
         lines.append("")
-        lines.append(s.executive_summary)
+        lines.append(_md_escape(s.executive_summary))
         lines.append("")
     elif report.summary_error:
         provider = _md_escape(report.summary_provider or "unknown")
