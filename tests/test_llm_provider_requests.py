@@ -535,6 +535,24 @@ class TestOllamaRequestConstruction:
         # urllib title-cases header keys it was given.
         assert captured["headers"].get("Content-type") == "application/json"
 
+    def test_ollama_request_uses_a_finite_timeout(self, monkeypatch):
+        """LLM10: the Ollama summarizer must not pass timeout=None (unbounded
+        hang). Pin a finite default."""
+        captured: dict = {}
+
+        def fake_urlopen(req, *args, **kwargs):
+            captured["timeout"] = kwargs.get("timeout")
+            return _FakeHTTPResponse(json.dumps({"response": json.dumps(valid_llm_dict())}).encode("utf-8"))
+
+        monkeypatch.setattr("sift.summarizers.ollama.urllib.request.urlopen", fake_urlopen)
+        summarizer = OllamaSummarizer(SummarizeConfig(provider="ollama"))
+        try:
+            summarizer.summarize(make_report())
+        except Exception:
+            pass
+        assert captured.get("timeout") is not None, "Ollama request passed timeout=None (unbounded)"
+        assert isinstance(captured["timeout"], (int, float)) and captured["timeout"] > 0
+
 
 # ---------------------------------------------------------------------------
 # Ollama — response parsing
