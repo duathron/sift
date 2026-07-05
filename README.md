@@ -421,6 +421,12 @@ Default model: `llama3.2`. Default endpoint: `http://localhost:11434`. Override 
 SIFT_OLLAMA_URL=http://my-server:11434 sift triage alerts.json --summarize --provider ollama --model mistral
 ```
 
+> **Bounded request timeout (OWASP LLM10, Unbounded Consumption):** the Ollama
+> request is capped at 120 seconds, so a slow or unresponsive local endpoint
+> can't hang an unattended run forever. sift treats a timeout like any other
+> Ollama failure and fails loud instead of silently falling back to a
+> template summary (see [Validation and Security](#validation-and-security)).
+
 ---
 
 #### Template (default, no LLM)
@@ -731,6 +737,10 @@ sift validate alerts.json
 ```
 
 A built-in prompt injection detector scans alert fields for five pattern categories: instruction overrides, output manipulation, JSON escapes, encoded payloads, and shell injection. Suspicious content is flagged and summarization falls back to the template provider automatically. The injection engine is shared with barb and vex via `shipwright_kit.security.injection` so a fix propagates to all three tools at once.
+
+The LLM-generated executive summary is escaped at both render sinks before it reaches a reader (OWASP LLM05, Improper Output Handling): the Rich console panel runs it through `shipwright_kit.security.safe_render`, and the Markdown export escapes it with sift's own `_md_escape`. Both sinks neutralize model-emitted Markdown, ANSI, or HTML markup, for example a stray `<script>` tag or a terminal control sequence in the model's response, so it can't alter the terminal display or carry into a document pasted into Jira or Confluence. This is separate from the field-level `--redact-fields` redaction described above, which scrubs alert *input* data rather than the model's *output*, and is unaffected by this change.
+
+The Ollama provider also bounds its request to a 120-second timeout (see [Ollama (local, no API key)](#ollama-local-no-api-key)), which closes OWASP LLM10 (Unbounded Consumption) for that provider.
 
 > **Security invariant:** sift never sends alert data to a cloud LLM without a redaction-config check. Core clustering is rule-based and deterministic; AI summarization is opt-in.
 
