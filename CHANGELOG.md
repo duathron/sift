@@ -7,6 +7,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.0](https://github.com/duathron/sift/compare/v1.3.4...v1.4.0) (2026-07-05)
+
+
+### Features
+
+* escape LLM summary at the render sinks (LLM05) ([#23](https://github.com/duathron/sift/issues/23)) ([3c2db54](https://github.com/duathron/sift/commit/3c2db54ac89382e21f645c6253f20db184dbc4e5))
+
+
+### Bug Fixes
+
+* bound the Ollama summarizer request timeout (LLM10) ([#22](https://github.com/duathron/sift/issues/22)) ([5d30c8d](https://github.com/duathron/sift/commit/5d30c8dadd71813429af34cb474ef6ee3bea6877))
+
 ## [1.3.4](https://github.com/duathron/sift/compare/v1.3.3...v1.3.4) (2026-07-04)
 
 
