@@ -15,6 +15,11 @@
         {
           "type": "generic",
           "path": "sift/__init__.py"
+        },
+        {
+          "type": "toml",
+          "path": "uv.lock",
+          "jsonpath": "$.package[?(@.name.value=='sift-triage')].version"
         }
       ]
     }
