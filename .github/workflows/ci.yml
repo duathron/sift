@@ -3,6 +3,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   # Standard lint + format + test + build via the Shipwright reusable workflow,
   # matrixed across sift's supported Python versions.
@@ -10,7 +13,7 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
-    uses: duathron/shipwright/.github/workflows/python-ci.yml@v0.8.1
+    uses: duathron/shipwright/.github/workflows/python-ci.yml@02c7e57c9c43e1eb76e08b11d4c1386d7f9b90ab # v0.12.1
     with:
       python-version: ${{ matrix.python-version }}
 
@@ -24,7 +27,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
-      - run: uv sync --dev
+      - run: uv sync --locked --dev
       - run: uv run bash dogfood.sh   # SIFT_DOGFOOD_LLM unset → live skipped, exit 0
 
   # Detection-quality gates — prompt-injection + IOC-classifier on labeled corpora:
@@ -39,7 +42,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
-      - run: uv sync --dev
+      - run: uv sync --locked --dev
       - run: uv run python -m eval.run_injection_eval
       - run: uv run python -m eval.run_ioc_eval
       - run: uv run python -m eval.run_ioc_type_eval

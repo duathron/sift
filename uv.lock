@@ -41,15 +41,15 @@ wheels = [
 
 [[package]]
 name = "anyio"
-version = "4.12.1"
+version = "4.14.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "idna" },
     { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/96/f0/5eb65b2bb0d09ac6776f2eb54adee6abe8228ea05b20a5ad0e4945de8aac/anyio-4.12.1.tar.gz", hash = "sha256:41cfcc3a4c85d3f05c932da7c26d0201ac36f72abd4435ba90d0464a3ffed703", size = 228685, upload-time = "2026-01-06T11:45:21.246Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/61/cc/a381afa6efea9f496eff839d4a6a1aed3bfafc7b3ab4b0d1b243a12573dd/anyio-4.14.2.tar.gz", hash = "sha256:cfa139f3ed1a23ee8f88a145ddb5ac7605b8bbfd8592baacd7ce3d8bb4313c7f", size = 260176, upload-time = "2026-07-12T20:29:07.082Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/38/0e/27be9fdef66e72d64c0cdc3cc2823101b80585f8119b5c112c2e8f5f7dab/anyio-4.12.1-py3-none-any.whl", hash = "sha256:d405828884fc140aa80a3c667b8beed277f1dfedec42ba031bd6ac3db606ab6c", size = 113592, upload-time = "2026-01-06T11:45:19.497Z" },
+    { url = "https://files.pythonhosted.org/packages/da/35/f2287558c17e29fafc8ef3daf819bb9834061cfa43bff8014f7df7f63bdc/anyio-4.14.2-py3-none-any.whl", hash = "sha256:9f505dda5ac9f0c8309b5e8bd445a8c2bf7246f3ce950121e45ea15bc41d1494", size = 125813, upload-time = "2026-07-12T20:29:05.763Z" },
 ]
 
 [[package]]
@@ -70,11 +70,11 @@ wheels = [
 
 [[package]]
 name = "certifi"
-version = "2026.2.25"
+version = "2026.10.23"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/af/2d/7bf41579a8986e348fa033a31cdd0e4121114f6bce2457e8876010b092dd/certifi-2026.2.25.tar.gz", hash = "sha256:e887ab5cee78ea814d3472169153c2d12cd43b14bd03329a39a9c6e2e80bfba7", size = 155029, upload-time = "2026-02-25T02:54:17.342Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fd/11/b524cbd9bbdaca58608e4cf4053fd463417549e1959fa8d3aa18319f9555/certifi-2026.10.23.tar.gz", hash = "sha256:a9895e6e2758b371e0545e321a3a8fd1fcfd9829ada8824a936dfb16aaaf36cd", size = 136225, upload-time = "2026-10-23T11:36:16.478Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9a/3c/c17fb3ca2d9c3acff52e30b309f538586f9f5b9c9cf454f3845fc9af4881/certifi-2026.2.25-py3-none-any.whl", hash = "sha256:027692e4402ad994f1c42e52a4997a9763c646b73e4096e4d5d6db8af1d6f0fa", size = 153684, upload-time = "2026-02-25T02:54:15.766Z" },
+    { url = "https://files.pythonhosted.org/packages/32/d1/a3652fe2c19134d0d15922177821d863cbd7e842d53a21bbe7e8e3a1b5ac/certifi-2026.10.23-py3-none-any.whl", hash = "sha256:e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1", size = 135082, upload-time = "2026-10-23T11:36:14.763Z" },
 ]
 
 [[package]]
@@ -719,16 +719,16 @@ wheels = [
 
 [[package]]
 name = "shipwright-kit"
-version = "0.10.1"
+version = "0.12.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e5/ca/577f14c0778bf633dcf4a6709ef7840e0dffb4b2eb017b504aedd38548b9/shipwright_kit-0.10.1.tar.gz", hash = "sha256:99d79b1d6044ff8f258f05b5c8c91ba145d7fa2b221d53288dbc637206a93b11", size = 30571, upload-time = "2026-07-02T19:53:25.36Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/59/ad/7731364f77ab6aa045345b621def850dd5da14b38131e435e10cf42da709/shipwright_kit-0.12.1.tar.gz", hash = "sha256:5840421247122c7c01d2d5a759f732bf1e52736b221f0244e7f1d9f2f5fe4d28", size = 36010, upload-time = "2026-11-04T18:44:18.753Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/df/2e/385ffa8f9be68e357d1e58becc7da185e853dd911c535249c42175820c36/shipwright_kit-0.10.1-py3-none-any.whl", hash = "sha256:3b8698b3be218ab1dafe166f9d8927705aa1b802ade4f08f04c7ef45aa52f081", size = 26321, upload-time = "2026-07-02T19:53:24.05Z" },
+    { url = "https://files.pythonhosted.org/packages/f3/89/63af298545dbce64a0ea4d99b3d7c174ca7ea718d34a6d1b2b2e4cdc0b96/shipwright_kit-0.12.1-py3-none-any.whl", hash = "sha256:081a7a09f3ae6d3dc4603ba163c954ba910e80acb91902e6f30eae2c6739c6a9", size = 31531, upload-time = "2026-11-04T18:44:17.492Z" },
 ]
 
 [[package]]
 name = "sift-triage"
-version = "1.3.1"
+version = "1.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
@@ -781,7 +781,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "pyyaml", specifier = ">=6.0.1" },
     { name = "rich", specifier = ">=13.7.0" },
-    { name = "shipwright-kit", specifier = ">=0.10.1,<0.11.0" },
+    { name = "shipwright-kit", specifier = ">=0.12.0,<0.13.0" },
     { name = "typer", specifier = ">=0.12.0" },
 ]
 provides-extras = ["llm", "enrich", "all", "ticket"]
