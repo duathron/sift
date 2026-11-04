@@ -6,7 +6,7 @@ name: Publish to PyPI
 # only downloads the built `dist` artifact and uploads to PyPI via an OIDC
 # Trusted Publisher (no long-lived token; no build tooling runs with id-token).
 # The publish job runs directly here (not via a reusable workflow) so the OIDC
-# workflow claim is unambiguously `release.yml` — match the PyPI Trusted
+# workflow claim is unambiguously `publish.yml` — match the PyPI Trusted
 # Publisher to this filename. Consumers copy this file and keep the filename
 # their Trusted Publisher names (`release.yml` / `publish.yml`).
 # `uv.lock` is required: the SBOM is exported with `uv export --locked`.
