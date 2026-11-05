@@ -670,6 +670,8 @@ sift triage alerts.json --cache
 sift triage alerts.json --cache --summarize --provider anthropic
 ```
 
+A cached result is only reused when everything that shapes the stored report is identical: each input file (name, size and content digest), the redaction fields, `--filter`, the summarize options (provider, model, token limit), the enrichment mode, the sift version and the relevant config sections. The API key and ticketing credentials are never part of the key. Runs with `--findings-file`, `--injection-detail` or `--validate-only`, and runs that would ask for enrichment consent, skip the cache entirely so their side effects always happen. A run whose LLM summary failed is not cached.
+
 ### STIX 2.1 Export Pipeline
 
 Export triage results as a STIX 2.1 threat intelligence bundle for ingestion into SIEM or TIP platforms.

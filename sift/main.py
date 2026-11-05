@@ -926,7 +926,19 @@ def triage(
         )
 
     # --- Cache (default on, --no-cache to disable) ---
-    _cache_enabled = not no_cache and cfg.cache_enabled
+    # Bypassed (no get, no put) when the run has a side effect that only happens on a
+    # miss (--findings-file, --injection-detail, --validate-only), or when external
+    # enrichment would run without a recorded consent (the interactive answer is not
+    # part of any key).
+    _external_enrich_needs_prompt = (
+        _enrich_active and _enrich_mode_str != "local" and not (yes or cfg.enrich.consent_given)
+    )
+    _cache_enabled = (
+        not no_cache
+        and cfg.cache_enabled
+        and not (findings_file or injection_detail or validate_only)
+        and not _external_enrich_needs_prompt
+    )
 
     # --- Cache: fingerprint pre-pass (streams bytes only, no Alert objects) ---
     # When cache is active we fingerprint all files first for a cache lookup
@@ -936,11 +948,14 @@ def triage(
     _stdin_raw: str | None = None  # stdin content captured during fingerprint pass
 
     if _cache_enabled:
-        _fp_hasher = _hashlib.sha256()
+        _input_identity: list[dict] = []
         for _fp_path in resolved_paths:
+            _fp_hasher = _hashlib.sha256()
             if str(_fp_path) == "-":
                 _stdin_raw = sys.stdin.read()
-                _fp_hasher.update(_stdin_raw.encode("utf-8", errors="replace"))
+                _stdin_bytes = _stdin_raw.encode("utf-8", errors="replace")
+                _fp_hasher.update(_stdin_bytes)
+                _input_identity.append({"name": "<stdin>", "size": len(_stdin_bytes), "sha256": _fp_hasher.hexdigest()})
             else:
                 _fp_size = _fp_path.stat().st_size
                 if _fp_size > 0:
@@ -951,17 +966,41 @@ def triage(
                     except Exception as _exc:
                         console.print(f"[red]Error fingerprinting {_fp_path}:[/red] {_exc}")
                         raise typer.Exit(2)
+                _input_identity.append({"name": str(_fp_path), "size": _fp_size, "sha256": _fp_hasher.hexdigest()})
 
         from .cache import AlertCache, CacheConfig
+        from .cache_key import build_cache_key
 
-        _cache_key = _fp_hasher.hexdigest()
+        _cache_key = build_cache_key(
+            _input_identity,
+            options={
+                "redact": sorted(f.strip() for f in (_effective_redact or "").split(",") if f.strip()),
+                "filter": filter,
+                "summarize": summarize,
+                "provider": provider,
+                "no_llm": no_llm,
+                "max_tokens": max_tokens,
+                "no_dedup": no_dedup,
+                "chunk_size": effective_chunk_size,
+                "drop_raw": drop_raw,
+                "enrich": _enrich_mode_str if _enrich_active else None,
+            },
+            cfg=cfg,
+        )
         _alert_cache = AlertCache(CacheConfig(enabled=True))
         _cached_raw = _alert_cache.get(_cache_key)
         if _cached_raw is not None:
             if not _quiet_mode:
                 console.print(f"[dim]Cache hit ({_cache_key[:12]}…) — skipping pipeline.[/dim]")
             _cached = TriageReport.model_validate(_cached_raw)
-            _render_output(_cached, format=format, output_path=output, cfg=cfg, quiet=quiet)
+            _render_output(
+                _cached,
+                format=format,
+                output_path=output,
+                cfg=cfg,
+                quiet=quiet,
+                include_raw_payload=include_raw_payload,
+            )
             # Ticketing is post-processing on the report — must run on cache hits too.
             _run_ticketing(
                 _cached,
@@ -1358,8 +1397,8 @@ def triage(
         except Exception as e:
             console.print(f"[yellow]Warning:[/yellow] Filter parsing failed: {_markup_escape(str(e))}")
 
-    # --- Cache write (opt-in) ---
-    if _alert_cache is not None and _cache_key is not None:
+    # --- Cache write (skipped when the LLM summary failed: a retry must run again) ---
+    if _alert_cache is not None and _cache_key is not None and not report.summary_error:
         try:
             _alert_cache.put(_cache_key, report.model_dump())
         except Exception:
