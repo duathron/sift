@@ -1,15 +1,42 @@
 """Pytest fixtures for sift tests."""
 
-import json
-from datetime import datetime, timezone
-from pathlib import Path
+# Hermetic HOME: must run before any ``sift`` import, because ``sift.config``,
+# ``sift.cache`` and ``sift.version_check`` bind ``~/.sift`` paths at import time.
+# The directory is left behind on purpose (no deletion anywhere in the suite).
+import os
+import tempfile
 
-import pytest
+_TEST_HOME = tempfile.mkdtemp(prefix="sift-test-home-")
+os.environ["HOME"] = _TEST_HOME
+os.environ["USERPROFILE"] = _TEST_HOME
+for _var in ("XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
+    os.environ.pop(_var, None)
 
-from sift.models import Alert, AlertSeverity, Cluster, ClusterPriority, TechniqueRef, TriageReport
-from sift.normalizers.generic import GenericNormalizer
+import json  # noqa: E402
+from datetime import datetime, timezone  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+import pytest  # noqa: E402
+
+from sift.models import Alert, AlertSeverity, Cluster, ClusterPriority, TechniqueRef, TriageReport  # noqa: E402
+from sift.normalizers.generic import GenericNormalizer  # noqa: E402
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+@pytest.fixture(autouse=True)
+def _isolated_cache_dir(tmp_path, monkeypatch):
+    """Point every default ``CacheConfig`` at a per-test directory.
+
+    ``CacheConfig.cache_dir`` is frozen at import time, so a changed HOME alone
+    does not isolate it; replace the class that ``sift.main`` imports lazily.
+    """
+    import sift.cache as cache_mod
+
+    class _TmpCacheConfig(cache_mod.CacheConfig):
+        cache_dir: Path = tmp_path / "cache"
+
+    monkeypatch.setattr(cache_mod, "CacheConfig", _TmpCacheConfig)
 
 
 # ---------------------------------------------------------------------------
