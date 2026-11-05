@@ -16,3 +16,8 @@ rich
 config.yaml
 # Generated large test fixtures — regenerate with tests/fixtures/generate_brute_force.py
 tests/fixtures/brute_force_scenario.json
+
+# Secrets
+.env
+.env.*
+!.env.example
