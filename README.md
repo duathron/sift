@@ -680,7 +680,7 @@ sift triage alerts.json --cache
 sift triage alerts.json --cache --summarize --provider anthropic
 ```
 
-A cached result is only reused when everything that shapes the stored report is identical: each input file (name, size and content digest), the redaction fields, `--filter`, the summarize options (provider, model, token limit), the enrichment mode, the sift version and the relevant config sections. The API key and ticketing credentials are never part of the key. Runs with `--findings-file`, `--injection-detail` or `--validate-only`, and runs that would ask for enrichment consent, skip the cache entirely so their side effects always happen. A run whose LLM summary failed is not cached.
+A cached result is only reused when everything that shapes the stored report is identical: each input file (name, size and content digest), the redaction fields, `--filter`, the summarize options (provider, model, token limit), the enrichment mode, the sift version, the relevant config sections and the `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` settings. API keys and ticketing credentials are never part of the key. Some runs are never cached, so that a repeat run always does what the first one did: runs with `--findings-file`, `--injection-detail` or `--validate-only`; every `--enrich` mode except `local` (the answers come from outside); inputs over 50 MB (read as a stream or in sub-chunks); and any run that printed a warning, such as a bad `--filter`, a skipped input, injection-scanner redactions, a failed enrichment or a summarizer that fell back. A cache file that cannot be read gives one warning and the run continues without the cache.
 
 ### STIX 2.1 Export Pipeline
 

@@ -225,6 +225,16 @@ class _WarningFlag(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         self.seen = True
+        # Being a handler turns off logging's last-resort stderr output for sift records.
+        # Keep the pre-existing behaviour: if no other handler would take the record,
+        # print it the way the last-resort handler does.
+        lg: logging.Logger | None = logging.getLogger(record.name)
+        while lg is not None:
+            if any(not isinstance(h, _WarningFlag) for h in lg.handlers):
+                return
+            lg = lg.parent if lg.propagate else None
+        if logging.lastResort is not None:
+            logging.lastResort.handle(record)
 
 
 def _check_enrich_consent(yes: bool, cfg) -> bool:

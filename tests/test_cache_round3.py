@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import stat
 from datetime import datetime, timedelta, timezone
@@ -249,3 +250,111 @@ def test_cache_files_are_owner_only(tmp_path):
 def test_redact_field_order_is_normalised():
     assert "Cache miss" in _run(MIXED, "-f", "json", "--redact-fields", "user,host").stderr
     assert "Cache hit" in _run(MIXED, "-f", "json", "--redact-fields", "host,user").stderr
+
+
+# --- round 4: warnings stay on stderr while they are tracked ---------------------------
+
+
+def _bare_root(monkeypatch):
+    """Pre-PR condition: no logging handlers anywhere, so ``logging.lastResort`` prints."""
+    monkeypatch.setattr(logging.getLogger(), "handlers", [])
+
+
+def _scanner_stub(monkeypatch):
+    from sift.summarizers.prompt import build_cluster_prompt
+
+    class _Stub:
+        def __init__(self, cfg):
+            self.cfg = cfg
+
+        def summarize(self, report):
+            build_cluster_prompt(report, self.cfg.summarize)
+            return None
+
+    real = main_mod._build_summarizer
+
+    def wrapped(provider, cfg, **kw):
+        real(provider, cfg, **kw)  # attaches the injection settings to cfg.summarize
+        return _Stub(cfg)
+
+    monkeypatch.setattr(main_mod, "_build_summarizer", wrapped)
+
+
+@pytest.mark.parametrize("cache_args", [[], ["--no-cache"]], ids=["cache_on", "no_cache"])
+def test_injection_scanner_line_still_reaches_stderr(tmp_path, monkeypatch, cache_args):
+    _bare_root(monkeypatch)
+    _scanner_stub(monkeypatch)
+    r = _run(str(_inj_file(tmp_path)), "-f", "json", "--summarize", "--provider", "mock", *cache_args)
+    assert _clean(r)
+    assert len([ln for ln in r.stderr.splitlines() if "Injection scanner:" in ln]) == 1
+
+
+@pytest.mark.parametrize("cache_args", [[], ["--no-cache"]], ids=["cache_on", "no_cache"])
+def test_injection_detail_warning_still_reaches_stderr(tmp_path, monkeypatch, cache_args):
+    _bare_root(monkeypatch)
+    _scanner_stub(monkeypatch)
+    r = _run(
+        str(_inj_file(tmp_path)),
+        "-f",
+        "json",
+        "--summarize",
+        "--provider",
+        "mock",
+        "--injection-detail",
+        *cache_args,
+    )
+    assert _clean(r)
+    assert "Injection pattern(s) detected in alert" in r.stderr
+
+
+def test_watcher_leaves_stderr_identical_to_unwatched_run(tmp_path, monkeypatch):
+    src = str(_inj_file(tmp_path))
+    args = (src, "-f", "json", "--summarize", "--provider", "mock", "--no-cache")
+    _bare_root(monkeypatch)
+    _scanner_stub(monkeypatch)
+    watched = _run(*args)
+    with monkeypatch.context() as m:
+        m.setattr(logging.Logger, "addHandler", lambda self, h: None)  # the pre-PR state
+        plain = _run(*args)
+    assert "Injection scanner:" in plain.stderr
+    assert watched.stderr == plain.stderr
+
+
+def test_warning_with_a_configured_handler_is_not_doubled(tmp_path, monkeypatch):
+    _scanner_stub(monkeypatch)
+    seen: list[str] = []
+
+    class _Keep(logging.Handler):
+        def emit(self, record):
+            seen.append(record.getMessage())
+
+    monkeypatch.setattr(logging.getLogger(), "handlers", [_Keep()])
+    r = _run(str(_inj_file(tmp_path)), "-f", "json", "--summarize", "--provider", "mock", "--no-cache")
+    assert any("Injection scanner:" in m for m in seen)
+    assert "Injection scanner:" not in r.stderr
+
+
+def test_phantom_only_input_is_not_stored(tmp_path):
+    good = tmp_path / "good.json"
+    good.write_text(Path(MIXED).read_text())
+    f = tmp_path / "p.json"
+    f.write_text("[{}]")
+    r = _run(str(good), str(f), "-f", "json")
+    assert "empty/phantom" in r.stderr
+    assert _row_count(tmp_path) == 0
+
+
+def test_loose_cache_files_are_tightened_on_open_and_after_put(tmp_path):
+    d = tmp_path / "c"
+    d.mkdir(mode=0o700)
+    for name in ("alerts.db", "alerts.db-wal"):
+        (d / name).write_bytes(b"")
+        (d / name).chmod(0o644)
+    cache = AlertCache(CacheConfig(enabled=True, cache_dir=d))
+    on_open = {f.name: stat.S_IMODE(f.stat().st_mode) for f in d.glob("alerts.db*")}
+    assert on_open["alerts.db"] == 0o600
+    assert all(m == 0o600 for m in on_open.values()), on_open
+    for f in d.glob("alerts.db*"):
+        f.chmod(0o644)
+    cache.put("k", {"a": 1})
+    assert all(stat.S_IMODE(f.stat().st_mode) == 0o600 for f in d.glob("alerts.db*"))
