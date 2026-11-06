@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel
+from shipwright_kit.config import app_dir
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -381,6 +382,9 @@ class AlertCache:
         """Create the cache directory and initialise the SQLite schema."""
         cache_dir = self._config.cache_dir
         self._validate_cache_dir(cache_dir)
+        # ~/.sift itself must be owner-only too: mkdir(parents=True) would create it with the
+        # default mode. This also creates ~/.sift when cache_dir points elsewhere (intended).
+        app_dir("sift", create=True)
         cache_dir.mkdir(mode=_DIR_MODE, parents=True, exist_ok=True)
         # Ensure permissions even if directory already existed.
         cache_dir.chmod(_DIR_MODE)

@@ -1,22 +1,30 @@
 """Configuration system for sift.
 
 Priority hierarchy: CLI flags > env vars > ~/.sift/config.yaml > defaults.
+Only ``--config`` and ``~/.sift/config.yaml`` are read; a ``config.yaml`` in the
+current directory is never loaded (it may come from an untrusted download).
 """
 
 from __future__ import annotations
 
 import os
+import tempfile
+import warnings
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError, model_validator
 from shipwright_kit.config import app_dir
 from shipwright_kit.config import load_config as _resolve_config
 
 _APP_DIR = app_dir("sift")  # path only; ~/.sift
 _DIR_MODE = 0o700
 _FILE_MODE = 0o600
+
+
+class ConfigError(Exception):
+    """A config file could not be used. The message never contains file contents."""
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +112,34 @@ class AlertRedactionConfig(BaseModel):
     """Configuration for alert-model-level field redaction."""
 
     fields: list[str] = []  # field names to redact on the Alert object
-    redact_raw: bool = False  # if True, KEEP raw in output even when redaction is active (forensic override)
+    keep_raw: bool = False  # if True, KEEP raw in output even when redaction is active (forensic override)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_legacy_redact_raw(cls, data: Any) -> Any:
+        """Map the old ``redact_raw`` key (which meant "keep raw") onto ``keep_raw``."""
+        global _LEGACY_REDACT_RAW_WARNED
+        if isinstance(data, dict) and "redact_raw" in data:
+            data = dict(data)
+            legacy = data.pop("redact_raw")
+            data.setdefault("keep_raw", legacy)  # an explicit keep_raw wins
+            if not _LEGACY_REDACT_RAW_WARNED:
+                _LEGACY_REDACT_RAW_WARNED = True
+                warnings.warn(
+                    "config key redaction.redact_raw is renamed to redaction.keep_raw; "
+                    "the old name still works for now (run `sift config` to rewrite the file)",
+                    FutureWarning,
+                    stacklevel=2,
+                )
+        return data
+
+    @property
+    def redact_raw(self) -> bool:
+        """Read-only alias of ``keep_raw`` for code that still uses the old name."""
+        return self.keep_raw
+
+
+_LEGACY_REDACT_RAW_WARNED = False
 
 
 class TicketingConfig(BaseModel):
@@ -141,12 +176,51 @@ class AppConfig(BaseModel):
 
 def _ensure_app_dir() -> Path:
     _APP_DIR.mkdir(mode=_DIR_MODE, parents=True, exist_ok=True)
+    _APP_DIR.chmod(_DIR_MODE)  # also tightens a directory created earlier with a looser mode
     return _APP_DIR
 
 
+def _write_private(path: Path, text: str) -> None:
+    """Write *text* to *path* so it is never readable by anyone else, not even briefly.
+
+    The data goes into a fresh 0600 temp file in the same directory and replaces
+    *path* atomically, so a pre-existing loose-mode file is replaced rather than
+    reused. A symlink at *path* is refused (it could redirect the write).
+    """
+    if path.is_symlink():
+        raise OSError(f"refusing to write through a symlink: {path}")
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        os.fchmod(fd, _FILE_MODE)
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
 def _load_yaml(path: Path) -> dict:
-    with open(path) as f:
-        return yaml.safe_load(f) or {}
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f)
+    except yaml.YAMLError:
+        # No cause chained: the YAML parser quotes the offending line, which may hold a secret.
+        raise ConfigError(f"config file {path} is not valid YAML") from None
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ConfigError(f"config file {path} must be a mapping of settings at the top level")
+    return data
+
+
+def _validate(data: dict) -> AppConfig:
+    try:
+        return AppConfig.model_validate(data)
+    except ValidationError as exc:
+        # pydantic's own message echoes the rejected values; keep only where and why.
+        bad = "; ".join(f"{'.'.join(str(p) for p in e['loc'])} ({e['type']})" for e in exc.errors())
+        raise ConfigError(f"config has invalid settings: {bad}") from None
 
 
 def load_config(config_path: Optional[Path] = None) -> AppConfig:
@@ -162,9 +236,9 @@ def load_config(config_path: Optional[Path] = None) -> AppConfig:
         load_dotenv(_env_file, override=False)
 
     config = _resolve_config(
-        [config_path, _APP_DIR / "config.yaml", Path("config.yaml")],
+        [config_path, _APP_DIR / "config.yaml"],
         loader=_load_yaml,
-        validator=lambda data: AppConfig(**data),
+        validator=_validate,
     )
 
     # Env var overrides (includes values just loaded from ~/.sift/.env)
@@ -178,11 +252,9 @@ def load_config(config_path: Optional[Path] = None) -> AppConfig:
 def save_config(config: AppConfig, path: Optional[Path] = None) -> Path:
     """Persist config to YAML file (never writes api_key — stored in ~/.sift/.env)."""
     target = path or (_ensure_app_dir() / "config.yaml")
-    with open(target, "w") as f:
-        # Exclude api_key from persisted config — secrets must not be written to disk.
-        data = config.model_dump(exclude={"summarize": {"api_key"}})
-        yaml.dump(data, f, default_flow_style=False)
-    target.chmod(_FILE_MODE)
+    # Exclude api_key from persisted config — secrets must not be written to disk.
+    data = config.model_dump(exclude={"summarize": {"api_key"}})
+    _write_private(target, yaml.dump(data, default_flow_style=False))
     return target
 
 
@@ -192,8 +264,7 @@ def save_credentials(api_key: str) -> Path:
     lines = env_path.read_text().splitlines() if env_path.exists() else []
     lines = [line for line in lines if not line.startswith("SIFT_LLM_KEY=")]
     lines.append(f"SIFT_LLM_KEY={api_key}")
-    env_path.write_text("\n".join(lines) + "\n")
-    env_path.chmod(_FILE_MODE)
+    _write_private(env_path, "\n".join(lines) + "\n")
     return env_path
 
 
@@ -208,8 +279,7 @@ def save_ticket_token(token: str, provider: str) -> Path:
     lines = env_path.read_text().splitlines() if env_path.exists() else []
     lines = [line for line in lines if not line.startswith(f"{env_key}=")]
     lines.append(f"{env_key}={token}")
-    env_path.write_text("\n".join(lines) + "\n")
-    env_path.chmod(_FILE_MODE)
+    _write_private(env_path, "\n".join(lines) + "\n")
     return env_path
 
 
@@ -222,5 +292,5 @@ def clear_credentials() -> bool:
     new_lines = [line for line in lines if not line.startswith("SIFT_LLM_KEY=")]
     if len(new_lines) == len(lines):
         return False
-    env_path.write_text("\n".join(new_lines) + "\n")
+    _write_private(env_path, "\n".join(new_lines) + "\n")
     return True

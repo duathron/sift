@@ -160,18 +160,21 @@ class TestAlertRedactionConfig:
     def test_defaults(self):
         cfg = AlertRedactionConfig()
         assert cfg.fields == []
-        assert cfg.redact_raw is False
+        assert cfg.keep_raw is False
+        assert cfg.redact_raw is False  # read-only alias for the old name
 
     def test_custom_fields(self):
-        cfg = AlertRedactionConfig(fields=["user", "host"], redact_raw=True)
+        cfg = AlertRedactionConfig(fields=["user", "host"], keep_raw=True)
         assert cfg.fields == ["user", "host"]
-        assert cfg.redact_raw is True
+        assert cfg.keep_raw is True
+        assert cfg.redact_raw is True  # read-only alias for the old name
 
     def test_app_config_has_redaction_field(self):
         app_cfg = AppConfig()
         assert hasattr(app_cfg, "redaction")
         assert isinstance(app_cfg.redaction, AlertRedactionConfig)
         assert app_cfg.redaction.fields == []
+        assert app_cfg.redaction.keep_raw is False
         assert app_cfg.redaction.redact_raw is False
 
 
