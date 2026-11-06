@@ -13,7 +13,10 @@ Covers:
 
 from __future__ import annotations
 
+import time
 import uuid
+
+import pytest
 
 from sift.models import IOC, Alert, AlertSeverity
 from sift.pipeline.ioc_extractor import (
@@ -484,3 +487,55 @@ class TestEnrichAlertIocsTyped:
         enriched = enrich_alert_iocs(alert)
         assert isinstance(enriched.iocs, list)
         assert all(isinstance(v, str) for v in enriched.iocs)
+
+
+# ---------------------------------------------------------------------------
+# Domain regex: linear time on dotted/hyphenated runs
+# ---------------------------------------------------------------------------
+
+_REDOS_SHAPES = {
+    "a.": "a.",
+    "a.b-": "a.b-",
+    "a-b.": "a-b.",
+    "a.b.c-": "a.b.c-",
+    "a.b-c": "a.b-c",
+}
+
+
+def _timed_extract(text: str) -> float:
+    start = time.perf_counter()
+    extract_iocs(text)
+    return time.perf_counter() - start
+
+
+@pytest.mark.parametrize("unit", list(_REDOS_SHAPES.values()), ids=list(_REDOS_SHAPES))
+def test_domain_regex_linear_time(unit: str) -> None:
+    small = unit * (80_000 // len(unit)) + "1"
+    big = unit * (400_000 // len(unit)) + "1"
+    t_small = _timed_extract(small)
+    assert t_small < 1.0  # checked before the big case so a regression fails fast instead of hanging
+    t_big = _timed_extract(big)
+    assert t_big < 1.0
+    # Five times the input must cost about five times the time, not twenty-five.
+    assert t_big / max(t_small, 0.01) < 10
+
+
+@pytest.mark.parametrize("text", ["*.evil.com", ".evil.com", "x..evil.com", "see http://x.evil.com/p", "a.b.evil.com"])
+def test_domain_regex_still_extracts_suffix_domains(text: str) -> None:
+    values = set(extract_iocs(text))
+    assert values & {"evil.com", "x.evil.com", "a.b.evil.com"}, values
+
+
+@pytest.mark.parametrize("text", ["_x.evil.com", "foo_bar.evil.com"])
+def test_domain_regex_underscore_label_delta_is_documented(text: str) -> None:
+    # Accepted trade-off of the linear-time guard: a label glued to the domain by an underscore
+    # yields no domain at all (no linear lookbehind can both keep it and stay linear).
+    assert not [v for v in extract_iocs(text) if "evil" in v]
+
+
+def test_email_still_extracted_and_local_part_capped() -> None:
+    assert "bob.harris+tag@evil.com" in extract_iocs("mail bob.harris+tag@evil.com now")
+    # A local part over the RFC 5321 limit of 64 is not an address: no email IOC, the domain still counts.
+    found = extract_iocs("x" * 70 + "@evil.com")
+    assert not [v for v in found if "@" in v]
+    assert found.count("evil.com") == 1

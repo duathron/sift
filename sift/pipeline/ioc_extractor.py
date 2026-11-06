@@ -83,8 +83,12 @@ _URL_TRAILING_PUNCT = ".,;:!?)]}\"'"
 
 # Domain names — at least one label, a dot, and a recognised TLD-length suffix.
 # Filtered post-match against _NON_IOC_TLDS.
+# The two leading lookbehinds keep matching linear: without them every starting position inside a long
+# "a.a.a.a." run re-scans the rest of the run (quadratic). A match may not begin in the middle of a
+# label, nor right after "<alnum>." / "<alnum>-"; the full domain is matched from its first label.
+# Trade-off: a label glued on by "_" ("_x.evil.com") no longer yields the suffix domain.
 _RE_DOMAIN = re.compile(
-    r"\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)"
+    r"(?<![A-Za-z0-9])(?<![A-Za-z0-9][.-])\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)"
     r"+[a-zA-Z]{2,}\b"
 )
 
@@ -139,8 +143,10 @@ _RE_FILENAME = re.compile(
     re.IGNORECASE,
 )
 
-# Email addresses (RFC 5321-ish, intentionally loose)
-_RE_EMAIL = re.compile(r"\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b")
+# Email addresses (RFC 5321-ish, intentionally loose). The local part is capped at 64 characters
+# (the RFC 5321 limit): an unbounded "+" makes every start position of a long run without "@"
+# rescan the whole run (quadratic).
+_RE_EMAIL = re.compile(r"\b[a-zA-Z0-9._%+\-]{1,64}@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b")
 
 # Windows registry keys. Lookahead ensures we stop at whitespace, quotes, or
 # common delimiters. Captures full path including value name when present.
