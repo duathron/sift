@@ -70,7 +70,9 @@ class SummarizeConfig(BaseModel):
     api_key: Optional[str] = None  # or SIFT_LLM_KEY env var
     max_tokens: int = 4096
     temperature: float = 0.1
-    redact_fields: list[str] = []  # field names to strip before LLM submission
+    # Field names to strip from the LLM prompt only. The prompt also blanks cluster
+    # label/reason/IOC text whenever this OR --redact-fields / redaction.fields is set.
+    redact_fields: list[str] = []
 
 
 class OutputConfig(BaseModel):

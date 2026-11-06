@@ -73,9 +73,9 @@ def test_cluster_label_and_reason_redacted_when_fields_redacted():
 
 
 def test_constant_reasons_survive_redaction():
-    report = _report("Other (3 alerts)", "max_clusters limit reached; grouped as Other")
+    report = _report("Other (1 alerts)", "max_clusters limit reached; grouped as Other")
     prompt = build_cluster_prompt(report, SummarizeConfig(redact_fields=["user"]))
-    assert "Other (3 alerts)" in prompt
+    assert "Other (1 alerts)" in prompt
     assert "max_clusters limit reached; grouped as Other" in prompt
 
     report = _report("Failed login", "singleton")
@@ -165,27 +165,61 @@ def test_config_redact_category_hides_category_from_label_and_reason(tmp_path, m
         assert cat not in text
 
 
-def test_cli_redact_fields_not_merged_into_summarize_config(tmp_path, monkeypatch):
-    seen: list[list[str]] = []
-    real = main_mod._build_summarizer
+def _union_alerts(tmp_path) -> Path:
+    alert = {
+        "id": "u1",
+        "timestamp": "2026-03-22T02:11:08Z",
+        "severity": "HIGH",
+        "title": "Beacon to staging server",
+        "description": "Outbound request to http://203.0.113.77/x observed",
+        "source": "edr",
+        "source_ip": "203.0.113.77",
+    }
+    f = tmp_path / "union.json"
+    f.write_text(json.dumps([alert]))
+    return f
 
-    def wrapped(provider, cfg, **kw):
-        seen.append(list(cfg.summarize.redact_fields))
-        return real(provider, cfg, **kw)
 
-    monkeypatch.setattr(main_mod, "_build_summarizer", wrapped)
+def _run_cli_only(tmp_path, monkeypatch, *extra: str) -> str:
+    """Capture the prompt at summarize() time with redaction only from CLI/redaction.fields."""
+    prompts = _capture_prompt(monkeypatch)
     r = runner.invoke(
         app,
-        [
-            "triage",
-            str(FIXTURES / "lateral_movement.json"),
-            "--no-cache",
-            "--summarize",
-            "--provider",
-            "mock",
-            "--redact-fields",
-            "source_ip,user",
-        ],
+        ["triage", str(_union_alerts(tmp_path)), "--no-cache", "--summarize", "--provider", "mock", *extra],
     )
     assert r.exit_code in (0, 1), r.output
-    assert seen == [[]]
+    assert len(prompts) == 1
+    return prompts[0]
+
+
+def test_cli_redact_fields_alone_redacts_cluster_text_in_prompt(tmp_path, monkeypatch):
+    prompt = _run_cli_only(tmp_path, monkeypatch, "--redact-fields", "source_ip")
+    assert "203.0.113.77" not in prompt
+    assert "- IOCs        : [redacted]" in prompt
+
+
+def test_redaction_fields_config_alone_redacts_cluster_text_in_prompt(tmp_path, monkeypatch):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(yaml.safe_dump({"redaction": {"fields": ["source_ip"]}}))
+    prompt = _run_cli_only(tmp_path, monkeypatch, "--config", str(cfg))
+    assert "203.0.113.77" not in prompt
+    assert "- IOCs        : [redacted]" in prompt
+
+
+def test_no_redaction_anywhere_keeps_ioc_in_prompt(tmp_path, monkeypatch):
+    prompt = _run_cli_only(tmp_path, monkeypatch)
+    assert "203.0.113.77" in prompt
+
+
+@pytest.mark.parametrize("label", ["Other (4111111111111111 alerts)", "Other (\u0664\u0661\u0661\u0661 alerts)"])
+def test_constant_label_has_no_digit_channel(label):
+    report = _report(label, "singleton")
+    prompt = build_cluster_prompt(report, SummarizeConfig(redact_fields=["title"]))
+    assert label not in prompt
+    assert "[label redacted]" in prompt
+
+
+def test_unspecified_reason_survives_redaction():
+    report = _report("Failed login", "")
+    prompt = build_cluster_prompt(report, SummarizeConfig(redact_fields=["user"]))
+    assert "- Reason      : unspecified" in prompt

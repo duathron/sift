@@ -11,7 +11,6 @@ import base64
 import hashlib
 import json
 import logging
-import re
 from pathlib import Path
 from typing import Optional
 
@@ -218,7 +217,6 @@ def _write_findings_log(
         logger.warning(f"Could not write injection findings to {path}: {exc}")
 
 
-_CONSTANT_LABEL = re.compile(r"Other \(\d+ alerts\)")
 _CONSTANT_REASONS = frozenset({"singleton", "unspecified", "max_clusters limit reached; grouped as Other"})
 
 
@@ -365,7 +363,11 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
     if all_findings and findings_log_path:
         _write_findings_log(all_findings, Path(findings_log_path))
 
-    redact: set[str] = set(config.redact_fields)
+    # Union of the config-sourced summarize.redact_fields and the effective
+    # --redact-fields / redaction.fields set (attached by the CLI): the prompt is
+    # the egress sink, and a redacted value can still ride in an IOC extracted from
+    # an unredacted field (fail closed; over-redaction accepted).
+    redact: set[str] = set(config.redact_fields) | set(getattr(config, "_cli_redact_fields", None) or [])
     # Cluster label, reason and IOC preview are derived from the alert fields; when
     # any redaction is configured they may carry the redacted value (an IP pair, a
     # title, a user name typed as an IOC), so they are blanked unless sift generated
@@ -387,7 +389,7 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
         label = cluster.label
         reason = cluster.cluster_reason or "unspecified"
         if redact_cluster_text:
-            if not _CONSTANT_LABEL.fullmatch(label):
+            if label != f"Other ({len(cluster.alerts)} alerts)":
                 label = "[label redacted]"
             if reason not in _CONSTANT_REASONS:
                 reason = "[reason redacted]"
