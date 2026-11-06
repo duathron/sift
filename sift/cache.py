@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -34,6 +34,7 @@ from pydantic import BaseModel
 
 _DIR_MODE = 0o700
 _DB_FILENAME = "alerts.db"
+_CLOCK_SKEW = timedelta(minutes=5)
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +159,15 @@ class AlertCache:
                 created_at=datetime.fromisoformat(row[2]),
                 hits=row[3],
             )
+
+            _created = entry.created_at if entry.created_at.tzinfo else entry.created_at.replace(tzinfo=timezone.utc)
+            if _created > datetime.now(tz=timezone.utc) + _CLOCK_SKEW:
+                # Written "in the future": a tampered or clock-skewed row never expires
+                # by age, so it must not be replayed.
+                conn.execute("DELETE FROM cache_entries WHERE fingerprint = ?", (fingerprint,))
+                conn.commit()
+                self._misses += 1
+                return None
 
             if self._is_expired(entry):
                 # Lazy expiry: remove stale entry and report miss.

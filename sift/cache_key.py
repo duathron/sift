@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from typing import Any
 
 from shipwright_kit.security.injection import INJECTION_PATTERNS_VERSION
@@ -19,7 +20,10 @@ from shipwright_kit.security.render import SAFE_RENDER_VERSION
 from . import __version__
 
 # Bump to invalidate every previously stored entry.
-CACHE_SCHEMA = 2
+CACHE_SCHEMA = 3
+
+# Non-secret endpoint settings that change which model answers (never an API key).
+_ENDPOINT_ENV = ("ANTHROPIC_BASE_URL", "OPENAI_BASE_URL")
 
 _CFG_SECTIONS = {"clustering", "scoring", "summarize", "redaction", "injection", "enrich"}
 
@@ -39,6 +43,7 @@ def _key_material(input_identity: list[dict], *, options: dict, cfg) -> dict[str
         "input": input_identity,
         "opts": options,
         "cfg": _cfg_subset(cfg),
+        "env": {name: os.environ.get(name) for name in _ENDPOINT_ENV},
     }
 
 

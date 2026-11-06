@@ -6,6 +6,7 @@ Entry point for the Typer CLI. Wires together:
 
 from __future__ import annotations
 
+import io as _io
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -209,6 +210,19 @@ def _run_ticketing(
 # ---------------------------------------------------------------------------
 # Helper: enrichment consent
 # ---------------------------------------------------------------------------
+
+
+_LARGE_FILE_THRESHOLD_BYTES = 50 * 1024 * 1024  # 50 MB — above this, stream line by line
+
+
+def _sha256_file(path: Path) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for blk in iter(lambda: fh.read(65536), b""):
+            h.update(blk)
+    return h.hexdigest()
 
 
 def _check_enrich_consent(yes: bool, cfg) -> bool:
@@ -696,7 +710,6 @@ def triage(
     )
 
     # --- Resolve input paths (expand directories, validate files) ---
-    _LARGE_FILE_THRESHOLD_BYTES = 50 * 1024 * 1024  # 50 MB
     _STREAM_BATCH_LINES = 5_000  # normalize this many lines at a time
 
     def _stream_alerts(path: Path, hasher, show_progress: bool, *, sub_chunk: bool = False) -> tuple[list, str]:
@@ -928,16 +941,13 @@ def triage(
     # --- Cache (default on, --no-cache to disable) ---
     # Bypassed (no get, no put) when the run has a side effect that only happens on a
     # miss (--findings-file, --injection-detail, --validate-only), or when external
-    # enrichment would run without a recorded consent (the interactive answer is not
-    # part of any key).
-    _external_enrich_needs_prompt = (
-        _enrich_active and _enrich_mode_str != "local" and not (yes or cfg.enrich.consent_given)
-    )
+    # enrichment is active: barb/vex answers are external state that no key can capture.
+    _external_enrich = _enrich_active and _enrich_mode_str != "local"
     _cache_enabled = (
         not no_cache
         and cfg.cache_enabled
         and not (findings_file or injection_detail or validate_only)
-        and not _external_enrich_needs_prompt
+        and not _external_enrich
     )
 
     # --- Cache: fingerprint pre-pass (streams bytes only, no Alert objects) ---
@@ -989,10 +999,17 @@ def triage(
         )
         _alert_cache = AlertCache(CacheConfig(enabled=True))
         _cached_raw = _alert_cache.get(_cache_key)
+        _cached = None
         if _cached_raw is not None:
+            try:
+                _cached = TriageReport.model_validate(_cached_raw)
+            except Exception:
+                # A corrupt or schema-stale row is a miss, and is dropped.
+                _alert_cache.invalidate(_cache_key)
+                _cached = None
+        if _cached is not None:
             if not _quiet_mode:
                 console.print(f"[dim]Cache hit ({_cache_key[:12]}…) — skipping pipeline.[/dim]")
-            _cached = TriageReport.model_validate(_cached_raw)
             _render_output(
                 _cached,
                 format=format,
@@ -1039,7 +1056,8 @@ def triage(
     detected_formats: list[str] = []
     _total_bytes = 0  # track total input size for large-data warning
 
-    for path in resolved_paths:
+    _input_changed = False  # an input no longer matches its fingerprint: do not store
+    for _ident_idx, path in enumerate(resolved_paths):
         label = str(path)
         _is_sub_chunked = False  # did _stream_alerts handle the full pipeline internally?
         try:
@@ -1074,6 +1092,8 @@ def triage(
                             f"(batches of {cfg.clustering.sub_chunk_size:,} alerts)[/dim]"
                         )
                     sub_reports, fmt = _stream_alerts(path, _hash_target, not _quiet_mode, sub_chunk=True)
+                    if _cache_enabled and _sha256_file(path) != _input_identity[_ident_idx]["sha256"]:
+                        _input_changed = True
                     if sub_reports:
                         source_labels.append(label)
                         detected_formats.append(fmt)
@@ -1087,10 +1107,18 @@ def triage(
                     continue  # skip the normal pipeline below — already handled
                 elif file_size > _LARGE_FILE_THRESHOLD_BYTES:
                     source_alerts, fmt = _stream_alerts(path, _hash_target, not _quiet_mode)
+                    if _cache_enabled and _sha256_file(path) != _input_identity[_ident_idx]["sha256"]:
+                        _input_changed = True
                     if drop_raw:
                         source_alerts = [a.model_copy(update={"raw": {}}) for a in source_alerts]
                 else:
-                    raw = path.read_text(encoding="utf-8")
+                    # Read once; the bytes that are parsed are the bytes that are checked
+                    # against the fingerprint (universal newlines, like read_text).
+                    _data = path.read_bytes()
+                    if _cache_enabled and _hashlib.sha256(_data).hexdigest() != _input_identity[_ident_idx]["sha256"]:
+                        _input_changed = True
+                    raw = _io.TextIOWrapper(_io.BytesIO(_data), encoding="utf-8").read()
+                    del _data
                     source_alerts, fmt = _normalize(raw)
                     if drop_raw:
                         source_alerts = [a.model_copy(update={"raw": {}}) for a in source_alerts]
@@ -1323,6 +1351,7 @@ def triage(
     )
 
     # --- Summarize ---
+    _summary_degraded = False  # a template/mock summarizer raised and only warned
     if no_llm:
         provider = "template"
     if summarize or cfg.summarize.provider != "template":
@@ -1375,6 +1404,7 @@ def triage(
                 )
             else:
                 console.print(f"[yellow]Warning:[/yellow] Summarization failed: {_markup_escape(str(exc))}")
+                _summary_degraded = True
 
     # --- Validation-only mode ---
     if validate_only:
@@ -1398,7 +1428,13 @@ def triage(
             console.print(f"[yellow]Warning:[/yellow] Filter parsing failed: {_markup_escape(str(e))}")
 
     # --- Cache write (skipped when the LLM summary failed: a retry must run again) ---
-    if _alert_cache is not None and _cache_key is not None and not report.summary_error:
+    if (
+        _alert_cache is not None
+        and _cache_key is not None
+        and not report.summary_error
+        and not _summary_degraded
+        and not _input_changed
+    ):
         try:
             _alert_cache.put(_cache_key, report.model_dump())
         except Exception:
