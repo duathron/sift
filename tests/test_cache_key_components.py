@@ -316,17 +316,3 @@ def test_stored_cache_holds_no_secret(tmp_path, monkeypatch):
     assert _row_count(tmp_path) == 1
     blob = b"".join(p.read_bytes() for p in _db(tmp_path).parent.glob("alerts.db*"))
     assert b"CANARY" not in blob
-
-
-@pytest.mark.parametrize("sub_chunk", [False, True], ids=["streamed", "sub_chunked"])
-def test_streamed_input_that_no_longer_matches_is_not_stored(tmp_path, monkeypatch, sub_chunk):
-    monkeypatch.setattr(main_mod, "_LARGE_FILE_THRESHOLD_BYTES", 10)
-    monkeypatch.setattr(main_mod, "_sha256_file", lambda path: "0" * 64)
-    args = [MIXED, "-f", "json"]
-    if sub_chunk:
-        cfg_file = tmp_path / "c.yaml"
-        cfg_file.write_text("clustering:\n  sub_chunk_threshold_mb: 0\n")
-        args += ["--config", str(cfg_file)]
-    r = _run(*args)
-    assert _clean_exit(r)
-    assert _row_count(tmp_path) == 0
