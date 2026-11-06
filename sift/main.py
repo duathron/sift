@@ -28,6 +28,7 @@ app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
     rich_markup_mode="rich",
+    pretty_exceptions_show_locals=False,  # a traceback must never print config values or keys
 )
 console = Console(stderr=True)
 
@@ -536,7 +537,7 @@ def triage(
                 "inside it. Fix: also add that field to --redact-fields. "
                 "Phase 2 (value-scrub) closes both without manual enumeration. "
                 "IOC counts decrease when redaction is active (expected). "
-                "Forensic override: set redaction.redact_raw=true in config.yaml to "
+                "Forensic override: set redaction.keep_raw=true in config.yaml to "
                 "keep raw in output even when redaction is active."
             ),
             rich_help_panel="Privacy",
@@ -772,7 +773,7 @@ def triage(
                 from .pipeline.redaction import apply_redact_and_enrich
 
                 _fields = [f.strip() for f in _effective_redact.split(",") if f.strip()]
-                _keep_raw_forensic = cfg.redaction.redact_raw
+                _keep_raw_forensic = cfg.redaction.keep_raw
                 _deduped = [apply_redact_and_enrich(a, _fields, keep_raw=_keep_raw_forensic) for a in _deduped]
                 if drop_raw:
                     _deduped = [a.model_copy(update={"raw": {}}) for a in _deduped]
@@ -1227,13 +1228,13 @@ def triage(
         #   Ch1: raw blanked (→ not serialised into output)
         #   Ch2: raw blank means _collect_text_fields skips raw extraction
         #   Ch3: IOC entries matching redacted values dropped post-extraction
-        # keep_raw support: wire cfg.redaction.redact_raw as the forensic override
-        # (redact_raw=True keeps raw even when redaction is active).
+        # keep_raw support: wire cfg.redaction.keep_raw as the forensic override
+        # (keep_raw=True keeps raw even when redaction is active).
         if _effective_redact:
             fields_to_redact = [f.strip() for f in _effective_redact.split(",") if f.strip()]
             from .pipeline.redaction import apply_redact_and_enrich
 
-            _keep_raw_forensic = cfg.redaction.redact_raw  # True → forensic override, preserve raw
+            _keep_raw_forensic = cfg.redaction.keep_raw  # True → forensic override, preserve raw
             try:
                 alerts_for_clustering = [
                     apply_redact_and_enrich(a, fields_to_redact, keep_raw=_keep_raw_forensic)

@@ -223,6 +223,8 @@ sift stores settings in `~/.sift/config.yaml` and credentials in `~/.sift/.env` 
 
 **Priority chain:** CLI flags > `SIFT_LLM_KEY` env var > `~/.sift/.env` > `~/.sift/config.yaml` > defaults
 
+> sift no longer reads a `config.yaml` from the current directory (it could come from an untrusted download). Use `~/.sift/config.yaml`, or pass a file explicitly with `--config`.
+
 ### Show current config
 
 ```bash
@@ -608,12 +610,12 @@ sift triage alerts.json --redact-fields source_ip,user,host
 sift config --redact-fields source_ip,user,host
 ```
 
-**Forensic override.** Setting `redaction.redact_raw: true` in `~/.sift/config.yaml` keeps `alert.raw` in the output even when `--redact-fields` is active — for forensic captures where the raw dict is needed despite redaction.
+**Forensic override.** Setting `redaction.keep_raw: true` in `~/.sift/config.yaml` keeps `alert.raw` in the output even when `--redact-fields` is active — for forensic captures where the raw dict is needed despite redaction. The key was called `redact_raw` before; the old name is still read (with a one-time notice) and `sift config` rewrites it as `keep_raw`.
 
 ```yaml
 # ~/.sift/config.yaml
 redaction:
-  redact_raw: true   # Keep raw in output for forensic captures (default: false = suppress raw)
+  keep_raw: true   # Keep raw in output for forensic captures (default: false = suppress raw)
 ```
 
 > **Security invariant:** sift never sends alert data to a cloud LLM without a redaction-config check.

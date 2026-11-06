@@ -120,7 +120,7 @@ The `SummarizerProtocol` is backed by four providers — Anthropic Claude, OpenA
 
 Before alert data reaches an LLM prompt, two guards run: field-level redaction (`--redact-fields`, or persisted config defaults) replaces named fields with `[REDACTED]`, and a prompt-injection scanner inspects every alert field. The constraint is hard: *sift never sends alert data to a cloud LLM without a redaction-config check.* PowerShell-encoded base-64 payloads are sanitised to a SHA-256 stub before they can reach any prompt, and on a detected injection pattern the affected field is redacted and summarization can fall back to the template provider. The injection engine itself is single-sourced from `shipwright_kit.security.injection` (see below).
 
-On main (pending 1.3.0), `--redact-fields` also closes three output-path leak channels via `pipeline/redaction.py`: `alert.raw` is blanked before extraction (Channel 1), the IOC extractor's raw-dict pass is automatically gated by the blank raw (Channel 2), and extracted IOCs matching a pre-redaction field value are dropped (Channel 3). Two residuals remain in Phase 1 — see the "On-Main" section and "Known residuals" for the exact scope and operator fix. `redaction.redact_raw: true` in `config.yaml` is the forensic override that keeps raw in the output even when redaction is active.
+On main (pending 1.3.0), `--redact-fields` also closes three output-path leak channels via `pipeline/redaction.py`: `alert.raw` is blanked before extraction (Channel 1), the IOC extractor's raw-dict pass is automatically gated by the blank raw (Channel 2), and extracted IOCs matching a pre-redaction field value are dropped (Channel 3). Two residuals remain in Phase 1 — see the "On-Main" section and "Known residuals" for the exact scope and operator fix. `redaction.keep_raw: true` in `config.yaml` is the forensic override that keeps raw in the output even when redaction is active.
 
 #### Configuration with Priority Hierarchy
 
@@ -331,7 +331,7 @@ Phase 1 closes three channels:
 | **Raw → re-extracted IOC** | Because Channel 1 blanks raw first, `_collect_text_fields` has nothing to mine from raw — the extraction gate is automatic. |
 | **Named-field residual (IOC drop)** | After extraction, any IOC whose value exactly matches a pre-redaction field value is dropped from `iocs` and `iocs_typed`. IOC counts decrease when redaction is active — this is expected. |
 
-**Forensic override.** Set `redaction.redact_raw: true` in `~/.sift/config.yaml` to keep `alert.raw` in the output even when `--redact-fields` is active. This flag is wired on main (it was a dead configuration knob prior to this fix).
+**Forensic override.** Set `redaction.keep_raw: true` in `~/.sift/config.yaml` to keep `alert.raw` in the output even when `--redact-fields` is active. This flag is wired on main (it was a dead configuration knob prior to this fix).
 
 **Known residuals (Phase 1 — documented, not closed):**
 

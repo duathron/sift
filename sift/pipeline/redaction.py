@@ -159,7 +159,7 @@ def apply_redact_and_enrich(
                    the output alert even though redaction is active.  IOC
                    extraction will then still mine raw — only channel 3
                    (IOC-drop) applies.  Use only when the operator explicitly
-                   needs the raw dict (e.g. ``cfg.redaction.redact_raw=True``).
+                   needs the raw dict (e.g. ``cfg.redaction.keep_raw=True``).
 
     Steps:
       1. Capture pre-redaction values (Channel 3 setup).
