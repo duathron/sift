@@ -742,7 +742,7 @@ sift validates all LLM outputs against a strict JSON schema. Use `sift validate`
 sift validate alerts.json
 ```
 
-A built-in prompt injection detector scans alert fields for five pattern categories: instruction overrides, output manipulation, JSON escapes, encoded payloads, and shell injection. Suspicious content is flagged and summarization falls back to the template provider automatically. The injection engine is shared with barb and vex via `shipwright_kit.security.injection` so a fix propagates to all three tools at once.
+A built-in prompt injection detector scans alert fields for five pattern categories: instruction overrides, output manipulation, JSON escapes, encoded payloads, and shell injection. Suspicious content is flagged and summarization falls back to the template provider automatically. The injection engine is shared with barb and vex via `shipwright_kit.security.injection` so a fix propagates to all three tools at once. The pattern guard is a heuristic, not a guarantee: it also scans cluster labels, reasons, techniques and IOCs and the assembled prompt (withholding only the attacker-controlled fragments that make a pattern match, or sending nothing if one cannot be removed), and the alert-derived part of the prompt is fenced as data with a system-prompt rule that fenced content is never instructions. The LLM response is validated against the output schema before it is used.
 
 > **Security invariant:** sift never sends alert data to a cloud LLM without a redaction-config check. Core clustering is rule-based and deterministic; AI summarization is opt-in.
 
