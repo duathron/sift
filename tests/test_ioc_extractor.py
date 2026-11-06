@@ -523,14 +523,14 @@ def test_domain_regex_linear_time(unit: str) -> None:
 @pytest.mark.parametrize("text", ["*.evil.com", ".evil.com", "x..evil.com", "see http://x.evil.com/p", "a.b.evil.com"])
 def test_domain_regex_still_extracts_suffix_domains(text: str) -> None:
     values = set(extract_iocs(text))
-    assert any(v == "evil.com" or v.endswith(".evil.com") for v in values), values
+    assert values & {"evil.com", "x.evil.com", "a.b.evil.com"}, values
 
 
 @pytest.mark.parametrize("text", ["_x.evil.com", "foo_bar.evil.com"])
 def test_domain_regex_underscore_label_delta_is_documented(text: str) -> None:
     # Accepted trade-off of the linear-time guard: a label glued to the domain by an underscore
     # yields no domain at all (no linear lookbehind can both keep it and stay linear).
-    assert not [v for v in extract_iocs(text) if v.endswith("evil.com")]
+    assert not [v for v in extract_iocs(text) if "evil" in v]
 
 
 def test_email_still_extracted_and_local_part_capped() -> None:
@@ -538,4 +538,4 @@ def test_email_still_extracted_and_local_part_capped() -> None:
     # A local part over the RFC 5321 limit of 64 is not an address: no email IOC, the domain still counts.
     found = extract_iocs("x" * 70 + "@evil.com")
     assert not [v for v in found if "@" in v]
-    assert "evil.com" in found
+    assert found.count("evil.com") == 1
