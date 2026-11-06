@@ -358,3 +358,41 @@ def test_loose_cache_files_are_tightened_on_open_and_after_put(tmp_path):
         f.chmod(0o644)
     cache.put("k", {"a": 1})
     assert all(stat.S_IMODE(f.stat().st_mode) == 0o600 for f in d.glob("alerts.db*"))
+
+
+# --- round 5: forwarding across logger setups ------------------------------------------
+
+
+class _Recorder(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__()
+        self.messages: list[str] = []
+
+    def emit(self, record):
+        self.messages.append(record.getMessage())
+
+
+def test_non_propagating_sift_logger_keeps_pre_pr_stderr(tmp_path, monkeypatch):
+    src = str(_inj_file(tmp_path))
+    args = (src, "-f", "json", "--summarize", "--provider", "mock", "--no-cache")
+    root_rec = _Recorder()
+    monkeypatch.setattr(logging.getLogger(), "handlers", [root_rec])
+    monkeypatch.setattr(logging.getLogger("sift"), "propagate", False)
+    _scanner_stub(monkeypatch)
+    watched = _run(*args)
+    with monkeypatch.context() as m:
+        m.setattr(logging.Logger, "addHandler", lambda self, h: None)  # the pre-PR state
+        plain = _run(*args)
+    assert watched.stderr.count("Injection scanner:") == 1
+    assert watched.stderr == plain.stderr
+    assert root_rec.messages == []
+
+
+def test_handler_on_the_child_logger_gets_the_record_once(tmp_path, monkeypatch):
+    monkeypatch.setattr(logging.getLogger(), "handlers", [])
+    child = _Recorder()
+    monkeypatch.setattr(logging.getLogger("sift.summarizers.prompt"), "handlers", [child])
+    _scanner_stub(monkeypatch)
+    r = _run(str(_inj_file(tmp_path)), "-f", "json", "--summarize", "--provider", "mock", "--no-cache")
+    assert any("Injection scanner:" in m for m in child.messages)
+    assert "Injection scanner:" not in r.stderr
