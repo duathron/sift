@@ -6,6 +6,8 @@ Entry point for the Typer CLI. Wires together:
 
 from __future__ import annotations
 
+import io as _io
+import logging
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -209,6 +211,30 @@ def _run_ticketing(
 # ---------------------------------------------------------------------------
 # Helper: enrichment consent
 # ---------------------------------------------------------------------------
+
+
+_LARGE_FILE_THRESHOLD_BYTES = 50 * 1024 * 1024  # 50 MB — above this, stream line by line
+
+
+class _WarningFlag(logging.Handler):
+    """Records that some sift logger warned during the run (a cache hit would not replay it)."""
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.WARNING)
+        self.seen = False
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.seen = True
+        # Being a handler turns off logging's last-resort stderr output for sift records.
+        # Keep the pre-existing behaviour: if no other handler would take the record,
+        # print it the way the last-resort handler does.
+        lg: logging.Logger | None = logging.getLogger(record.name)
+        while lg is not None:
+            if any(not isinstance(h, _WarningFlag) for h in lg.handlers):
+                return
+            lg = lg.parent if lg.propagate else None
+        if logging.lastResort is not None:
+            logging.lastResort.handle(record)
 
 
 def _check_enrich_consent(yes: bool, cfg) -> bool:
@@ -696,7 +722,6 @@ def triage(
     )
 
     # --- Resolve input paths (expand directories, validate files) ---
-    _LARGE_FILE_THRESHOLD_BYTES = 50 * 1024 * 1024  # 50 MB
     _STREAM_BATCH_LINES = 5_000  # normalize this many lines at a time
 
     def _stream_alerts(path: Path, hasher, show_progress: bool, *, sub_chunk: bool = False) -> tuple[list, str]:
@@ -926,7 +951,16 @@ def triage(
         )
 
     # --- Cache (default on, --no-cache to disable) ---
-    _cache_enabled = not no_cache and cfg.cache_enabled
+    # Bypassed (no get, no put) when the run has a side effect that only happens on a
+    # miss (--findings-file, --injection-detail, --validate-only), or when external
+    # enrichment is active: barb/vex answers are external state that no key can capture.
+    _external_enrich = _enrich_active and _enrich_mode_str != "local"
+    _cache_enabled = (
+        not no_cache
+        and cfg.cache_enabled
+        and not (findings_file or injection_detail or validate_only)
+        and not _external_enrich
+    )
 
     # --- Cache: fingerprint pre-pass (streams bytes only, no Alert objects) ---
     # When cache is active we fingerprint all files first for a cache lookup
@@ -936,11 +970,18 @@ def triage(
     _stdin_raw: str | None = None  # stdin content captured during fingerprint pass
 
     if _cache_enabled:
-        _fp_hasher = _hashlib.sha256()
+        _input_identity: list[dict] = []
         for _fp_path in resolved_paths:
+            _fp_hasher = _hashlib.sha256()
             if str(_fp_path) == "-":
-                _stdin_raw = sys.stdin.read()
-                _fp_hasher.update(_stdin_raw.encode("utf-8", errors="replace"))
+                try:
+                    _stdin_raw = sys.stdin.read()
+                except Exception as _exc:
+                    console.print(f"[red]Error reading -:[/red] {_markup_escape(str(_exc))}")
+                    raise typer.Exit(2)
+                _stdin_bytes = _stdin_raw.encode("utf-8", errors="replace")
+                _fp_hasher.update(_stdin_bytes)
+                _input_identity.append({"name": "<stdin>", "size": len(_stdin_bytes), "sha256": _fp_hasher.hexdigest()})
             else:
                 _fp_size = _fp_path.stat().st_size
                 if _fp_size > 0:
@@ -951,17 +992,56 @@ def triage(
                     except Exception as _exc:
                         console.print(f"[red]Error fingerprinting {_fp_path}:[/red] {_exc}")
                         raise typer.Exit(2)
+                _input_identity.append({"name": str(_fp_path), "size": _fp_size, "sha256": _fp_hasher.hexdigest()})
 
         from .cache import AlertCache, CacheConfig
+        from .cache_key import build_cache_key
 
-        _cache_key = _fp_hasher.hexdigest()
-        _alert_cache = AlertCache(CacheConfig(enabled=True))
-        _cached_raw = _alert_cache.get(_cache_key)
+        _cache_key = build_cache_key(
+            _input_identity,
+            options={
+                "redact": sorted(f.strip() for f in (_effective_redact or "").split(",") if f.strip()),
+                "filter": filter,
+                "summarize": summarize,
+                "provider": provider,
+                "no_llm": no_llm,
+                "max_tokens": max_tokens,
+                "no_dedup": no_dedup,
+                "chunk_size": effective_chunk_size,
+                "drop_raw": drop_raw,
+                "enrich": _enrich_mode_str if _enrich_active else None,
+            },
+            cfg=cfg,
+        )
+        _cached_raw = None
+        _cached = None
+        try:
+            _alert_cache = AlertCache(CacheConfig(enabled=True))
+            _cached_raw = _alert_cache.get(_cache_key)
+        except Exception as _cache_exc:
+            console.print(
+                f"[yellow]Warning:[/yellow] Cache unavailable ({type(_cache_exc).__name__}) — running uncached."
+            )
+            _alert_cache = None
+            _cache_key = None
         if _cached_raw is not None:
+            try:
+                _cached = TriageReport.model_validate(_cached_raw)
+            except Exception:
+                # A corrupt or schema-stale row is a miss, and is dropped.
+                _alert_cache.invalidate(_cache_key)
+                _cached = None
+        if _cached is not None:
             if not _quiet_mode:
                 console.print(f"[dim]Cache hit ({_cache_key[:12]}…) — skipping pipeline.[/dim]")
-            _cached = TriageReport.model_validate(_cached_raw)
-            _render_output(_cached, format=format, output_path=output, cfg=cfg, quiet=quiet)
+            _render_output(
+                _cached,
+                format=format,
+                output_path=output,
+                cfg=cfg,
+                quiet=quiet,
+                include_raw_payload=include_raw_payload,
+            )
             # Ticketing is post-processing on the report — must run on cache hits too.
             _run_ticketing(
                 _cached,
@@ -973,7 +1053,7 @@ def triage(
                 quiet_mode=_quiet_mode,
             )
             raise typer.Exit(_cached.exit_code)
-        if not _quiet_mode:
+        if not _quiet_mode and _cache_key is not None:
             console.print(f"[dim]Cache miss ({_cache_key[:12]}…) — running pipeline.[/dim]")
 
     # --- Per-file pipeline ---
@@ -1000,7 +1080,21 @@ def triage(
     detected_formats: list[str] = []
     _total_bytes = 0  # track total input size for large-data warning
 
-    for path in resolved_paths:
+    _input_changed = False  # an input no longer matches its fingerprint: do not store
+    _unreplayable = False  # the run printed a warning that a cache hit would not replay
+    _parsed_idx: set[int] = set()  # inputs that were actually ingested
+
+    def _warn(message: str) -> None:
+        nonlocal _unreplayable
+        console.print(message)
+        _unreplayable = True
+
+    _watch = _WarningFlag()
+    _sift_logger = logging.getLogger("sift")
+    for _stale in [h for h in _sift_logger.handlers if isinstance(h, _WarningFlag)]:
+        _sift_logger.removeHandler(_stale)
+    _sift_logger.addHandler(_watch)
+    for _ident_idx, path in enumerate(resolved_paths):
         label = str(path)
         _is_sub_chunked = False  # did _stream_alerts handle the full pipeline internally?
         try:
@@ -1009,7 +1103,7 @@ def triage(
                 _stdin_raw = None
                 label = "<stdin>"
                 if not raw.strip():
-                    console.print("[yellow]Warning:[/yellow] Skipping empty stdin.")
+                    _warn("[yellow]Warning:[/yellow] Skipping empty stdin.")
                     continue
                 source_alerts, fmt = _normalize(raw)
                 if drop_raw:
@@ -1019,7 +1113,7 @@ def triage(
                 file_size = path.stat().st_size
                 _total_bytes += file_size
                 if file_size == 0:
-                    console.print(f"[yellow]Warning:[/yellow] Skipping empty file: {label}")
+                    _warn(f"[yellow]Warning:[/yellow] Skipping empty file: {label}")
                     continue
                 _no_op_hasher = _hashlib.sha256()
                 _hash_target = _no_op_hasher if _cache_enabled else _hashlib.sha256()
@@ -1035,7 +1129,9 @@ def triage(
                             f"(batches of {cfg.clustering.sub_chunk_size:,} alerts)[/dim]"
                         )
                     sub_reports, fmt = _stream_alerts(path, _hash_target, not _quiet_mode, sub_chunk=True)
+                    _input_changed = True  # parse-time bytes are not hashed on this path: never stored
                     if sub_reports:
+                        _parsed_idx.add(_ident_idx)
                         source_labels.append(label)
                         detected_formats.append(fmt)
                         file_report = merge_triage_reports(sub_reports, cfg.scoring)
@@ -1044,14 +1140,21 @@ def triage(
                         file_reports.append(file_report)
                         del sub_reports
                     else:
-                        console.print(f"[yellow]Warning:[/yellow] No alerts parsed from: {label}")
+                        _warn(f"[yellow]Warning:[/yellow] No alerts parsed from: {label}")
                     continue  # skip the normal pipeline below — already handled
                 elif file_size > _LARGE_FILE_THRESHOLD_BYTES:
                     source_alerts, fmt = _stream_alerts(path, _hash_target, not _quiet_mode)
+                    _input_changed = True  # parse-time bytes are not hashed on this path: never stored
                     if drop_raw:
                         source_alerts = [a.model_copy(update={"raw": {}}) for a in source_alerts]
                 else:
-                    raw = path.read_text(encoding="utf-8")
+                    # Read once; the bytes that are parsed are the bytes that are checked
+                    # against the fingerprint (universal newlines, like read_text).
+                    _data = path.read_bytes()
+                    if _cache_enabled and _hashlib.sha256(_data).hexdigest() != _input_identity[_ident_idx]["sha256"]:
+                        _input_changed = True
+                    raw = _io.TextIOWrapper(_io.BytesIO(_data), encoding="utf-8").read()
+                    del _data
                     source_alerts, fmt = _normalize(raw)
                     if drop_raw:
                         source_alerts = [a.model_copy(update={"raw": {}}) for a in source_alerts]
@@ -1063,9 +1166,10 @@ def triage(
             raise typer.Exit(2)
 
         if not source_alerts:
-            console.print(f"[yellow]Warning:[/yellow] No alerts parsed from: {label}")
+            _warn(f"[yellow]Warning:[/yellow] No alerts parsed from: {label}")
             continue
 
+        _parsed_idx.add(_ident_idx)
         source_labels.append(label)
         detected_formats.append(fmt)
 
@@ -1083,7 +1187,7 @@ def triage(
             or a.raw
         ]
         if not source_alerts:
-            console.print(f"[yellow]Warning:[/yellow] All alerts from {label} were empty/phantom.")
+            _warn(f"[yellow]Warning:[/yellow] All alerts from {label} were empty/phantom.")
             source_labels.pop()
             detected_formats.pop()
             continue
@@ -1221,7 +1325,7 @@ def triage(
         file_reports.append(file_report)
 
     if not file_reports:
-        console.print("[yellow]Warning:[/yellow] No alerts could be parsed from any input source.")
+        _warn("[yellow]Warning:[/yellow] No alerts could be parsed from any input source.")
         raise typer.Exit(0)
 
     input_file_str = (
@@ -1234,6 +1338,12 @@ def triage(
             f"{total_ingested:,} alerts ingested, {total_after_dedup:,} after dedup — "
             f"merging for cross-source IOC correlation.[/dim]"
         )
+
+    # Every fingerprinted, non-empty input must have been ingested; a source that was
+    # skipped after hashing (truncated, unreadable, unparsed) makes the report differ
+    # from what its key promises.
+    if _cache_enabled and any(i not in _parsed_idx for i, ident in enumerate(_input_identity) if ident["size"] > 0):
+        _input_changed = True
 
     # --- Merge per-file reports (IOC-overlap Union-Find restores cross-source clustering) ---
     merged = merge_triage_reports(file_reports, cfg.scoring)
@@ -1264,7 +1374,7 @@ def triage(
                     max_ioc_limit = getattr(cfg.enrich, "max_iocs", 20)
                     enrichment = runner.enrich(all_iocs, max_iocs=max_ioc_limit)
                 except Exception as e:
-                    console.print(f"[yellow]Warning:[/yellow] Enrichment failed: {_markup_escape(str(e))}")
+                    _warn(f"[yellow]Warning:[/yellow] Enrichment failed: {_markup_escape(str(e))}")
         else:
             console.print("[dim]Enrichment skipped.[/dim]")
 
@@ -1284,6 +1394,7 @@ def triage(
     )
 
     # --- Summarize ---
+    _summary_degraded = False  # a template/mock summarizer raised and only warned
     if no_llm:
         provider = "template"
     if summarize or cfg.summarize.provider != "template":
@@ -1309,6 +1420,8 @@ def triage(
         # NOT LLM requests (default posture, no key needed) — a failure there
         # keeps the old warn-and-continue behavior and is never "degraded".
         _llm_requested = effective_provider not in ("template", "mock")
+        if effective_provider not in ("template", "mock", "anthropic", "openai", "ollama"):
+            _summary_degraded = True  # unknown provider: the template fallback is not what was asked for
         try:
             # Build INSIDE the try so a build-time failure (e.g. the requested
             # provider's SDK not installed → RuntimeError) routes through the
@@ -1340,7 +1453,8 @@ def triage(
                     }
                 )
             else:
-                console.print(f"[yellow]Warning:[/yellow] Summarization failed: {_markup_escape(str(exc))}")
+                _warn(f"[yellow]Warning:[/yellow] Summarization failed: {_markup_escape(str(exc))}")
+                _summary_degraded = True
 
     # --- Validation-only mode ---
     if validate_only:
@@ -1361,10 +1475,18 @@ def triage(
                 console.print(f"[dim]Filter '{filter}': {after}/{before} cluster(s) matched.[/dim]")
             report = report.model_copy(update={"clusters": filtered})
         except Exception as e:
-            console.print(f"[yellow]Warning:[/yellow] Filter parsing failed: {_markup_escape(str(e))}")
+            _warn(f"[yellow]Warning:[/yellow] Filter parsing failed: {_markup_escape(str(e))}")
 
-    # --- Cache write (opt-in) ---
-    if _alert_cache is not None and _cache_key is not None:
+    # --- Cache write (skipped when the LLM summary failed: a retry must run again) ---
+    if (
+        _alert_cache is not None
+        and _cache_key is not None
+        and not report.summary_error
+        and not _summary_degraded
+        and not _input_changed
+        and not _unreplayable
+        and not _watch.seen
+    ):
         try:
             _alert_cache.put(_cache_key, report.model_dump())
         except Exception:

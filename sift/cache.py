@@ -20,9 +20,10 @@ Design decisions
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -34,6 +35,7 @@ from pydantic import BaseModel
 
 _DIR_MODE = 0o700
 _DB_FILENAME = "alerts.db"
+_CLOCK_SKEW = timedelta(minutes=5)
 
 
 # ---------------------------------------------------------------------------
@@ -152,12 +154,29 @@ class AlertCache:
                 self._misses += 1
                 return None
 
-            entry = CacheEntry(
-                fingerprint=row[0],
-                result_json=row[1],
-                created_at=datetime.fromisoformat(row[2]),
-                hits=row[3],
-            )
+            try:
+                entry = CacheEntry(
+                    fingerprint=row[0],
+                    result_json=row[1],
+                    created_at=datetime.fromisoformat(row[2]),
+                    hits=row[3],
+                )
+                result = json.loads(entry.result_json)
+            except Exception:
+                # Any undecodable column: drop the row, report a miss.
+                conn.execute("DELETE FROM cache_entries WHERE fingerprint = ?", (fingerprint,))
+                conn.commit()
+                self._misses += 1
+                return None
+
+            _created = entry.created_at if entry.created_at.tzinfo else entry.created_at.replace(tzinfo=timezone.utc)
+            if _created > datetime.now(tz=timezone.utc) + _CLOCK_SKEW:
+                # Written "in the future": a tampered or clock-skewed row never expires
+                # by age, so it must not be replayed.
+                conn.execute("DELETE FROM cache_entries WHERE fingerprint = ?", (fingerprint,))
+                conn.commit()
+                self._misses += 1
+                return None
 
             if self._is_expired(entry):
                 # Lazy expiry: remove stale entry and report miss.
@@ -178,7 +197,7 @@ class AlertCache:
             conn.commit()
 
             self._hits += 1
-            return json.loads(entry.result_json)
+            return result
 
     def put(self, fingerprint: str, result: dict) -> None:
         """Store *result* under *fingerprint*.
@@ -201,6 +220,10 @@ class AlertCache:
                 return str(o)
 
             result_json = json.dumps(result, default=_json_default)
+
+            # Retention: rows past the TTL are dead weight, whichever key they belong to.
+            cutoff = (datetime.now(tz=timezone.utc) - timedelta(seconds=self._config.ttl_seconds)).isoformat()
+            conn.execute("DELETE FROM cache_entries WHERE created_at < ?", (cutoff,))
 
             # Evict before inserting so we never breach max_entries.
             count: int = conn.execute("SELECT COUNT(*) FROM cache_entries").fetchone()[0]
@@ -230,6 +253,7 @@ class AlertCache:
                 (fingerprint, result_json, now_iso, now_iso),
             )
             conn.commit()
+            self._tighten_modes()
 
     def invalidate(self, fingerprint: str) -> None:
         """Remove the entry for *fingerprint* from the cache.
@@ -365,6 +389,9 @@ class AlertCache:
         # ``check_same_thread=False`` lets the connection be shared across
         # threads in the enrichment ThreadPoolExecutor; access is serialised
         # via ``self._lock`` (see ``__init__``).
+        if not db_path.exists():
+            # Created owner-only from the start (the umask would give 0644).
+            os.close(os.open(db_path, os.O_CREAT | os.O_RDWR, 0o600))
         conn = sqlite3.connect(str(db_path), check_same_thread=False)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")
@@ -382,6 +409,14 @@ class AlertCache:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_accessed_at ON cache_entries(accessed_at)")
         conn.commit()
         self._conn = conn
+        self._tighten_modes()
+
+    def _tighten_modes(self) -> None:
+        """Keep the database and its WAL/SHM side files owner-only."""
+        for suffix in ("", "-wal", "-shm"):
+            f = self._config.cache_dir / (_DB_FILENAME + suffix)
+            if f.exists() and not f.is_symlink():
+                f.chmod(0o600)
 
     def _get_conn(self) -> sqlite3.Connection:
         """Return the open SQLite connection, opening it if necessary."""
