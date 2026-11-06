@@ -618,6 +618,16 @@ redaction:
 
 > **Security invariant:** sift never sends alert data to a cloud LLM without a redaction-config check.
 
+### Redaction knobs and the LLM prompt
+
+| Knob | Where it acts |
+|------|---------------|
+| `--redact-fields` (CLI) | Redacts alert fields **before clustering**; one run only. |
+| `redaction.fields` (config, `sift config --redact-fields`) | Same as `--redact-fields`, persisted as the default. The CLI flag overrides it when both are given. |
+| `summarize.redact_fields` (config) | Blanks the named fields in the **LLM prompt only**; the alerts, clusters and exports are untouched. |
+
+The cluster label, cluster reason and IOC line in the prompt are derived from alert fields and can carry a redacted value (for example an IP inside a URL IOC extracted from an unredacted `description`). So whenever **any** of the three knobs is set, the prompt shows the IOC line as `[redacted]` and any cluster label or reason that sift did not generate itself as `[label redacted]` / `[reason redacted]`. Sift-generated forms (`Other (N alerts)`, `singleton`, `unspecified`, `max_clusters limit reached; grouped as Other`) stay visible. Over-redaction of cluster text is accepted: the prompt fails closed.
+
 ### Known residuals (Phase 1)
 
 Phase 1 closes the three channels above. Two residual forms remain and are not yet closed — both share the same root cause:

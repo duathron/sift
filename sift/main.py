@@ -1313,6 +1313,11 @@ def triage(
             # Build INSIDE the try so a build-time failure (e.g. the requested
             # provider's SDK not installed → RuntimeError) routes through the
             # same never-silent-template handler as a runtime LLM failure (F2).
+            # Prompt-level blanking triggers on the union of summarize.redact_fields
+            # and the effective --redact-fields / redaction.fields set. Attached as a
+            # private attribute (like the injection settings) so it never enters the
+            # config's serialised form or the cache key.
+            cfg.summarize._cli_redact_fields = [f.strip() for f in (_effective_redact or "").split(",") if f.strip()]
             summarizer = _build_summarizer(
                 effective_provider,
                 cfg,

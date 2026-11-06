@@ -217,6 +217,9 @@ def _write_findings_log(
         logger.warning(f"Could not write injection findings to {path}: {exc}")
 
 
+_CONSTANT_REASONS = frozenset({"singleton", "unspecified", "max_clusters limit reached; grouped as Other"})
+
+
 def _safe_ioc_for_prompt(ioc: str) -> str:
     """Replace ps_encoded raw base64 with a SHA-256 prefix + byte-length stub."""
     if not ioc.startswith("ps_encoded:"):
@@ -360,7 +363,16 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
     if all_findings and findings_log_path:
         _write_findings_log(all_findings, Path(findings_log_path))
 
-    redact: set[str] = set(config.redact_fields)
+    # Union of the config-sourced summarize.redact_fields and the effective
+    # --redact-fields / redaction.fields set (attached by the CLI): the prompt is
+    # the egress sink, and a redacted value can still ride in an IOC extracted from
+    # an unredacted field (fail closed; over-redaction accepted).
+    redact: set[str] = set(config.redact_fields) | set(getattr(config, "_cli_redact_fields", None) or [])
+    # Cluster label, reason and IOC preview are derived from the alert fields; when
+    # any redaction is configured they may carry the redacted value (an IP pair, a
+    # title, a user name typed as an IOC), so they are blanked unless sift generated
+    # them from a constant form.
+    redact_cluster_text = bool(redact)
 
     lines: list[str] = [
         "## Triage Report",
@@ -374,11 +386,18 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
     # Per-cluster details
     # ------------------------------------------------------------------ #
     for cluster in report.clusters:
-        lines.append(f"### Cluster {cluster.id} — {cluster.label}")
+        label = cluster.label
+        reason = cluster.cluster_reason or "unspecified"
+        if redact_cluster_text:
+            if label != f"Other ({len(cluster.alerts)} alerts)":
+                label = "[label redacted]"
+            if reason not in _CONSTANT_REASONS:
+                reason = "[reason redacted]"
+        lines.append(f"### Cluster {cluster.id} — {label}")
         lines.append(f"- Priority    : {cluster.priority.value}")
         lines.append(f"- Score       : {cluster.score:.1f}")
         lines.append(f"- Alert count : {len(cluster.alerts)}")
-        lines.append(f"- Reason      : {cluster.cluster_reason or 'unspecified'}")
+        lines.append(f"- Reason      : {reason}")
 
         if cluster.first_seen or cluster.last_seen:
             first = cluster.first_seen.isoformat() if cluster.first_seen else "unknown"
@@ -386,7 +405,9 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
             lines.append(f"- Time range  : {first} → {last}")
 
         # IOCs
-        if cluster.iocs and "iocs" not in redact:
+        if cluster.iocs and redact_cluster_text:
+            lines.append("- IOCs        : [redacted]")
+        elif cluster.iocs and "iocs" not in redact:
             preview_iocs = cluster.iocs[
                 :5
             ]  # SAFE-SLICE: IOC preview only; sanitised before LLM; remaining count shown in suffix
