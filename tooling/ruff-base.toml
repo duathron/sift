@@ -15,3 +15,6 @@ select = ["E", "F", "I", "W", "S101"]
 [lint.per-file-ignores]
 "../tests/*" = ["S101"]
 "../**/tests/**" = ["S101"]
+
+[format]
+exclude = ["*.md"]
