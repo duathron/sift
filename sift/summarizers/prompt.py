@@ -15,10 +15,11 @@ from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel
+from shipwright_kit.security.injection import PromptInjectionDetector as _TextDetector
 
 from sift.config import SummarizeConfig
 from sift.models import TriageReport
-from sift.summarizers.injection_detector import InjectionFinding, PromptInjectionDetector
+from sift.summarizers.injection_detector import InjectionFinding, PromptInjectionDetector, SeverityLevel
 
 logger = logging.getLogger(__name__)
 
@@ -220,6 +221,64 @@ def _write_findings_log(
 _CONSTANT_REASONS = frozenset({"singleton", "unspecified", "max_clusters limit reached; grouped as Other"})
 
 
+def _guard_text(
+    detector: _TextDetector,
+    text: str,
+    kind: str,
+    cluster_id: str,
+    hits: list[tuple[str, list[InjectionFinding]]],
+    verbose: bool,
+    *,
+    is_ioc: bool = False,
+) -> str:
+    """Return *text*, or a redaction marker when it carries a CRITICAL injection pattern.
+
+    Cluster label, reason, technique and IOC text is derived from alert content but was never
+    scanned (only the alert fields were).  WARNING-severity matches (Windows paths, hashes in
+    IOC labels) are a measured false-positive class: they are logged below WARNING and never
+    redacted, so a benign run keeps its cache entry.
+    """
+    findings = detector.detect(text, field_name=kind, is_ioc_field=is_ioc)
+    if not findings:
+        return text
+    if not any(f.severity is SeverityLevel.CRITICAL for f in findings):
+        logger.info(
+            f"Injection pattern(s) in cluster {cluster_id} {kind} (WARNING severity, not redacted): "
+            f"{', '.join(f.pattern_type for f in findings)}"
+        )
+        return text
+    hits.append((f"cluster:{cluster_id}", findings))
+    if verbose:
+        logger.warning(
+            f"Injection pattern(s) detected in cluster {cluster_id} {kind}: "
+            f"{', '.join(f.pattern_type for f in findings)} — redacting"
+        )
+    return f"[REDACTED: injection pattern in cluster {kind}]"
+
+
+def _has_critical(detector: _TextDetector, text: str) -> bool:
+    return any(f.severity is SeverityLevel.CRITICAL for f in detector.detect(text))
+
+
+_LINE_REDACTED = "[REDACTED: injection pattern in prompt line]"
+
+
+def _redact_critical_lines(detector: _TextDetector, lines: list[str]) -> int:
+    """Final net over the assembled prompt: blank lines (then adjacent line pairs) that still match."""
+    redacted = 0
+    for i, ln in enumerate(lines):
+        if ln != _LINE_REDACTED and _has_critical(detector, ln):
+            lines[i] = _LINE_REDACTED
+            redacted += 1
+    for i in range(len(lines) - 1):
+        if _LINE_REDACTED in (lines[i], lines[i + 1]):
+            continue
+        if _has_critical(detector, lines[i] + "\n" + lines[i + 1]):
+            lines[i] = lines[i + 1] = _LINE_REDACTED
+            redacted += 2
+    return redacted
+
+
 def _safe_ioc_for_prompt(ioc: str) -> str:
     """Replace ps_encoded raw base64 with a SHA-256 prefix + byte-length stub."""
     if not ioc.startswith("ps_encoded:"):
@@ -359,9 +418,8 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
         total_patterns = sum(len(f) for _, f in all_findings)
         logger.warning(f"Injection scanner: {total_patterns} pattern(s) across {len(all_findings)} alert(s) — redacted")
 
-    # Dump findings to file if requested
-    if all_findings and findings_log_path:
-        _write_findings_log(all_findings, Path(findings_log_path))
+    text_detector = _TextDetector(whitelist_patterns=whitelist)
+    cluster_hits: list[tuple[str, list[InjectionFinding]]] = []
 
     # Union of the config-sourced summarize.redact_fields and the effective
     # --redact-fields / redaction.fields set (attached by the CLI): the prompt is
@@ -393,6 +451,8 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
                 label = "[label redacted]"
             if reason not in _CONSTANT_REASONS:
                 reason = "[reason redacted]"
+        label = _guard_text(text_detector, label, "label", cluster.id, cluster_hits, verbose_injection)
+        reason = _guard_text(text_detector, reason, "reason", cluster.id, cluster_hits, verbose_injection)
         lines.append(f"### Cluster {cluster.id} — {label}")
         lines.append(f"- Priority    : {cluster.priority.value}")
         lines.append(f"- Score       : {cluster.score:.1f}")
@@ -411,7 +471,18 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
             preview_iocs = cluster.iocs[
                 :5
             ]  # SAFE-SLICE: IOC preview only; sanitised before LLM; remaining count shown in suffix
-            ioc_preview = [_safe_ioc_for_prompt(ioc) for ioc in preview_iocs]
+            ioc_preview = [
+                _guard_text(
+                    text_detector,
+                    _safe_ioc_for_prompt(ioc),
+                    "ioc",
+                    cluster.id,
+                    cluster_hits,
+                    verbose_injection,
+                    is_ioc=True,
+                )
+                for ioc in preview_iocs
+            ]
             suffix = f" (+{len(cluster.iocs) - 5} more)" if len(cluster.iocs) > 5 else ""
             lines.append(f"- IOCs        : {', '.join(ioc_preview)}{suffix}")
         elif "iocs" in redact:
@@ -421,7 +492,17 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
 
         # ATT&CK techniques
         if cluster.techniques:
-            tech_strs = [f"{t.technique_id} ({t.technique_name}, {t.tactic})" for t in cluster.techniques]
+            tech_strs = [
+                _guard_text(
+                    text_detector,
+                    f"{t.technique_id} ({t.technique_name}, {t.tactic})",
+                    "technique",
+                    cluster.id,
+                    cluster_hits,
+                    verbose_injection,
+                )
+                for t in cluster.techniques
+            ]
             lines.append(f"- Techniques  : {'; '.join(tech_strs)}")
         else:
             lines.append("- Techniques  : none mapped")
@@ -482,5 +563,22 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
         "Based on the report above, produce the triage summary JSON as specified "
         "in the system prompt. Do not include any text outside the JSON object."
     )
+
+    # Final net: the text that is actually sent is scanned, not just the pieces that were
+    # known to be untrusted when this builder was written (e.g. alert IP fields).
+    net_redacted = 0
+    net_findings = [f for f in text_detector.detect("\n".join(lines)) if f.severity is SeverityLevel.CRITICAL]
+    if net_findings:
+        net_redacted = _redact_critical_lines(text_detector, lines)
+        cluster_hits.append(("prompt", net_findings))
+
+    n_fields = sum(1 for cid, _ in cluster_hits if cid != "prompt")
+    if n_fields:
+        logger.warning(f"Prompt guard: {n_fields} cluster text field(s) redacted for injection patterns")
+    if net_redacted:
+        logger.warning(f"Prompt guard: {net_redacted} prompt line(s) redacted for injection patterns")
+    # Dump findings (alert fields + cluster text + final net) to file if requested
+    if (all_findings or cluster_hits) and findings_log_path:
+        _write_findings_log(all_findings + cluster_hits, Path(findings_log_path))
 
     return "\n".join(lines)
