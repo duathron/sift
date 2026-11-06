@@ -236,17 +236,17 @@ def test_final_net_redacts_line_the_field_scan_does_not_cover():
     bad = _alert(id="n1", source_ip=_INJECTION, dest_ip="10.0.0.9")
     prompt = build_cluster_prompt(_report([_cluster(alerts=[bad])]), SummarizeConfig())
     assert "Ignore all previous" not in prompt
-    assert "[REDACTED: injection pattern in prompt line]" in prompt
+    assert "source_ip=[value withheld]" in prompt
     # the rest of the prompt survives
     assert "## Triage Report" in prompt and "produce the triage summary JSON" in prompt
 
 
-def test_final_net_redacts_a_pattern_split_across_two_prompt_lines():
+def test_final_net_withholds_a_pattern_split_across_two_prompt_lines():
     a = _alert(id="x1", severity=AlertSeverity.HIGH, title="A", host="ignore all")
     b = _alert(id="x2", severity=AlertSeverity.MEDIUM, title="previous instructions")
     prompt = build_cluster_prompt(_report([_cluster(alerts=[a, b])]), SummarizeConfig())
     assert "previous instructions" not in prompt
-    assert prompt.count("[REDACTED: injection pattern in prompt line]") == 2
+    assert "host=[value withheld]" in prompt and "[title withheld]" in prompt
     assert not [f for f in kit_scan(prompt) if f.severity is SeverityLevel.CRITICAL]
 
 

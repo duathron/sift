@@ -33,6 +33,19 @@ __all__ = ["InjectionFinding", "PromptInjectionDetector", "SeverityLevel", "reda
 # ---------------------------------------------------------------------------
 
 
+def _flatten_strings(value: object, depth: int = 3) -> list[str]:
+    """Collect the string leaves of a nested list/dict raw entry (bounded depth)."""
+    if isinstance(value, str):
+        return [value]
+    if depth <= 0:
+        return []
+    items = value.values() if isinstance(value, dict) else value if isinstance(value, (list, tuple)) else []
+    out: list[str] = []
+    for item in items:
+        out.extend(_flatten_strings(item, depth - 1))
+    return out
+
+
 class PromptInjectionDetector:
     """Scans Alert fields using the shared shipwright_kit injection engine."""
 
@@ -59,6 +72,11 @@ class PromptInjectionDetector:
             for key, val in alert.raw.items():
                 if isinstance(val, str):
                     fields_to_scan[f"raw.{key}"] = val
+                elif isinstance(val, (list, tuple, dict)):
+                    flat = _flatten_strings(val)
+                    if flat:
+                        # one field per key: the redaction replaces the whole entry
+                        fields_to_scan[f"raw.{key}"] = "\n".join(flat)
         for i, ioc_val in enumerate(alert.iocs):
             fields_to_scan[f"ioc.{i}"] = ioc_val
 
