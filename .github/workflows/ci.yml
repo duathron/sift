@@ -13,7 +13,7 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
-    uses: duathron/shipwright/.github/workflows/python-ci.yml@02c7e57c9c43e1eb76e08b11d4c1386d7f9b90ab # v0.12.1
+    uses: duathron/shipwright/.github/workflows/python-ci.yml@2ca78c5fec6e91170f550025095c97d239b43c25 # v0.12.2
     with:
       python-version: ${{ matrix.python-version }}
 
