@@ -144,3 +144,19 @@ def test_no_module_under_sift_imports_click() -> None:
         for lineno in find_click_imports(path.read_text(encoding="utf-8")):
             offenders.append(f"{path.relative_to(SIFT_PKG.parent)}:{lineno}")
     assert offenders == [], f"undeclared dependency click imported at: {offenders}"
+
+
+def _usage_line(output: str) -> str:
+    return next(line.strip() for line in output.splitlines() if line.strip().startswith("Usage:"))
+
+
+@pytest.mark.parametrize("name", _command_names())
+def test_usage_line_has_no_placeholder_token(name: str) -> None:
+    """typer 0.27 prints a bare argument as `{files}...`; keep a plain metavar."""
+    usage = _usage_line(runner.invoke(app, [name, "--help"]).output)
+    assert "{" not in usage and "}" not in usage, usage
+
+
+def test_triage_usage_line_ends_with_files() -> None:
+    usage = _usage_line(runner.invoke(app, ["triage", "--help"]).output)
+    assert usage.endswith("FILES..."), usage
