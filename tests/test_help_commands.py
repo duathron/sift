@@ -57,17 +57,90 @@ def test_triage_help_all_shows_setup_panel_and_hidden_flags() -> None:
     assert len(result.output) > len(plain.output)
 
 
+def _is_click_name(name: str) -> bool:
+    return name == "click" or name.startswith("click.")
+
+
+def _is_vendored_click(name: str) -> bool:
+    return name == "typer._click" or name.startswith("typer._click.")
+
+
+def find_click_imports(source: str) -> list[int]:
+    """Line numbers of static, dynamic or vendored click imports in `source`."""
+    hits: list[int] = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            if any(_is_click_name(a.name) or _is_vendored_click(a.name) for a in node.names):
+                hits.append(node.lineno)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level != 0:
+                continue
+            mod = node.module or ""
+            if _is_click_name(mod) or _is_vendored_click(mod):
+                hits.append(node.lineno)
+            elif mod == "typer" and any(a.name == "_click" for a in node.names):
+                hits.append(node.lineno)
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute):
+                called = func.attr
+            elif isinstance(func, ast.Name):
+                called = func.id
+            else:
+                continue
+            if called not in {"import_module", "__import__"} or not node.args:
+                continue
+            first = node.args[0]
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                if _is_click_name(first.value) or _is_vendored_click(first.value):
+                    hits.append(node.lineno)
+    return hits
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import click",
+        "import click.utils",
+        "from click import echo",
+        "from click.utils import echo",
+        "import importlib\nimportlib.import_module('click')",
+        "import importlib\nimportlib.import_module('click.utils')",
+        "from importlib import import_module\nimport_module('click')",
+        "__import__('click')",
+        "__import__('click.core')",
+        "from typer import _click",
+        "from typer._click import echo",
+        "import typer._click",
+        "import importlib\nimportlib.import_module('typer._click')",
+        "def f():\n    import click\n",
+    ],
+)
+def test_detector_flags_bad_forms(source: str) -> None:
+    assert find_click_imports(source) != []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import typer",
+        "import typer\ntyper.echo('x')",
+        "from typer import Exit",
+        '"""Click here to continue."""',
+        "x = 'click'",
+        "import importlib\nimportlib.import_module('clicker')",
+        "import importlib\nimportlib.import_module('json')",
+        "__import__('os')",
+        "from . import click_helpers",
+    ],
+)
+def test_detector_ignores_benign_forms(source: str) -> None:
+    assert find_click_imports(source) == []
+
+
 def test_no_module_under_sift_imports_click() -> None:
     offenders: list[str] = []
     for path in sorted(SIFT_PKG.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                names = [a.name for a in node.names]
-            elif isinstance(node, ast.ImportFrom):
-                names = [node.module or ""] if node.level == 0 else []
-            else:
-                continue
-            if any(n == "click" or n.startswith("click.") for n in names):
-                offenders.append(f"{path.relative_to(SIFT_PKG.parent)}:{node.lineno}")
+        for lineno in find_click_imports(path.read_text(encoding="utf-8")):
+            offenders.append(f"{path.relative_to(SIFT_PKG.parent)}:{lineno}")
     assert offenders == [], f"undeclared dependency click imported at: {offenders}"
