@@ -7,6 +7,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.1](https://github.com/duathron/sift/compare/v1.4.0...v1.4.1) (2026-11-07)
+
+
+### Bug Fixes
+
+* isolate tests from the user's config and require shipwright-kit 0.12.1 ([#39](https://github.com/duathron/sift/issues/39)) ([4855125](https://github.com/duathron/sift/commit/485512520db5101e2842b6306db1fec6388dd5ef))
+* key the triage cache on every output-affecting option ([#41](https://github.com/duathron/sift/issues/41)) ([ad8d0db](https://github.com/duathron/sift/commit/ad8d0db66cb41ea6391fbe5b117d007e2e35fe67))
+* redact cluster text in LLM prompts whenever redaction is configured ([#42](https://github.com/duathron/sift/issues/42)) ([ef5a35c](https://github.com/duathron/sift/commit/ef5a35c9dae39a96416f9b833c16ceba695cb242))
+
 ## [1.4.0](https://github.com/duathron/sift/compare/v1.3.4...v1.4.0) (2026-07-05)
 
 
