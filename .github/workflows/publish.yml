@@ -1,5 +1,5 @@
 name: Publish to PyPI
-# publish.yml — copy of shipwright .github/workflows/release.yml @ cf58506d6d8a83be6e6f25d6b7b88ae5489ac544; re-sync on update.
+# publish.yml — copy of shipwright .github/workflows/release.yml @ d278d28c164f1a46fea08040eb865e63bad9130d; re-sync on update.
 # release-please opens/merges the release PR and tags the version; on a freshly
 # created release this same workflow builds the distributions + SBOM in a `build`
 # job WITHOUT OIDC (contents: read only) and hands them to a `publish` job that
@@ -49,11 +49,11 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: false
       - name: Build distributions
