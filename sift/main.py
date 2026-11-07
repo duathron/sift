@@ -398,9 +398,7 @@ def _print_triage_setup_status() -> None:
 def _triage_help_callback(ctx: "typer.Context", param: "typer.CallbackParam", value: bool) -> None:
     if not value or ctx.resilient_parsing:
         return
-    import click
-
-    click.echo(ctx.get_help())
+    typer.echo(ctx.get_help())
     _print_triage_setup_status()
     raise typer.Exit()
 
@@ -410,9 +408,7 @@ def _help_all_callback(ctx: "typer.Context", param: "typer.CallbackParam", value
         return
     for p in ctx.command.params:
         p.hidden = False
-    import click
-
-    click.echo(ctx.get_help())
+    typer.echo(ctx.get_help())
     _print_triage_setup_status()
     raise typer.Exit()
 
