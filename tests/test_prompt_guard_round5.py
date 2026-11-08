@@ -145,14 +145,21 @@ def _hostile_cluster(i: int):
 
 
 def _spy_block_scans(monkeypatch):
-    seen: dict = {"sizes": [], "lines": None}
+    seen: dict = {"sizes": [], "lines": None, "invariant": False}
     orig = prompt_mod._TextDetector.detect
     orig_enforce = prompt_mod._enforce_final_scan
+    orig_violation = prompt_mod._first_violation
 
     def detect(self, value, *a, **k):
-        if value.startswith("### Cluster "):
+        if value.startswith("### Cluster ") and not seen["invariant"]:  # block scans, not the invariant pass
             seen["sizes"].append(len(value.encode("utf-8")))
         return orig(self, value, *a, **k)
+
+    def violation(*a, **k):
+        seen["invariant"] = True
+        return orig_violation(*a, **k)
+
+    monkeypatch.setattr(prompt_mod, "_first_violation", violation)
 
     def enforce(detector, lines, frags, blocks):
         seen["total"] = len(prompt_mod._render(lines, scan=True).encode("utf-8"))  # before anything is withheld

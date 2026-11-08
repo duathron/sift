@@ -135,11 +135,13 @@ def test_each_block_is_scanned_and_resolved_on_exactly_its_own_range(monkeypatch
 
 
 def _whole_prompt_only_detector(monkeypatch, word: str):
-    """A detector that sees a match only in the assembled prompt (as for a cross-block pattern)."""
+    """A detector that sees a match only across a block boundary (a seam or a fence piece), as for a
+    pattern that straddles two blocks: a text that holds a block boundary (a fence line, or the blank
+    line before the next cluster header) and the word."""
     orig = prompt_mod._TextDetector.detect
 
     def detect(self, value, *a, **k):
-        if value.startswith("## Triage Report") and word in value:
+        if ("<<<SIFT_DATA_" in value or "\n\n### Cluster " in value) and word in value:
             return [_FAKE]
         return orig(self, value, *a, **k)
 

@@ -353,24 +353,53 @@ def _neutralise(text: str) -> str:
 # scheme, host and start of the path of a URL IOC (the full IOC stays in the report). A cap of 2048
 # still let three trio alerts plus two 2 KB fragments exhaust a block's budget (measured); at 1024
 # and below the constructions of the round-4 gates no longer do.
+#
+# The cap bounds the SCAN VIEW as well: a character such as U+FDFA becomes 18 characters under NFKC,
+# so a fragment is also cut until its normalised view is at most this long (the sent text and the
+# scanned text come from the same cut string, so they stay consistent).
 _FRAGMENT_CAP = 1024
 _TRUNCATION_MARKER = " [\u2026 truncated by sift]"
 
 
+def _nfkc_len(text: str) -> int:
+    return len(unicodedata.normalize("NFKC", text))
+
+
 def _cap_fragment(text: str) -> str:
-    """Return *text*, or its first ``_FRAGMENT_CAP`` characters plus a fixed marker (idempotent)."""
-    if len(text) <= _FRAGMENT_CAP:
+    """Return *text*, or a cut of it plus a fixed marker (idempotent).
+
+    The cut keeps at most ``_FRAGMENT_CAP`` characters AND at most ``_FRAGMENT_CAP`` characters of
+    their NFKC-normalised form (the view the detector reads).
+    """
+    if text.endswith(_TRUNCATION_MARKER):
+        body = text[: -len(_TRUNCATION_MARKER)]
+        if len(body) <= _FRAGMENT_CAP and _nfkc_len(body) <= _FRAGMENT_CAP:
+            return text  # already capped
+    if len(text) <= _FRAGMENT_CAP and text.isascii():
         return text
-    return text[:_FRAGMENT_CAP] + _TRUNCATION_MARKER
+    head = text[:_FRAGMENT_CAP]
+    cut = len(head)
+    seen = 0
+    for i, ch in enumerate(head):
+        seen += _nfkc_len(ch)
+        if seen > _FRAGMENT_CAP:
+            cut = i
+            break
+    if cut == len(text):
+        return text
+    # NFKC decomposes every character on its own and then only composes or reorders, so the length
+    # of the normalised prefix is never more than the sum over its characters used above.
+    return text[:cut] + _TRUNCATION_MARKER
 
 
 class _Frag:
     """An attacker-influenced piece of the prompt that can be withheld on its own."""
 
-    __slots__ = ("text", "scan", "marker", "withheld")
+    __slots__ = ("text", "scan", "marker", "withheld", "truncated")
 
     def __init__(self, text: str, marker: str) -> None:
         text = _cap_fragment(text)
+        self.truncated = text.endswith(_TRUNCATION_MARKER)
         self.text = _neutralise(text)  # what the model gets
         self.scan = _neutralise_scan(text)  # what the detector reads
         self.marker = marker
@@ -388,13 +417,17 @@ class _Frag:
 #
 # Every cluster block has its OWN budget, proportional to its size: base + factor x block bytes x
 # ceil(log2(fragments + 1)). A block that uses it up has all of its own alert text withheld and
-# nothing else: one padded hostile cluster cannot make the benign clusters pay for its rescans. All
-# block budgets also draw on ONE shared pool (the same size as the global budget below), so the
-# sum of the block rescans is bounded by prompt size however many clusters there are; a block with
-# a match that finds the pool empty is withheld wholesale. The first scan of each block is always
-# made (it is linear in the prompt); only the rescans draw on the pool. The whole-prompt pass (the
-# invariant check and the cross-block backstop) has the global budget below; only when that one runs
-# out, or a match survives it, is ALL alert text withheld.
+# nothing else, so one padded hostile cluster cannot make the other clusters pay for ITS rescans out
+# of their own budgets. All block budgets also draw on ONE shared pool (the same size as the global
+# budget below), so the sum of the block rescans is bounded by prompt size however many clusters
+# there are. That bound is also the limit of the guarantee: the pool is shared, so many hostile
+# clusters (measured: about 50 clusters of 10 trio alerts) can drain it, and from then on every later
+# cluster that has ANY match is withheld wholesale (marked per cluster in every sink; clusters
+# without a match are never affected). Pool and budgets count the bytes the detector reads, i.e. the
+# normalised scan view. The first scan of each block is always made (it is linear in the prompt);
+# only the rescans draw on the pool. The invariant check (block by block plus the seams, see
+# _SEAM_CHARS) has the global budget below; only when that one runs out, or a match survives it, is
+# ALL alert text withheld.
 _BLOCK_SCAN_BYTES_BASE = 32 * 1024
 _BLOCK_SCAN_FACTOR = 4
 _SCAN_BYTES_BASE = 2 * 1024 * 1024
@@ -404,8 +437,10 @@ _SCAN_BYTES_PER_PROMPT_BYTE = 6
 # block. Cluster ids are uuid4, so at least 57 characters of fixed template separate one block's
 # last fragment from the next block's first, a pattern spans at most about 110 characters and the
 # detector joins words over a gap of at most 40. So every block is scanned and resolved on its
-# own (linear in prompt size) and the whole prompt is scanned once more as the invariant check;
-# a match that the per-block pass missed is resolved on the whole prompt.
+# own (linear in prompt size) and the invariant check re-reads the prompt block by block plus the
+# seams between blocks (a window of _SEAM_CHARS on either side of every boundary), never as one
+# text of prompt size; a match that the per-block pass missed is resolved in the piece or seam
+# window where it was found.
 
 
 def _block_budget(block_bytes: int, n_frags: int) -> int:
@@ -513,6 +548,93 @@ _DEGRADED_TEXT = {
 }
 
 
+# The invariant check reads the prompt in pieces (the lines before the first cluster block, each
+# cluster block, the lines after the last) and, for every boundary between two pieces, a seam window:
+# the last and the first _SEAM_CHARS characters on either side. A pattern spans at most about 110
+# characters, so any match that crosses a boundary lies inside the seam window; a match inside one
+# piece is found by that piece's scan. Nothing is ever scanned as one text of prompt size.
+_SEAM_CHARS = 256
+_INVARIANT_PASSES = 3
+
+
+def _pieces(n_lines: int, blocks: list[_Block]) -> list[tuple[int, int]]:
+    """Line ranges that tile the prompt: every block, and the lines between and around them."""
+    ranges: list[tuple[int, int]] = []
+    pos = 0
+    for l0, l1, _, _ in blocks:
+        if l0 > pos:
+            ranges.append((pos, l0))
+        ranges.append((l0, l1))
+        pos = l1
+    if pos < n_lines:
+        ranges.append((pos, n_lines))
+    return [(a, b) for a, b in ranges if b > a]
+
+
+def _seam_lines(lines: list[list], prev: tuple[int, int], nxt: tuple[int, int]) -> tuple[int, int]:
+    """Line range of the seam window between two neighbouring pieces (whole lines)."""
+    start = prev[1]
+    size = 0
+    while start > prev[0] and size < _SEAM_CHARS:
+        start -= 1
+        size += len(_render([lines[start]], scan=True)) + 1
+    end = nxt[0]
+    size = 0
+    while end < nxt[1] and size < _SEAM_CHARS:
+        size += len(_render([lines[end]], scan=True)) + 1
+        end += 1
+    return start, end
+
+
+def _frags_of(lines: list[list]) -> list[_Frag]:
+    seen: set[int] = set()
+    out: list[_Frag] = []
+    for parts in lines:
+        for part in parts:
+            if isinstance(part, _Frag) and id(part) not in seen:
+                seen.add(id(part))
+                out.append(part)
+    return out
+
+
+def _first_violation(
+    scanner: _Scanner,
+    lines: list[list],
+    pieces: list[tuple[int, int]],
+    verified: dict[tuple[int, int], tuple[bool, ...]],
+) -> Optional[tuple[int, int, list[InjectionFinding], bool]]:
+    """Scan the final state piece by piece and seam by seam (mandatory scans).
+
+    Returns ``(first line, end line, findings, sent_view)`` of the first scope with a CRITICAL match,
+    or None. A piece that a block scan already found clean in exactly its current state is not
+    scanned again in the scan view (``verified``); the sent view is always checked.
+    """
+    texts: list[tuple[str, str]] = []
+    for a, b in pieces:
+        scan_text = _render(lines[a:b], scan=True)
+        sent_text = _render(lines[a:b])
+        texts.append((scan_text, sent_text))
+        state = tuple(f.withheld for f in _frags_of(lines[a:b]))
+        if verified.get((a, b)) != state:
+            found = scanner.crit(scan_text, mandatory=True)
+            if found:
+                return a, b, found, False
+        if sent_text != scan_text:
+            found = scanner.crit(sent_text, mandatory=True)
+            if found:
+                return a, b, found, True
+    for k in range(len(pieces) - 1):
+        for view in (0, 1):
+            if view and texts[k][0] == texts[k][1] and texts[k + 1][0] == texts[k + 1][1]:
+                continue  # sent view identical to the scan view on both sides
+            seam = texts[k][view][-_SEAM_CHARS:] + "\n" + texts[k + 1][view][:_SEAM_CHARS]
+            found = scanner.crit(seam, mandatory=True)
+            if found:
+                a, b = _seam_lines(lines, pieces[k], pieces[k + 1])
+                return a, b, found, bool(view)
+    return None
+
+
 def _enforce_final_scan(
     detector: _TextDetector, lines: list[list], frags: list[_Frag], blocks: list[_Block]
 ) -> tuple[list[InjectionFinding], bool, Optional[str], list[int]]:
@@ -520,9 +642,10 @@ def _enforce_final_scan(
 
     Every cluster block is scanned and resolved on its own budget. A block that runs out of
     budget (or whose match cannot be isolated) has ALL its own fragments withheld, nothing else
-    (block-local degrade). Then the whole prompt is scanned as the invariant check. If the global
-    budget runs out or a match cannot be isolated there, every fragment is withheld (less data,
-    never attacker text) and the result is verified.
+    (block-local degrade). Then the invariant check scans the prompt block by block plus the seams
+    between blocks (see ``_SEAM_CHARS``), never as one text of prompt size. If the global budget
+    runs out or a match cannot be isolated there, every fragment is withheld (less data, never
+    attacker text) and the result is verified.
 
     Returns the CRITICAL findings seen, whether the prompt is clean at the end (False means
     nothing may be sent), a global degrade reason (None, ``scan_budget_exhausted`` or
@@ -531,6 +654,7 @@ def _enforce_final_scan(
     """
     findings: list[InjectionFinding] = []
     withheld_blocks: list[int] = []
+    verified: dict[tuple[int, int], tuple[bool, ...]] = {}  # (first, end line) -> withheld flags when scanned clean
     total = len(_render(lines, scan=True).encode("utf-8", "surrogatepass"))
     pool = _SCAN_BYTES_BASE + _SCAN_BYTES_PER_PROMPT_BYTE * total  # shared by all block rescans
     for index, (l0, l1, f0, f1) in enumerate(blocks):
@@ -549,6 +673,8 @@ def _enforce_final_scan(
                 findings.extend(found)
                 if not _resolve_scope(block_scanner, block_lines, frags[f0:f1], found):
                     return findings, False, None, []
+            # clean in exactly this state (a resolved block ends with a clean scan of its final state)
+            verified[(l0, l1)] = tuple(f.withheld for f in _frags_of(block_lines))
         except (_BudgetExhausted, _NotIsolated):
             for f in frags[f0:f1]:
                 f.withheld = True
@@ -556,26 +682,29 @@ def _enforce_final_scan(
         pool -= block_scanner.spent - first
     total = len(_render(lines, scan=True).encode("utf-8", "surrogatepass"))
     scanner = _Scanner(detector, _SCAN_BYTES_BASE + _SCAN_BYTES_PER_PROMPT_BYTE * total)
+    pieces = _pieces(len(lines), blocks)
     try:
         # Mandatory: the invariant check never depends on the budget (a budgeted one would only
         # degrade more often, which is the safe direction, so that variant is behaviourally equivalent).
-        final = scanner.crit(_render(lines, scan=True), mandatory=True)
-        if final:
-            findings.extend(final)
-            if not _resolve_scope(scanner, lines, frags, final):
+        for _ in range(_INVARIANT_PASSES):
+            violation = _first_violation(scanner, lines, pieces, verified)
+            if violation is None:
+                return findings, True, None, withheld_blocks
+            a, b, found, sent_view = violation
+            if sent_view:
+                raise _NotIsolated
+            findings.extend(found)
+            if not _resolve_scope(scanner, lines[a:b], _frags_of(lines[a:b]), found):
                 return findings, False, None, []
-        sent = _render(lines)
-        if sent != _render(lines, scan=True) and scanner.crit(sent, mandatory=True):
-            raise _NotIsolated
-        return findings, True, None, withheld_blocks
+        raise _NotIsolated  # a match keeps coming back: do not keep scanning, withhold everything
     except (_BudgetExhausted, _NotIsolated) as exc:
         reason = "scan_budget_exhausted" if isinstance(exc, _BudgetExhausted) else "match_not_isolated"
     # Withhold every fragment and verify what is left (mandatory scans, outside the budget). With
-    # everything withheld the scan view and the sent view are the same text, so the two scans are
-    # redundant on purpose (defence in depth, equivalent today).
+    # everything withheld the scan view and the sent view are the same text, so the sent-view
+    # scans are redundant on purpose (defence in depth, equivalent today).
     for f in frags:
         f.withheld = True
-    if scanner.crit(_render(lines, scan=True), mandatory=True) or scanner.crit(_render(lines), mandatory=True):
+    if _first_violation(scanner, lines, pieces, {}) is not None:
         return findings, False, None, []
     return findings, True, reason if frags else None, []
 
@@ -896,6 +1025,13 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
     net_findings, net_clean, degraded, withheld_blocks = _enforce_final_scan(text_detector, lines, frags, blocks)
     if net_findings:
         cluster_hits.append(("prompt", net_findings))
+    n_cut = sum(1 for f in frags if f.truncated)
+    if n_cut:
+        # Info, not warning: a warning would keep every run with one long URL out of the cache. No alert text.
+        logger.info(
+            f"Prompt guard: {n_cut} prompt fragment(s) cut to {_FRAGMENT_CAP} characters; "
+            "the AI summary sees only their beginning"
+        )
     n_fields = sum(1 for cid, _ in cluster_hits if cid != "prompt")
     if n_fields:
         logger.warning(f"Prompt guard: {n_fields} cluster text field(s) redacted for injection patterns")
