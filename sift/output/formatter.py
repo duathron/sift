@@ -8,6 +8,7 @@ from typing import Optional
 
 from rich import box
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -222,9 +223,10 @@ _DEGRADED_NOTICE = (
 )
 
 
-def _partial_notice(n: int) -> str:
+def _partial_notice(report: TriageReport) -> str:
     return (
-        f"⚠ AI SUMMARY PARTIAL — the prompt guard withheld the alert text of {n} cluster(s); "
+        "⚠ AI SUMMARY PARTIAL — the prompt guard withheld the alert text of "
+        f"{report.summary_withheld_clusters} cluster(s){report.summary_withheld_ids_text()}; "
         "their part of this summary is based on counts only."
     )
 
@@ -300,15 +302,24 @@ def _render_cluster_detail(
     cluster: Cluster,
     cluster_summary: Optional[ClusterSummary],
     con: Console,
+    withheld: bool = False,
 ) -> None:
-    """Print a detail panel for a single cluster."""
+    """Print a detail panel for a single cluster.
+
+    *withheld*: the AI text for this cluster was written without its alert text (prompt guard); the
+    narrative and recommendations are replaced by a marker.
+    """
+    if withheld:
+        cluster_summary = None
     pri_style = priority_color(cluster.priority)
     title = f"[{pri_style}]{cluster.priority.icon} {cluster.priority.value}[/{pri_style}]  [bold]{cluster.label}[/bold]"
 
     lines: list[str] = []
 
     # Narrative
-    if cluster_summary and cluster_summary.narrative:
+    if withheld:
+        lines.append(f"[yellow]{escape('[AI text withheld by the prompt guard]')}[/yellow]")
+    elif cluster_summary and cluster_summary.narrative:
         lines.append(cluster_summary.narrative)
 
     # Cluster reason (if no narrative, or as supplement)
@@ -401,7 +412,7 @@ def format_report_rich(
             con.print(f"[bold yellow]{_DEGRADED_NOTICE}[/bold yellow]")
             con.print()
         elif report.summary_withheld_clusters:
-            con.print(f"[bold yellow]{_partial_notice(report.summary_withheld_clusters)}[/bold yellow]")
+            con.print(f"[bold yellow]{escape(_partial_notice(report))}[/bold yellow]")
             con.print()
     elif report.summary_error:
         _render_summary_unavailable(report, con)
@@ -419,7 +430,7 @@ def format_report_rich(
     if detail_clusters:
         for cluster in detail_clusters:
             cluster_summary = _find_cluster_summary(report, cluster.id)
-            _render_cluster_detail(cluster, cluster_summary, con)
+            _render_cluster_detail(cluster, cluster_summary, con, withheld=report.summary_text_withheld(cluster.id))
             con.print()
 
     # (e) Manifest footer
@@ -459,7 +470,7 @@ def format_report_console(report: TriageReport) -> None:
         print(_DEGRADED_NOTICE)
         print()
     elif report.summary_withheld_clusters:
-        print(_partial_notice(report.summary_withheld_clusters))
+        print(_partial_notice(report))
         print()
 
     sorted_clusters = _sorted_clusters(report.clusters)

@@ -182,7 +182,8 @@ def render_md_report(report: "TriageReport") -> str:
         elif report.summary_withheld_clusters:
             lines.append(
                 f"> ⚠ **AI SUMMARY PARTIAL** — the prompt guard withheld the alert text of "
-                f"{report.summary_withheld_clusters} cluster(s); counts only for those."
+                f"{report.summary_withheld_clusters} cluster(s){_md_escape(report.summary_withheld_ids_text())}; "
+                "counts only for those."
             )
             lines.append("")
     elif report.summary_error:

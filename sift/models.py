@@ -268,6 +268,16 @@ class TriageReport(BaseModel):
         """True when the AI text for *cluster_id* was written without that cluster's alert text."""
         return self.summary_degraded or cluster_id in self.summary_withheld_cluster_ids
 
+    def summary_withheld_ids_text(self, limit: int = 10) -> str:
+        """The withheld cluster ids for a notice: `` (id1, id2 +3 more)``, or empty without ids."""
+        ids = self.summary_withheld_cluster_ids
+        if not ids:
+            return ""
+        shown = ", ".join(ids[:limit])
+        if len(ids) > limit:
+            shown += f" +{len(ids) - limit} more"
+        return f" ({shown})"
+
     @property
     def has_critical(self) -> bool:
         return any(c.priority == ClusterPriority.CRITICAL for c in self.clusters)

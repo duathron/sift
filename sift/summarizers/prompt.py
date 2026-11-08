@@ -253,6 +253,7 @@ def _guard_text(
     IOC labels) are a measured false-positive class: they are logged below WARNING and never
     redacted, so a benign run keeps its cache entry.
     """
+    text = _cap_fragment(text)
     findings = detector.detect(text, field_name=kind, is_ioc_field=is_ioc)
     if not findings:
         return text
@@ -346,12 +347,30 @@ def _neutralise(text: str) -> str:
     return "".join(out)
 
 
+# Every alert-derived fragment (title, user, host, IOC, label, reason, technique) is cut to this many
+# characters, BEFORE it is scanned and before it is sent: one field cannot grow a block, the scan
+# cost or the model prompt. 1024 is far above any real title, host name or user name, and holds the
+# scheme, host and start of the path of a URL IOC (the full IOC stays in the report). A cap of 2048
+# still let three trio alerts plus two 2 KB fragments exhaust a block's budget (measured); at 1024
+# and below the constructions of the round-4 gates no longer do.
+_FRAGMENT_CAP = 1024
+_TRUNCATION_MARKER = " [\u2026 truncated by sift]"
+
+
+def _cap_fragment(text: str) -> str:
+    """Return *text*, or its first ``_FRAGMENT_CAP`` characters plus a fixed marker (idempotent)."""
+    if len(text) <= _FRAGMENT_CAP:
+        return text
+    return text[:_FRAGMENT_CAP] + _TRUNCATION_MARKER
+
+
 class _Frag:
     """An attacker-influenced piece of the prompt that can be withheld on its own."""
 
     __slots__ = ("text", "scan", "marker", "withheld")
 
     def __init__(self, text: str, marker: str) -> None:
+        text = _cap_fragment(text)
         self.text = _neutralise(text)  # what the model gets
         self.scan = _neutralise_scan(text)  # what the detector reads
         self.marker = marker
@@ -369,10 +388,13 @@ class _Frag:
 #
 # Every cluster block has its OWN budget, proportional to its size: base + factor x block bytes x
 # ceil(log2(fragments + 1)). A block that uses it up has all of its own alert text withheld and
-# nothing else: one padded hostile cluster cannot make the benign clusters pay for its rescans. The
-# budgets are independent, so their sum is the worst-case cost of the block pass (linear in prompt
-# size). The whole-prompt pass (the invariant check and the cross-block backstop) has the global
-# budget below; only when that one runs out, or a match survives it, is ALL alert text withheld.
+# nothing else: one padded hostile cluster cannot make the benign clusters pay for its rescans. All
+# block budgets also draw on ONE shared pool (the same size as the global budget below), so the
+# sum of the block rescans is bounded by prompt size however many clusters there are; a block with
+# a match that finds the pool empty is withheld wholesale. The first scan of each block is always
+# made (it is linear in the prompt); only the rescans draw on the pool. The whole-prompt pass (the
+# invariant check and the cross-block backstop) has the global budget below; only when that one runs
+# out, or a match survives it, is ALL alert text withheld.
 _BLOCK_SCAN_BYTES_BASE = 32 * 1024
 _BLOCK_SCAN_FACTOR = 4
 _SCAN_BYTES_BASE = 2 * 1024 * 1024
@@ -415,6 +437,7 @@ class _Scanner:
     def __init__(self, detector: _TextDetector, budget: int) -> None:
         self._detector = detector
         self.left = budget
+        self.spent = 0
 
     def crit(self, text: str, *, mandatory: bool = False) -> list[InjectionFinding]:
         size = len(text.encode("utf-8", "surrogatepass"))
@@ -422,6 +445,7 @@ class _Scanner:
         if not mandatory and self.left < size:
             raise _BudgetExhausted
         self.left -= size
+        self.spent += size
         return [f for f in self._detector.detect(text) if f.severity is SeverityLevel.CRITICAL]
 
 
@@ -507,6 +531,8 @@ def _enforce_final_scan(
     """
     findings: list[InjectionFinding] = []
     withheld_blocks: list[int] = []
+    total = len(_render(lines, scan=True).encode("utf-8", "surrogatepass"))
+    pool = _SCAN_BYTES_BASE + _SCAN_BYTES_PER_PROMPT_BYTE * total  # shared by all block rescans
     for index, (l0, l1, f0, f1) in enumerate(blocks):
         if f0 == f1:
             continue
@@ -514,8 +540,11 @@ def _enforce_final_scan(
         block_text = _render(block_lines, scan=True)
         block_bytes = len(block_text.encode("utf-8", "surrogatepass"))
         block_scanner = _Scanner(detector, _block_budget(block_bytes, f1 - f0))
+        first = 0
         try:
-            found = block_scanner.crit(block_text)
+            found = block_scanner.crit(block_text)  # the first scan of every block is linear, never pooled
+            first = block_scanner.spent
+            block_scanner.left = min(block_scanner.left, pool)  # rescans draw on the shared pool
             if found:
                 findings.extend(found)
                 if not _resolve_scope(block_scanner, block_lines, frags[f0:f1], found):
@@ -524,6 +553,7 @@ def _enforce_final_scan(
             for f in frags[f0:f1]:
                 f.withheld = True
             withheld_blocks.append(index)
+        pool -= block_scanner.spent - first
     total = len(_render(lines, scan=True).encode("utf-8", "surrogatepass"))
     scanner = _Scanner(detector, _SCAN_BYTES_BASE + _SCAN_BYTES_PER_PROMPT_BYTE * total)
     try:

@@ -276,7 +276,7 @@ def _mode(monkeypatch, mode: str) -> None:
         _whole_prompt_only_detector(monkeypatch, "ZZTRIGGER")
     elif mode == "partial":
         monkeypatch.setattr(
-            prompt_mod, "_block_budget", lambda block_bytes, n_frags: 1 if block_bytes > 2000 else 10**9
+            prompt_mod, "_block_budget", lambda block_bytes, n_frags: 1 if block_bytes > 1200 else 10**9
         )
 
 

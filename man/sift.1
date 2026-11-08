@@ -477,11 +477,13 @@ at least one diagnostic check failed.
 .BR "sift triage \-\-summarize" :
 the requested LLM summary is unavailable, either because the provider failed or because the prompt guard could not remove an injection pattern from the prompt; no summary is produced and nothing is sent. The rest of the triage output is unchanged. Code 4 takes priority over 1: it is returned even when HIGH or CRITICAL clusters were found.
 A summary written without the alert text does not change the exit code and is not cached. Two cases exist.
-Every cluster block is scanned on its own scan budget, which is proportional to the size of that block. When one block runs out of budget, or a match in it cannot be isolated, only the alert text of that cluster is withheld: the report carries
+Every alert-derived fragment (title, user, host, IOC, cluster label, reason, technique) is cut to 1024 characters and marked " [\(el truncated by sift]" before it is scanned and sent. Every cluster block is scanned on its own scan budget, which is proportional to the size of that block; all block budgets draw on one shared pool, and a cluster with a match that finds the pool empty is withheld as a whole. When one block runs out of budget, or a match in it cannot be isolated, only the alert text of that cluster is withheld: the report carries
 .B summary_withheld_clusters
 (a count) and
 .B summary_withheld_cluster_ids
-(the cluster ids), the text formats show an "AI SUMMARY PARTIAL" notice, and the cluster is logged as withheld.
+(the cluster ids), the text formats show an "AI SUMMARY PARTIAL" notice that names the withheld cluster ids and their exact count (the rich view also marks the cluster's panel instead of showing its narrative), and the cluster is logged as withheld. With
+.B \-\-filter
+the count and ids still include withheld clusters that the filter hides.
 When the whole-prompt scan runs out of its (global) budget, the log says "Prompt guard: scan budget exhausted - all alert text withheld, the AI summary is based on counts only"; when a match survives that scan and cannot be isolated, it says "Prompt guard: could not isolate the matching fragments - all alert text withheld, the AI summary is based on counts only". In both cases all alert text is withheld and the report carries
 .B summary_degraded
 with
