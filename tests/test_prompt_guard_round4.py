@@ -280,10 +280,12 @@ def _mode(monkeypatch, mode: str) -> None:
         )
 
 
-def _triage(tmp_path, monkeypatch, mode: str, *args: str):
+def _triage(tmp_path, monkeypatch, mode: str, *args: str, cache: bool = False):
     _mode(monkeypatch, mode)
     f = _file(tmp_path, trigger=(mode == "global"))
-    return runner.invoke(app, ["triage", f, "--summarize", "--provider", "anthropic", "--no-cache", *args])
+    return runner.invoke(
+        app, ["triage", f, "--summarize", "--provider", "anthropic", *([] if cache else ["--no-cache"]), *args]
+    )
 
 
 def _notes(bundle: dict) -> list[dict]:
@@ -295,7 +297,9 @@ def _json_bundle(text: str) -> dict:
 
 
 def test_json_carries_the_block_local_marker(tmp_path, monkeypatch):
-    r = _triage(tmp_path, monkeypatch, "partial", "-f", "json")
+    # the cache skip must come from the explicit flag, not from the logged warning
+    monkeypatch.setattr(main_mod._WarningFlag, "emit", lambda self, record: None)
+    r = _triage(tmp_path, monkeypatch, "partial", "-f", "json", cache=True)
     data = _json_bundle(r.stdout)
     assert data["summary_degraded"] is False and data["summary_degraded_reason"] is None
     assert data["summary_withheld_clusters"] == 1
@@ -412,7 +416,7 @@ def test_only_the_withheld_cluster_gets_the_marker_in_a_block_local_run():
 def test_global_degrade_is_marked_in_json_keeps_exit_code_and_is_not_cached(tmp_path, monkeypatch):
     # Cache skip must come from the explicit degrade flag, not from the logged warning.
     monkeypatch.setattr(main_mod._WarningFlag, "emit", lambda self, record: None)
-    r = _triage(tmp_path, monkeypatch, "global", "-f", "json")
+    r = _triage(tmp_path, monkeypatch, "global", "-f", "json", cache=True)
     assert r.exit_code == 1, (r.exit_code, r.stdout[-400:])  # from the clusters, not 4
     data = _json_bundle(r.stdout)
     assert data["summary_degraded"] is True
