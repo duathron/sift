@@ -298,8 +298,12 @@ _ANGLE_LOOKALIKES = str.maketrans(
 )
 
 
-def _neutralise(text: str) -> str:
-    """Make attacker text inert as structure: normalise, drop invisibles, flatten, defuse the fence."""
+def _neutralise_scan(text: str) -> str:
+    """The SCAN copy of a fragment: normalise, drop invisibles, flatten, defuse the fence.
+
+    This is what the injection detector reads (so fullwidth or lookalike spellings of a pattern
+    are still caught). It is never sent to the model; see :func:`_neutralise` for the sent value.
+    """
     text = unicodedata.normalize("NFKC", text)
     text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
     text = _LINE_SEPARATORS.sub(" ", text)
@@ -308,76 +312,132 @@ def _neutralise(text: str) -> str:
     return _FENCE_RUN.sub(lambda m: m.group()[0] * 2, text)
 
 
+def _neutralise(text: str) -> str:
+    """The SENT value of a fragment: the analyst's own characters, minus what could forge structure.
+
+    Dropped or rewritten, and nothing else: invisible format characters (Cf), line separators
+    (flattened to a space), a "sift data" fence word, and a run of three or more angle brackets
+    (``<<<`` ``>>>`` or a lookalike such as fullwidth or guillemets; the run becomes two ASCII
+    brackets, so an IOC such as ``a>>>b`` is sent as ``a>>b``). Detection runs on a normalised
+    view, the rewrite on the original span, so a fullwidth host name reaches the model unchanged.
+    """
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
+    text = _LINE_SEPARATORS.sub(" ", text)
+    views = [unicodedata.normalize("NFKC", ch).translate(_ANGLE_LOOKALIKES) for ch in text]
+    norm = "".join(views)
+    owner = [i for i, view in enumerate(views) for _ in view]
+    edits: list[tuple[int, int, str]] = []  # (first original index, last original index, replacement)
+    for m in _FENCE_WORD.finditer(norm):
+        edits.append((owner[m.start()], owner[m.end() - 1], "sift data"))
+    for m in _FENCE_RUN.finditer(norm):
+        edits.append((owner[m.start()], owner[m.end() - 1], norm[m.start()] * 2))
+    if not edits:
+        return text
+    edits.sort()
+    out: list[str] = []
+    pos = 0
+    for first, last, repl in edits:
+        if first < pos:  # a bracket run inside an already replaced fence word
+            continue
+        out.append(text[pos:first])
+        out.append(repl)
+        pos = last + 1
+    out.append(text[pos:])
+    return "".join(out)
+
+
 class _Frag:
     """An attacker-influenced piece of the prompt that can be withheld on its own."""
 
-    __slots__ = ("text", "marker", "withheld")
+    __slots__ = ("text", "scan", "marker", "withheld")
 
     def __init__(self, text: str, marker: str) -> None:
-        self.text = _neutralise(text)
+        self.text = _neutralise(text)  # what the model gets
+        self.scan = _neutralise_scan(text)  # what the detector reads
         self.marker = marker
         self.withheld = False
 
     def __str__(self) -> str:
         return self.marker if self.withheld else self.text
 
+    def scan_str(self) -> str:
+        return self.marker if self.withheld else self.scan
 
-# Hard cap on full-prompt scans for the whole final check (the first scan included).
-_NET_SCAN_BUDGET = 400
+
+# Scan budget, in bytes of prompt text handed to the detector, so worst-case time is bounded by
+# size and not by a scan count: base + factor x the size of the assembled prompt. The detector
+# costs about 0.4 ms per KB, so a prompt of any size stays within a few seconds of scanning.
+_SCAN_BYTES_BASE = 2 * 1024 * 1024
+_SCAN_BYTES_PER_PROMPT_BYTE = 6
+
+# Fix round 3 assumption (enforced by tests): a match in the real pipeline cannot cross a cluster
+# block. Cluster ids are uuid4, so at least 57 characters of fixed template separate one block's
+# last fragment from the next block's first, a pattern spans at most about 110 characters and the
+# detector joins words over a gap of at most 40. So every block is scanned and resolved on its
+# own (linear in prompt size) and the whole prompt is scanned once more as the invariant check;
+# a match that the per-block pass missed is resolved on the whole prompt.
 
 
-def _render(lines: list[list]) -> str:
-    return "\n".join("".join(str(part) for part in parts) for parts in lines)
+def _render(lines: list[list], *, scan: bool = False) -> str:
+    def part_text(part) -> str:
+        if isinstance(part, _Frag):
+            return part.scan_str() if scan else str(part)
+        return part
+
+    return "\n".join("".join(part_text(part) for part in parts) for parts in lines)
 
 
 class _BudgetExhausted(Exception):
     pass
 
 
-def _enforce_final_scan(
-    detector: _TextDetector, lines: list[list], frags: list[_Frag]
-) -> tuple[list[InjectionFinding], bool]:
-    """Scan the assembled prompt; withhold the attacker fragments that make a pattern match.
+class _NotIsolated(Exception):
+    """A match was found that withholding single fragments could not remove."""
 
-    A pattern can span several lines and several alerts. For each match still present, a
-    divide-and-conquer search (QuickXplain) finds a minimal set of fragments that on their own
-    keep a CRITICAL match alive and withholds exactly those: O(k log n) scans for k fragments
-    per match instead of one scan per fragment. Fixed template text and every other fragment
-    stay. The number of scans is capped by ``_NET_SCAN_BUDGET``; when it runs out, every
-    remaining fragment is withheld (less data, never attacker text) and that prompt is verified.
 
-    Returns the CRITICAL findings of the first scan and whether the prompt is clean at the end
-    (False means nothing may be sent). The returned prompt never has a CRITICAL match unless the
-    caller is told so.
-    """
-    state = {"left": _NET_SCAN_BUDGET}
+class _Scanner:
+    def __init__(self, detector: _TextDetector, budget: int) -> None:
+        self._detector = detector
+        self.left = budget
 
-    def crit_findings() -> list[InjectionFinding]:
-        if state["left"] <= 0:
+    def crit(self, text: str, *, mandatory: bool = False) -> list[InjectionFinding]:
+        size = len(text.encode("utf-8", "surrogatepass"))
+        if not mandatory and self.left < size:
             raise _BudgetExhausted
-        state["left"] -= 1
-        return [f for f in detector.detect(_render(lines)) if f.severity is SeverityLevel.CRITICAL]
+        self.left -= size
+        return [f for f in self._detector.detect(text) if f.severity is SeverityLevel.CRITICAL]
 
-    findings = crit_findings()
-    if not findings:
-        return [], True
 
-    settled: set[int] = set()  # fragments withheld for good (they were part of a match)
+def _resolve_scope(
+    scanner: _Scanner,
+    scope_lines: list[list],
+    scope_frags: list[_Frag],
+    found: list[InjectionFinding],
+) -> bool:
+    """Withhold the fragments of one scope that make the CRITICAL match *found*.
 
+    A pattern can span several lines and several alerts. A divide-and-conquer search
+    (QuickXplain) finds a minimal set of fragments that on their own keep a match alive and
+    withholds exactly those: O(k log n) scans for k fragments per match. Fragments already
+    withheld stay withheld. Returns False when the match sits in fixed template text (nothing
+    may be sent); raises ``_BudgetExhausted`` / ``_NotIsolated`` when the caller must degrade.
+    """
+
+    def scan() -> list[InjectionFinding]:
+        return scanner.crit(_render(scope_lines, scan=True))
+
+    settled = {id(f) for f in scope_frags if f.withheld}  # withheld for good (part of a match)
     # Nothing the attacker controls can remove a match that sits in fixed template text.
-    for f in frags:
+    for f in scope_frags:
         f.withheld = True
-    try:
-        if crit_findings():
-            return findings, False
-    except _BudgetExhausted:  # pragma: no cover - a fresh budget always allows this scan
-        return findings, False
+    if scan():
+        return False
 
     def conflicts(keep: list[_Frag]) -> bool:
         keep_ids = {id(f) for f in keep}
-        for f in frags:
+        for f in scope_frags:
             f.withheld = id(f) in settled or id(f) not in keep_ids
-        return bool(crit_findings())
+        return bool(scan())
 
     def explain(base: list[_Frag], delta: bool, rest: list[_Frag]) -> list[_Frag]:
         if delta and conflicts(base):
@@ -390,27 +450,69 @@ def _enforce_final_scan(
         d1 = explain(base + d2, bool(d2), first)
         return d1 + d2
 
+    while True:
+        live = [f for f in scope_frags if id(f) not in settled]
+        part = explain([], False, live) if live else []
+        if not part:
+            raise _NotIsolated
+        settled.update(id(f) for f in part)
+        for f in scope_frags:
+            f.withheld = id(f) in settled
+        if not scan():
+            return True
+
+
+# A block is (first line, end line, first fragment, end fragment) of one cluster.
+_Block = tuple[int, int, int, int]
+
+_DEGRADED_TEXT = {
+    "scan_budget_exhausted": "scan budget exhausted",
+    "match_not_isolated": "could not isolate the matching fragments",
+}
+
+
+def _enforce_final_scan(
+    detector: _TextDetector, lines: list[list], frags: list[_Frag], blocks: list[_Block]
+) -> tuple[list[InjectionFinding], bool, Optional[str]]:
+    """Scan the assembled prompt; withhold the attacker fragments that make a pattern match.
+
+    Every cluster block is scanned and resolved on its own, then the whole prompt is scanned as
+    the invariant check. If the scan budget runs out or a match cannot be isolated, every
+    fragment is withheld (less data, never attacker text) and the result is verified.
+
+    Returns the CRITICAL findings seen, whether the prompt is clean at the end (False means
+    nothing may be sent) and a degrade reason (None, ``scan_budget_exhausted`` or
+    ``match_not_isolated``) when all alert text had to be withheld.
+    """
+    total = len(_render(lines, scan=True).encode("utf-8", "surrogatepass"))
+    scanner = _Scanner(detector, _SCAN_BYTES_BASE + _SCAN_BYTES_PER_PROMPT_BYTE * total)
+    findings: list[InjectionFinding] = []
     try:
-        while True:
-            live = [f for f in frags if id(f) not in settled]
-            part = explain([], False, live) if live else []
-            if not part:
-                break
-            settled.update(id(f) for f in part)
-            for f in frags:
-                f.withheld = id(f) in settled
-            if not crit_findings():
-                return findings, True
-    except _BudgetExhausted:
-        pass
-    # Out of budget (or nothing left to explain): withhold every fragment and verify once more.
+        for l0, l1, f0, f1 in blocks:
+            if f0 == f1:
+                continue
+            found = scanner.crit(_render(lines[l0:l1], scan=True))
+            if found:
+                findings.extend(found)
+                if not _resolve_scope(scanner, lines[l0:l1], frags[f0:f1], found):
+                    return findings, False, None
+        final = scanner.crit(_render(lines, scan=True), mandatory=True)
+        if final:
+            findings.extend(final)
+            if not _resolve_scope(scanner, lines, frags, final):
+                return findings, False, None
+        sent = _render(lines)
+        if sent != _render(lines, scan=True) and scanner.crit(sent, mandatory=True):
+            raise _NotIsolated
+        return findings, True, None
+    except (_BudgetExhausted, _NotIsolated) as exc:
+        reason = "scan_budget_exhausted" if isinstance(exc, _BudgetExhausted) else "match_not_isolated"
+    # Withhold every fragment and verify what is left (mandatory scans, outside the budget).
     for f in frags:
         f.withheld = True
-    state["left"] = 1
-    try:
-        return findings, not crit_findings()
-    except _BudgetExhausted:  # pragma: no cover - budget was just reset
-        return findings, False
+    if scanner.crit(_render(lines, scan=True), mandatory=True) or scanner.crit(_render(lines), mandatory=True):
+        return findings, False, None
+    return findings, True, reason if frags else None
 
 
 def _safe_ioc_for_prompt(ioc: str) -> str:
@@ -521,6 +623,7 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
     # Scan alerts for injection patterns and redact suspicious fields.
     # Honour operator-defined whitelist_patterns from PromptInjectionConfig
     # (passed via the parent AppConfig → injected into SummarizeConfig callers).
+    config._prompt_degraded = None  # set below when the guard had to withhold all alert text
     whitelist = getattr(config, "_injection_whitelist", None) or []
     verbose_injection = getattr(config, "_injection_verbose", False)
     findings_log_path: Optional[str] = getattr(config, "_injection_log_file", None)
@@ -567,6 +670,7 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
     redact_cluster_text = bool(redact)
 
     frags: list[_Frag] = []
+    blocks: list[_Block] = []
 
     def frag(text: str, marker: str) -> _Frag:
         f = _Frag(text, marker)
@@ -586,6 +690,7 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
     # Per-cluster details
     # ------------------------------------------------------------------ #
     for cluster in report.clusters:
+        block_start = (len(lines), len(frags))
         label = cluster.label
         reason = cluster.cluster_reason or "unspecified"
         if redact_cluster_text:
@@ -704,6 +809,7 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
                 lines.append([f"  … ({n_types - _SHOW} more type(s))"])
 
         lines.append([""])  # blank line between clusters
+        blocks.append((block_start[0], len(lines), block_start[1], len(frags)))
 
     lines.append([_FENCE_END])
 
@@ -719,7 +825,7 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
 
     # Final net: the text that is actually sent is scanned, not just the pieces that were
     # known to be untrusted when this builder was written (e.g. alert IP fields).
-    net_findings, net_clean = _enforce_final_scan(text_detector, lines, frags)
+    net_findings, net_clean, degraded = _enforce_final_scan(text_detector, lines, frags, blocks)
     if net_findings:
         cluster_hits.append(("prompt", net_findings))
     n_fields = sum(1 for cid, _ in cluster_hits if cid != "prompt")
@@ -731,6 +837,12 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
     # Dump findings (alert fields + cluster text + final net) to file if requested
     if (all_findings or cluster_hits) and findings_log_path:
         _write_findings_log(all_findings + cluster_hits, Path(findings_log_path))
+    if degraded:
+        logger.warning(
+            f"Prompt guard: {_DEGRADED_TEXT[degraded]} - all alert text withheld, "
+            "the AI summary is based on counts only"
+        )
+        config._prompt_degraded = degraded
     if not net_clean:
         raise PromptGuardError(
             "Prompt guard: an injection pattern could not be removed from the prompt; nothing was sent"

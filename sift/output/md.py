@@ -176,6 +176,9 @@ def render_md_report(report: "TriageReport") -> str:
         lines.append("")
         lines.append(_md_escape(s.executive_summary))
         lines.append("")
+        if report.summary_degraded:
+            lines.append("> ⚠ **AI SUMMARY DEGRADED** — the prompt guard withheld all alert text; counts only.")
+            lines.append("")
     elif report.summary_error:
         provider = _md_escape(report.summary_provider or "unknown")
         error = _md_escape(report.summary_error)

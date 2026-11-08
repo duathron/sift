@@ -217,6 +217,11 @@ def _render_executive_summary(report: TriageReport, con: Console) -> None:
     )
 
 
+_DEGRADED_NOTICE = (
+    "⚠ AI SUMMARY DEGRADED — the prompt guard withheld all alert text; this summary is based on counts only."
+)
+
+
 def _render_summary_unavailable(report: TriageReport, con: Console) -> None:
     """Print a loud panel when a REQUESTED LLM summary failed (F2 cut-1).
 
@@ -385,6 +390,9 @@ def format_report_rich(
     if report.summary:
         _render_executive_summary(report, con)
         con.print()
+        if report.summary_degraded:
+            con.print(f"[bold yellow]{_DEGRADED_NOTICE}[/bold yellow]")
+            con.print()
     elif report.summary_error:
         _render_summary_unavailable(report, con)
         con.print()
@@ -436,6 +444,9 @@ def format_report_console(report: TriageReport) -> None:
     if report.summary_error and not report.summary:
         provider = report.summary_provider or "unknown"
         print(f"⚠ LLM SUMMARY UNAVAILABLE — provider '{provider}' failed: {report.summary_error}")
+        print()
+    elif report.summary_degraded:
+        print(_DEGRADED_NOTICE)
         print()
 
     sorted_clusters = _sorted_clusters(report.clusters)

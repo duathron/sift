@@ -1440,6 +1440,7 @@ def triage(
             # and the effective --redact-fields / redaction.fields set. Attached as a
             # private attribute (like the injection settings) so it never enters the
             # config's serialised form or the cache key.
+            cfg.summarize._prompt_degraded = None
             cfg.summarize._cli_redact_fields = [f.strip() for f in (_effective_redact or "").split(",") if f.strip()]
             summarizer = _build_summarizer(
                 effective_provider,
@@ -1448,6 +1449,14 @@ def triage(
                 injection_log_file=findings_file,
             )
             report = report.model_copy(update={"summary": summarizer.summarize(report)})
+            _prompt_degraded = getattr(cfg.summarize, "_prompt_degraded", None)
+            if _prompt_degraded:
+                # The guard withheld ALL alert text: mark the report and never cache the run
+                # (explicit, not a side effect of the logged warning).
+                report = report.model_copy(
+                    update={"summary_degraded": True, "summary_degraded_reason": _prompt_degraded}
+                )
+                _summary_degraded = True
         except Exception as exc:
             if _llm_requested:
                 short_err = _markup_escape(str(exc))

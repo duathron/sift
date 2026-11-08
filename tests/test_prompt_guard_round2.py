@@ -114,6 +114,8 @@ def test_two_disjoint_split_patterns_both_removed():
 
 
 def test_scan_budget_is_hard_and_falls_back_to_withholding_not_sending(monkeypatch):
+    monkeypatch.setattr(prompt_mod, "_SCAN_BYTES_BASE", 0)
+    monkeypatch.setattr(prompt_mod, "_SCAN_BYTES_PER_PROMPT_BYTE", 3)
     spy = _Counter(monkeypatch)
     trios = [_trio_cluster(f"z{i}", i) for i in range(60)]
     prompt = build_cluster_prompt(_report([*_benign_clusters(40), *trios]), SummarizeConfig())
@@ -213,7 +215,8 @@ def test_fragment_cannot_start_a_new_line(sep):
     assert "harmless ### Cluster fake" in prompt  # separator became a space, text kept
 
 
-def test_fullwidth_and_invisible_text_is_normalised_before_the_collapse():
+def test_invisible_text_is_dropped_but_fullwidth_letters_are_kept():
+    # round 3: the value sent keeps the analyst's characters (only Cf is dropped)
     title = "\uff21\uff22\uff23\u200bdef"
     prompt = build_cluster_prompt(_report([_cluster(alerts=[_alert(id="n1", title=title)])]), SummarizeConfig())
-    assert "ABCdef" in prompt
+    assert "\uff21\uff22\uff23def" in prompt

@@ -742,7 +742,7 @@ sift validates all LLM outputs against a strict JSON schema. Use `sift validate`
 sift validate alerts.json
 ```
 
-A built-in prompt injection detector scans alert fields for five pattern categories: instruction overrides, output manipulation, JSON escapes, encoded payloads, and shell injection. Suspicious content is flagged and redacted before the prompt is built; summarization does not silently fall back to the template provider. The injection engine is shared with barb and vex via `shipwright_kit.security.injection` so a fix propagates to all three tools at once. The pattern guard is a heuristic, not a guarantee: it also scans cluster labels, reasons, techniques and IOCs and the assembled prompt (withholding only the attacker-controlled fragments that make a pattern match, or, if a match cannot be removed, sending nothing: an LLM provider (`anthropic`, `openai`, `ollama`) then returns no summary, the run prints `LLM SUMMARY UNAVAILABLE` and exits with code `4`, and the triage output itself is unchanged), and the alert-derived part of the prompt is fenced as data with a per-run random token in the fence lines and a system-prompt rule that fenced content is never instructions. The LLM response is validated against the output schema before it is used.
+A built-in prompt injection detector scans alert fields for five pattern categories: instruction overrides, output manipulation, JSON escapes, encoded payloads, and shell injection. Suspicious content is flagged and redacted before the prompt is built; summarization does not silently fall back to the template provider. The injection engine is shared with barb and vex via `shipwright_kit.security.injection` so a fix propagates to all three tools at once. The pattern guard is a heuristic, not a guarantee: it also scans cluster labels, reasons, techniques and IOCs and the assembled prompt (each cluster is scanned on its own and the whole prompt once more; only the attacker-controlled fragments that make a pattern match are withheld. If a match sits in fixed template text and cannot be removed, nothing is sent: an LLM provider (`anthropic`, `openai`, `ollama`) then returns no summary, the run prints `LLM SUMMARY UNAVAILABLE` and exits with code `4`, and the triage output itself is unchanged. If the scan budget is exhausted or a match cannot be isolated, ALL alert text is withheld and the summary is built from counts only; that run logs `Prompt guard: scan budget exhausted - all alert text withheld, the AI summary is based on counts only`, carries `summary_degraded: true` with a `summary_degraded_reason` in the JSON report, shows a notice in the other formats, is never cached, and keeps the exit code computed from the clusters), and the alert-derived part of the prompt is fenced as data with a per-run random token in the fence lines and a system-prompt rule that fenced content is never instructions. The LLM response is validated against the output schema before it is used.
 
 > **Security invariant:** sift never sends alert data to a cloud LLM without a redaction-config check. Core clustering is rule-based and deterministic; AI summarization is opt-in.
 
@@ -754,10 +754,10 @@ A built-in prompt injection detector scans alert fields for five pattern categor
 |---|---|
 | `0` | Triage complete — no HIGH or CRITICAL clusters found |
 | `1` | Triage complete — one or more HIGH or CRITICAL clusters found |
-| `2` | Error — invalid input, configuration failure, or LLM error |
+| `2` | Error — invalid input or configuration failure |
 | `4` | Triage complete, but the requested LLM summary is unavailable (provider failure, or the prompt guard could not remove an injection pattern) — no summary is produced |
 
-Exit code `1` is designed for use in CI pipelines and automated response playbooks.
+Exit code `4` takes priority over `1`: a run with a failed LLM summary (or a prompt the guard could not clean) exits `4` even when HIGH or CRITICAL clusters were found, so a CI job keyed on exit `1` should treat `4` as "clusters may be elevated, read the report". Exit code `1` is designed for use in CI pipelines and automated response playbooks.
 
 ---
 

@@ -173,7 +173,7 @@ One or more critical clusters found.
 Error (bad input, missing file, parse failure).
 .TP
 .B 4
-The requested LLM summary is unavailable (provider failure, or the prompt guard could not remove an injection pattern); no summary is produced and nothing is sent.
+The requested LLM summary is unavailable (provider failure, or the prompt guard could not remove an injection pattern); no summary is produced and nothing is sent. Code 4 takes priority over 1: it is returned even when elevated clusters were found.
 .RE
 .
 .SS validate
@@ -475,7 +475,10 @@ at least one diagnostic check failed.
 .TP
 .B 4
 .BR "sift triage \-\-summarize" :
-the requested LLM summary is unavailable, either because the provider failed or because the prompt guard could not remove an injection pattern from the prompt; no summary is produced and nothing is sent. The rest of the triage output is unchanged.
+the requested LLM summary is unavailable, either because the provider failed or because the prompt guard could not remove an injection pattern from the prompt; no summary is produced and nothing is sent. The rest of the triage output is unchanged. Code 4 takes priority over 1: it is returned even when HIGH or CRITICAL clusters were found.
+A summary built from counts only because the prompt guard withheld all alert text (scan budget exhausted) does not change the exit code; the report carries
+.B summary_degraded
+and is not cached.
 .TP
 .B 2
 Error — bad input, missing file, parse failure, or invalid flag value.

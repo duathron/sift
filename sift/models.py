@@ -247,6 +247,11 @@ class TriageReport(BaseModel):
     # (no LLM requested) never sets these, even if it errors.
     summary_error: Optional[str] = None
     summary_provider: Optional[str] = None
+    # Fix round 3 of the prompt guard: the summary was produced from counts only because the
+    # prompt guard had to withhold ALL alert text (scan budget exhausted or a match that could
+    # not be isolated). The run still exits 0/1 from the clusters; a degraded run is never cached.
+    summary_degraded: bool = False
+    summary_degraded_reason: Optional[str] = None
     enrichment: Optional[EnrichmentContext] = None
     manifest: Optional[PipelineManifest] = None
     analyzed_at: datetime
