@@ -833,3 +833,55 @@ def test_over_long_email_run_is_dropped_when_the_separator_is_left_of_the_match(
     # The match starts after the separator (64 letters), so the check has to walk back across it.
     text = f"x{sep}" + "a" * 64 + "@evil.com"
     assert not [v for v in extract_iocs(text) if "@" in v], text
+
+
+# --- detect_ioc_type must classify emails exactly as origin/main did (no local-part cap) ---
+
+# Frozen copy of origin/main's classification pattern (unbounded local part, Unicode-aware \b).
+_MAIN_EMAIL_FULL = __import__("re").compile(r"\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b")
+
+
+@pytest.mark.parametrize("n", [1, 63, 64, 65, 100, 1000])
+def test_detect_ioc_type_email_has_no_local_part_cap(n: int) -> None:
+    assert detect_ioc_type("a" * n + "@x.com") == "email"
+
+
+@pytest.mark.parametrize("n", [63, 64, 65, 100])
+def test_detect_ioc_type_still_rejects_malformed_emails_at_any_length(n: int) -> None:
+    assert detect_ioc_type("a" * n + "@x") != "email"
+    assert detect_ioc_type("a" * n + "@@x.com") != "email"
+    assert detect_ioc_type("@x.com") != "email"
+    assert detect_ioc_type("." * n + "@x.co") != "email"  # main: \b fails at a leading "."
+
+
+def test_detect_ioc_type_matches_frozen_main_pattern_on_unicode_alphabet() -> None:
+    import random
+
+    alphabet = ["a", "Z", "1", "-", ".", "_", "%", "+", "@", "@", "é", "ß", "٣", "ａ", "İ", "а", " ", "c", "o", "m"]
+    rng = random.Random(8812)
+    for _ in range(20000):
+        text = "".join(rng.choice(alphabet) for _ in range(rng.randint(1, 20)))
+        # No ':' or '/', and at most 20 characters, so no earlier classifier can claim the string.
+        assert (detect_ioc_type(text) == "email") == bool(_MAIN_EMAIL_FULL.fullmatch(text)), repr(text)
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda n: "a" * n + "@" + "a." * n + "!",
+        lambda n: "a@" + "-" * n,
+        lambda n: "." * n + "@x.co",
+        lambda n: "a@" + "aa." * n + "!",
+    ],
+    ids=["local_then_dotted_tail", "dash_domain", "leading_dots", "label_run"],
+)
+def test_detect_ioc_type_email_is_linear_on_adversarial_input(build) -> None:
+    def cost(n: int) -> float:
+        s = build(n)
+        t = time.perf_counter()
+        detect_ioc_type(s)
+        return time.perf_counter() - t
+
+    cost(2000)  # warm up
+    big = cost(200_000)
+    assert big < 5.0

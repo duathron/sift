@@ -199,9 +199,11 @@ _RE_FILENAME = re.compile(
 _RE_EMAIL_AT = re.compile(r"@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b")
 # ``\b`` in the same (Unicode-aware) sense as main's pattern; only used through search(pos, endpos).
 _RE_WORD_BOUNDARY = re.compile(r"\b")
-# The local-part character class of main's pattern, and the matching full address (used to classify
-# one candidate; the local part is capped so a long run cannot be rescanned).
-_RE_EMAIL = re.compile(r"\b[a-zA-Z0-9._%+\-]{1,64}@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b")
+# origin/main's email pattern, unchanged (no local-part cap). It is used ONLY through fullmatch()
+# in detect_ioc_type(), which anchors at one start position and is therefore linear; the 64-character
+# extraction limit lives in _scan_emails(), so classification stays exactly what it was on main.
+_RE_EMAIL = re.compile(r"\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b")
+# The local-part character class of main's pattern.
 _EMAIL_LOCAL_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._%+-")
 _EMAIL_LOCAL_MAX = 64
 
