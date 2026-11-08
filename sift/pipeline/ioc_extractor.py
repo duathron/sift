@@ -83,10 +83,63 @@ _URL_TRAILING_PUNCT = ".,;:!?)]}\"'"
 
 # Domain names — at least one label, a dot, and a recognised TLD-length suffix.
 # Filtered post-match against _NON_IOC_TLDS.
+# _RE_DOMAIN is the strict form, used only with fullmatch() for type detection.
 _RE_DOMAIN = re.compile(
     r"\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)"
     r"+[a-zA-Z]{2,}\b"
 )
+
+# Scanning uses a looser, linear-time pattern. The strict form re-scans the rest of a long
+# "a.a.a.a." run from every start position (quadratic). Here a label is any run of word
+# characters or "-" (\w is Unicode-aware, like the \b the strict form used, so "bücher.evil.com"
+# is one run and not "cher.evil.com"), so the pattern is unambiguous, and the lookbehind lets a
+# match begin only at the start of a dotted run (not inside a label, not right after
+# "<label char>."): one attempt per run.
+# Label validity (63 characters, ASCII alphanumeric ends, no "_" or non-ASCII) is then checked in
+# _scan_domains(), which keeps the valid suffix: "_dmarc.evil.com" and "web_01.evil.com" still
+# yield "evil.com", "bücher.evil.com" yields "evil.com".
+_RE_DOMAIN_SCAN = re.compile(r"(?<![\w\-])(?<![\w\-]\.)(?:[\w\-]+\.)+[A-Za-z]{2,}\b")
+_RE_DOMAIN_LABEL = re.compile(r"[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?")
+_RE_ALPHA_HEAD = re.compile(r"[A-Za-z]*")
+
+
+def _scan_domains(text: str) -> list[str]:
+    """Return the domains in *text*, matching what the strict pattern finds one label at a time.
+
+    A dotted run may hold labels the strict pattern rejects ("_dmarc", "web_01", "ab-", 64+
+    characters). Such a label ends the domain before it (a trailing letters-only label, or the
+    letters in front of a "-", serves as the suffix) and a valid tail after a "-" inside it
+    starts the next one, so "_x.evil.com" and "x_y.evil.com" still yield "evil.com".
+    """
+    found: list[str] = []
+    for m in _RE_DOMAIN_SCAN.finditer(text):
+        labels = m.group().split(".")
+        tld = labels.pop()
+        cur: list[str] = []
+        for label in labels:
+            if _RE_DOMAIN_LABEL.fullmatch(label):
+                cur.append(label)
+                continue
+            if cur:
+                head = _RE_ALPHA_HEAD.match(label).end()  # type: ignore[union-attr]
+                if head >= 2 and (head == len(label) or label[head] == "-"):
+                    found.append(".".join([*cur, label[:head]]))
+                else:
+                    for t in range(len(cur) - 1, 0, -1):
+                        stem = cur[t][: _RE_ALPHA_HEAD.match(cur[t]).end()]  # type: ignore[union-attr]
+                        if len(stem) >= 2 and (len(stem) == len(cur[t]) or cur[t][len(stem)] == "-"):
+                            found.append(".".join([*cur[:t], stem]))
+                            break
+            cur = []
+            # Only a tail of at most 63 characters can be a label; bounded so a huge label stays linear.
+            for i in range(max(1, len(label) - 63), len(label)):
+                if label[i - 1] == "-" and _RE_DOMAIN_LABEL.fullmatch(label, i):
+                    cur = [label[i:]]
+                    break
+        if cur:
+            found.append(".".join([*cur, tld]))
+    return found
+
 
 # ---------------------------------------------------------------------------
 # Compiled regex patterns — hashes
@@ -139,8 +192,48 @@ _RE_FILENAME = re.compile(
     re.IGNORECASE,
 )
 
-# Email addresses (RFC 5321-ish, intentionally loose)
+# Email addresses (RFC 5321-ish, intentionally loose). origin/main used one pattern with an
+# unbounded local part, ``\b[a-zA-Z0-9._%+\-]+@<domain>``: every start position of a long run
+# without "@" rescans the whole run (quadratic). _scan_emails() therefore finds each "@" plus its
+# domain first (``_RE_EMAIL_AT``) and works out where main's match would have started.
+_RE_EMAIL_AT = re.compile(r"@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b")
+# ``\b`` in the same (Unicode-aware) sense as main's pattern; only used through search(pos, endpos).
+_RE_WORD_BOUNDARY = re.compile(r"\b")
+# origin/main's email pattern, unchanged (no local-part cap). It is used ONLY through fullmatch()
+# in detect_ioc_type(), which anchors at one start position and is therefore linear; the 64-character
+# extraction limit lives in _scan_emails(), so classification stays exactly what it was on main.
 _RE_EMAIL = re.compile(r"\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b")
+# The local-part character class of main's pattern.
+_EMAIL_LOCAL_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._%+-")
+_EMAIL_LOCAL_MAX = 64
+
+
+def _scan_emails(text: str) -> tuple[list[str], list[str]]:
+    """Return ``(kept, dropped)`` email addresses found in *text*.
+
+    Both lists hold exactly what origin/main's unbounded pattern would have matched. An address is
+    *dropped* when its local part, counted from where main's match starts, is longer than 64
+    characters (RFC 5321 limit); main's match starts at the leftmost word boundary inside the run of
+    local-part characters, so leading ``. % + -`` that main never counted are not counted here.
+    The dropped strings are still returned so that hash extraction keeps treating them as the longer
+    candidate main hid its prefix behind.
+    """
+    kept: list[str] = []
+    dropped: list[str] = []
+    floor = 0  # main resumes scanning where its previous match ended
+    for m in _RE_EMAIL_AT.finditer(text):
+        at = m.start()
+        i = at
+        while i > floor and text[i - 1] in _EMAIL_LOCAL_CHARS:
+            i -= 1
+        boundary = _RE_WORD_BOUNDARY.search(text, i, at)
+        if boundary is None or boundary.start() >= at:
+            continue  # no start position for main's pattern in this run: no match
+        start = boundary.start()
+        (kept if at - start <= _EMAIL_LOCAL_MAX else dropped).append(text[start : m.end()])
+        floor = m.end()
+    return kept, dropped
+
 
 # Windows registry keys. Lookahead ensures we stop at whitespace, quotes, or
 # common delimiters. Captures full path including value name when present.
@@ -570,6 +663,15 @@ def classify_severity_hint(ioc: str) -> str | None:
     return None
 
 
+def _longer_prefixes(candidates: set[str], length: int) -> set[str]:
+    """Return the first *length* characters of every candidate longer than *length*.
+
+    One pass over the candidates, so the hash loops can test "is this hash a prefix of a longer
+    candidate?" in constant time per match instead of scanning all candidates each time.
+    """
+    return {c[:length] for c in candidates if len(c) > length}
+
+
 def extract_iocs(text: str) -> list[str]:
     """
     Extract all IOC candidates from an arbitrary text string.
@@ -595,8 +697,10 @@ def extract_iocs(text: str) -> list[str]:
             candidates.add(url)
 
     # --- Email addresses ---
-    for m in _RE_EMAIL.finditer(text):
-        candidates.add(m.group())
+    kept_emails, dropped_emails = _scan_emails(text)
+    candidates.update(kept_emails)
+    # Over-long addresses are not IOCs, but main hid hash-shaped prefixes behind them; keep doing so.
+    hidden = set(dropped_emails)
 
     # --- IPv4 (public only) ---
     for m in _RE_IPV4.finditer(text):
@@ -611,8 +715,7 @@ def extract_iocs(text: str) -> list[str]:
             candidates.add(addr)
 
     # --- Domain names (non-internal TLDs only) ---
-    for m in _RE_DOMAIN.finditer(text):
-        domain = m.group()
+    for domain in _scan_domains(text):
         if _tld_of(domain) not in _NON_IOC_TLDS:
             try:
                 ipaddress.ip_address(domain)
@@ -642,32 +745,36 @@ def extract_iocs(text: str) -> list[str]:
             continue
         candidates.add(h)
 
+    longer = _longer_prefixes(candidates | hidden, 64)
     for m in _RE_SHA256.finditer(text):
         h = m.group().lower()
         if _is_null_hash(h):
             continue
-        if not any(existing.startswith(h) and len(existing) > len(h) for existing in candidates):
+        if h not in longer:
             candidates.add(h)
 
+    longer = _longer_prefixes(candidates | hidden, 62)
     for m in _RE_JARM.finditer(text):
         h = m.group().lower()
         if _is_null_hash(h):
             continue
-        if not any(existing.startswith(h) and len(existing) > len(h) for existing in candidates):
+        if h not in longer:
             candidates.add(h)
 
+    longer = _longer_prefixes(candidates | hidden, 40)
     for m in _RE_SHA1.finditer(text):
         h = m.group().lower()
         if _is_null_hash(h):
             continue
-        if not any(existing.startswith(h) and len(existing) > len(h) for existing in candidates):
+        if h not in longer:
             candidates.add(h)
 
+    longer = _longer_prefixes(candidates | hidden, 32)
     for m in _RE_MD5.finditer(text):
         h = m.group().lower()
         if _is_null_hash(h):
             continue
-        if not any(existing.startswith(h) and len(existing) > len(h) for existing in candidates):
+        if h not in longer:
             candidates.add(h)
 
     # --- Keyword-anchored fingerprints (JA3 / JA3S / imphash) ---
