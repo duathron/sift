@@ -7,10 +7,12 @@ current directory is never loaded (it may come from an untrusted download).
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import os
+import secrets
 import stat
-import tempfile
+import unicodedata
 import warnings
 from pathlib import Path
 from typing import Any, Optional
@@ -29,18 +31,25 @@ class ConfigError(Exception):
     """A config file could not be used. The message never contains file contents."""
 
 
-def _safe_path(path: Any) -> str:
-    """Render *path* for a one-line message: control characters become visible escapes.
+# Unicode general categories that are never shown raw: Cc controls (C0, DEL, C1), Cf format
+# characters (bidi overrides and isolates U+202A-202E / U+2066-2069, zero-width U+200B-200F,
+# U+061C, U+FEFF, U+00AD, U+2060, tag characters U+E0000+), Cs lone surrogates (undecodable
+# argv bytes), Zl/Zp line and paragraph separators (U+2028/2029).
+_ESCAPED_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
 
-    A path comes from the operator (``--config``) and may hold ESC/BEL/CR/LF, C1 controls,
-    U+2028/2029 or undecodable bytes (lone surrogates). Printed raw they could retitle the
-    terminal or forge a second ``sift:`` line.
+
+def _safe_path(path: Any) -> str:
+    """Render *path* for a one-line message: invisible and control characters become escapes.
+
+    A path comes from the operator (``--config``) and may hold ESC/BEL/CR/LF, bidi overrides,
+    zero-width characters or undecodable bytes. Printed raw they could retitle the terminal,
+    forge a second ``sift:`` line or make the path read as a different one.
     """
     out: list[str] = []
     for ch in str(path):
         o = ord(ch)
-        if o < 0x20 or 0x7F <= o <= 0x9F or o in (0x2028, 0x2029) or 0xD800 <= o <= 0xDFFF:
-            out.append(f"\\x{o:02x}" if o < 0x100 else f"\\u{o:04x}")
+        if unicodedata.category(ch) in _ESCAPED_CATEGORIES:
+            out.append(f"\\x{o:02x}" if o < 0x100 else f"\\u{o:04x}" if o < 0x10000 else f"\\U{o:08x}")
         else:
             out.append(ch)
     return "".join(out)
@@ -226,18 +235,80 @@ def _ensure_app_dir() -> Path:
     return _APP_DIR
 
 
+def _after_parent_pinned() -> None:
+    """Seam for tests: runs once the target directory is pinned, before anything is written."""
+
+
+def _dir_fd_supported() -> bool:
+    return (
+        os.open in os.supports_dir_fd
+        and os.rename in os.supports_dir_fd  # os.replace is rename(2) and takes the same dir_fd arguments
+        and os.unlink in os.supports_dir_fd
+        and os.stat in os.supports_dir_fd  # os.lstat itself is not listed on 3.11; stat(follow_symlinks=False) is it
+        and os.stat in os.supports_follow_symlinks
+        and hasattr(os, "O_DIRECTORY")
+        and hasattr(os, "O_NOFOLLOW")
+    )
+
+
+_DIR_FD_OK = _dir_fd_supported()  # decided once at import, before anything can wrap os.unlink and friends
+
+
 def _write_private(path: Path, text: str) -> None:
     """Write *text* to *path* so it is never readable by anyone else, not even briefly.
 
-    The data goes into a fresh 0600 temp file in the same directory and replaces
-    *path* atomically, so a pre-existing loose-mode file is replaced rather than
-    reused. A symlink at *path* is refused (it could redirect the write).
+    The data goes into a fresh 0600 temp file in the same directory and replaces *path*
+    atomically, so a pre-existing loose-mode file is replaced rather than reused. The leaf
+    is never followed: a symlink or other non-regular file at *path* is refused.
+
+    The directory is resolved ONCE (a symlinked parent such as a dotfile-managed ``~/.sift``
+    is followed, deliberately) and then pinned by file descriptor; the leaf check, the temp
+    file, the rename and the cleanup all go through that descriptor. Swapping the directory
+    for a symlink while the write is in progress therefore cannot redirect any step.
     """
+    if not _DIR_FD_OK:
+        _write_private_by_path(path, text)
+        return
+    parent = os.path.realpath(path.parent)
+    dir_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    tmp = f".{path.name}.{secrets.token_hex(8)}.tmp"
+    created = False
+    try:
+        _after_parent_pinned()
+        try:
+            st = os.stat(path.name, dir_fd=dir_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            st = None
+        if st is not None and not stat.S_ISREG(st.st_mode):
+            raise OSError(f"refusing to write through a symlink or non-regular file: {path}")
+        # O_EXCL already refuses any existing name, symlinks included; O_NOFOLLOW is belt and braces.
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+        fd = os.open(tmp, flags, _FILE_MODE, dir_fd=dir_fd)
+        created = True
+        with os.fdopen(fd, "w") as f:
+            os.fchmod(f.fileno(), _FILE_MODE)  # a restrictive umask must not matter; a loose one cannot
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path.name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    except BaseException:
+        if created:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp, dir_fd=dir_fd)  # production cleanup of our own temp file
+        raise
+    finally:
+        os.close(dir_fd)
+
+
+def _write_private_by_path(path: Path, text: str) -> None:
+    """Path-based variant for platforms without ``dir_fd`` support (same leaf refusal, no pinning)."""
+    import tempfile
+
     if path.is_symlink():
         raise OSError(f"refusing to write through a symlink: {path}")
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
-        os.fchmod(fd, _FILE_MODE)
+        os.chmod(tmp, _FILE_MODE)
         with os.fdopen(fd, "w") as f:
             f.write(text)
         os.replace(tmp, path)
@@ -250,7 +321,8 @@ def _load_yaml(path: Path) -> dict:
     # No cause is chained anywhere below: parser and decoder messages quote the offending
     # line or byte, which may hold a secret.
     shown = _safe_path(path)
-    _stat_config_file(path, "config file")  # refuse a FIFO/device before open() can block
+    # Re-checked at use (not redundant with load_config's stat): a FIFO swapped in between would block open().
+    _stat_config_file(path, "config file")
     try:
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
@@ -281,19 +353,30 @@ def _validate(data: dict) -> AppConfig:
         raise ConfigError(f"config has invalid settings: {bad}") from None
 
 
-def _load_credentials_file(env_file: Path) -> None:
-    """Load ~/.sift/.env into the environment; any problem is a value-free ConfigError."""
+def read_credentials(env_file: Path) -> dict[str, Optional[str]]:
+    """Parse ~/.sift/.env; {} if absent. Any problem is a value-free ConfigError.
+
+    The single reader of the credentials file: ``load_config`` and ``sift doctor`` both use it,
+    so neither can block on a FIFO or leak a decoder message.
+    """
     if not _stat_config_file(env_file, "credentials file"):
-        return
-    from dotenv import load_dotenv
+        return {}
+    from dotenv import dotenv_values
 
     shown = _safe_path(env_file)
     try:
-        load_dotenv(env_file, override=False)
+        return dict(dotenv_values(env_file))
     except UnicodeDecodeError:
         raise ConfigError(f"credentials file {shown} is not valid UTF-8 text") from None
     except (OSError, ValueError):
         raise ConfigError(f"credentials file {shown} cannot be read") from None
+
+
+def _load_credentials_file(env_file: Path) -> None:
+    """Load ~/.sift/.env into the environment (the environment wins over the file)."""
+    for key, value in read_credentials(env_file).items():
+        if value is not None and key not in os.environ:
+            os.environ[key] = value
 
 
 def load_config(config_path: Optional[Path] = None, *, must_exist: bool = True) -> AppConfig:
@@ -337,11 +420,12 @@ def credentials_path() -> Path:
     return _APP_DIR / ".env"
 
 
-def check_write_target(path: Path, *, create_parent: bool = False) -> bool:
+def check_write_target(path: Path) -> bool:
     """Check that *path* can receive a saved config; True if it will be newly created.
 
     Raises ConfigError otherwise (symlink, non-regular file, missing or unwritable parent),
-    so the caller can refuse before any credential has been written.
+    so the caller can refuse before any credential has been written. This is an early
+    refusal only: ``_write_private`` re-checks the leaf under a pinned directory descriptor.
     """
     shown = _safe_path(path)
     try:
@@ -350,13 +434,12 @@ def check_write_target(path: Path, *, create_parent: bool = False) -> bool:
         st = None
     except OSError:
         raise ConfigError(f"cannot write config {shown}") from None
-    if st is not None:
-        if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
-            raise ConfigError(f"cannot write config {shown}")
+    # lstat does not follow a symlink, so a symlink (even to a regular file) is not S_ISREG.
+    if st is not None and not stat.S_ISREG(st.st_mode):
+        raise ConfigError(f"cannot write config {shown}")
     parent = path.parent
-    if create_parent and not os.path.lexists(parent):
-        return st is None  # ~/.sift is created on save
-    if not parent.is_dir() or not os.access(parent, os.W_OK | os.X_OK):
+    # A parent that is not a directory already failed above: lstat on "file/child" is ENOTDIR.
+    if not os.access(parent, os.W_OK | os.X_OK):
         raise ConfigError(f"cannot write config {shown}")
     return st is None
 
@@ -370,11 +453,24 @@ def save_config(config: AppConfig, path: Optional[Path] = None) -> Path:
     return target
 
 
+def _credential_lines(env_path: Path) -> list[str]:
+    """Current lines of ~/.sift/.env; [] if absent. A symlink or non-regular file is refused (OSError).
+
+    A symlinked .env is never read here either, so its target is not even opened.
+    """
+    try:
+        st = os.lstat(env_path)
+    except FileNotFoundError:
+        return []
+    if not stat.S_ISREG(st.st_mode):
+        raise OSError(f"refusing to use a symlink or non-regular credentials file: {env_path}")
+    return env_path.read_text().splitlines()
+
+
 def save_credentials(api_key: str) -> Path:
     """Store the LLM API key in ~/.sift/.env (mode 600, never in config.yaml)."""
     env_path = _ensure_app_dir() / ".env"
-    lines = env_path.read_text().splitlines() if env_path.exists() else []
-    lines = [line for line in lines if not line.startswith("SIFT_LLM_KEY=")]
+    lines = [line for line in _credential_lines(env_path) if not line.startswith("SIFT_LLM_KEY=")]
     lines.append(f"SIFT_LLM_KEY={api_key}")
     _write_private(env_path, "\n".join(lines) + "\n")
     return env_path
@@ -388,8 +484,7 @@ def save_ticket_token(token: str, provider: str) -> Path:
     """
     env_key = "SIFT_THEHIVE_TOKEN" if provider == "thehive" else "SIFT_JIRA_TOKEN"
     env_path = _ensure_app_dir() / ".env"
-    lines = env_path.read_text().splitlines() if env_path.exists() else []
-    lines = [line for line in lines if not line.startswith(f"{env_key}=")]
+    lines = [line for line in _credential_lines(env_path) if not line.startswith(f"{env_key}=")]
     lines.append(f"{env_key}={token}")
     _write_private(env_path, "\n".join(lines) + "\n")
     return env_path
@@ -398,9 +493,7 @@ def save_ticket_token(token: str, provider: str) -> Path:
 def clear_credentials() -> bool:
     """Remove SIFT_LLM_KEY from ~/.sift/.env. Returns True if key was present."""
     env_path = _APP_DIR / ".env"
-    if not env_path.exists():
-        return False
-    lines = env_path.read_text().splitlines()
+    lines = _credential_lines(env_path)
     new_lines = [line for line in lines if not line.startswith("SIFT_LLM_KEY=")]
     if len(new_lines) == len(lines):
         return False

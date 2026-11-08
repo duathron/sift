@@ -24,6 +24,8 @@ from rich.console import Console
 from rich.markup import escape as _markup_escape
 from rich.table import Table
 
+from .config import _MISSING_ERRNOS, ConfigError, _safe_path, _stat_config_file, read_credentials
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -85,12 +87,16 @@ def _check_python_version() -> CheckResult:
 
 
 def _check_config_file() -> CheckResult:
-    """Verify that ~/.sift/config.yaml exists."""
-    if CONFIG_PATH.exists():
+    """Verify that ~/.sift/config.yaml exists and can be used (same stat as ``load_config``)."""
+    try:
+        present = _stat_config_file(CONFIG_PATH, "config file")
+    except ConfigError as exc:
+        return CheckResult(name="Config file", status=CheckStatus.FAIL, message=str(exc))
+    if present:
         return CheckResult(
             name="Config file",
             status=CheckStatus.PASS,
-            message=str(CONFIG_PATH),
+            message=_safe_path(CONFIG_PATH),
         )
     return CheckResult(
         name="Config file",
@@ -167,15 +173,11 @@ def _check_llm_key() -> CheckResult:
     key = os.environ.get("SIFT_LLM_KEY", "")
     source = "env var"
     if not key:
-        env_file = Path.home() / ".sift" / ".env"
-        if env_file.exists():
-            try:
-                from dotenv import dotenv_values
-
-                key = dotenv_values(env_file).get("SIFT_LLM_KEY", "") or ""
-                source = "~/.sift/.env"
-            except ImportError:
-                pass
+        try:
+            key = read_credentials(Path.home() / ".sift" / ".env").get("SIFT_LLM_KEY", "") or ""
+        except ConfigError as exc:  # value-free by construction; sift itself would exit 2 here
+            return CheckResult(name="LLM API key", status=CheckStatus.FAIL, message=str(exc))
+        source = "~/.sift/.env"
     if key:
         masked = f"****{key[-4:]}" if len(key) >= 4 else "****"
         return CheckResult(
@@ -190,18 +192,33 @@ def _check_llm_key() -> CheckResult:
     )
 
 
+def _exists(path: Path) -> bool | None:
+    """True if *path* exists, False if it does not, None if it cannot be examined.
+
+    ``Path.exists`` raises on some Python versions (e.g. ``~/.sift`` at mode 000) and
+    swallows the error on others; one ``os.stat`` mapped by errno behaves the same everywhere.
+    """
+    try:
+        os.stat(path)
+    except OSError as exc:
+        return False if exc.errno in _MISSING_ERRNOS else None
+    return True
+
+
 def _check_output_directory() -> CheckResult:
     """Check whether ~/.sift/ exists and is writable."""
-    if OUTPUT_DIR.exists() and os.access(OUTPUT_DIR, os.W_OK):
+    shown = _safe_path(OUTPUT_DIR)
+    present = _exists(OUTPUT_DIR)
+    if os.access(OUTPUT_DIR, os.W_OK):
         return CheckResult(
             name="Output directory",
             status=CheckStatus.PASS,
-            message=str(OUTPUT_DIR),
+            message=shown,
         )
-    if not OUTPUT_DIR.exists():
-        message = f"{OUTPUT_DIR} does not exist"
+    if present is False:
+        message = f"{shown} does not exist"
     else:
-        message = f"{OUTPUT_DIR} is not writable"
+        message = f"{shown} is not writable"
     return CheckResult(
         name="Output directory",
         status=CheckStatus.FAIL,
@@ -226,7 +243,8 @@ def _check_llm_schema_validation() -> CheckResult:
 
 def _check_cache_directory() -> CheckResult:
     """Check whether ~/.sift/cache/ is accessible and writable."""
-    if not CACHE_DIR.exists():
+    present = _exists(CACHE_DIR)
+    if present is False:
         return CheckResult(
             name="Result cache",
             status=CheckStatus.WARN,
@@ -241,7 +259,7 @@ def _check_cache_directory() -> CheckResult:
     return CheckResult(
         name="Result cache",
         status=CheckStatus.WARN,
-        message=f"Result cache: permission error at {CACHE_DIR}",
+        message=f"Result cache: permission error at {_safe_path(CACHE_DIR)}",
     )
 
 

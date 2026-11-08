@@ -9,9 +9,10 @@ from __future__ import annotations
 import io as _io
 import logging
 import sys
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
 
 import typer
 import typer.core
@@ -21,6 +22,7 @@ from rich.markup import escape as _markup_escape
 from . import __version__
 from .banner import show_banner
 from .config import ConfigError, check_write_target, credentials_path, default_config_path
+from .config import _ensure_app_dir as _ensure_config_dir
 from .config import _safe_path as _safe_config_path
 from .config import load_config as _load_config
 from .models import PipelineManifest, TriageReport
@@ -49,6 +51,13 @@ def load_config(config_path: Optional[Path] = None, *, must_exist: bool = True):
     except ConfigError as exc:
         typer.echo(f"sift: {exc}", err=True)
         raise typer.Exit(2) from None
+
+
+def _rich_path(path: Path) -> str:
+    """A path for a Rich-printed line: control characters escaped, then markup escaped."""
+    from rich.markup import escape
+
+    return escape(_safe_config_path(path))
 
 
 def _cannot_write(what: str, path: Path) -> "typer.Exit":
@@ -2043,7 +2052,6 @@ def config_cmd(
 
     # `sift config --config NEW.yaml --provider x` creates NEW.yaml; only a pure --show needs it to exist.
     cfg = load_config(config_path, must_exist=show)
-    cfg_changed = False
     rich_console = Console()
 
     # --- Validate inputs early ---
@@ -2059,32 +2067,44 @@ def config_cmd(
         console.print("[red]Error:[/red] --chunk-size must be >= 0.")
         raise typer.Exit(2)
 
-    # --- Refuse an unusable config target BEFORE any credential is written ---
-    will_save = any(
-        v is not None
-        for v in (
-            provider,
-            model,
-            quiet,
-            default_format,
-            chunk_size,
-            cache,
-            enrich_consent,
+    # --- Every setting flag is listed ONCE here ---
+    # The same table drives the pre-write refusal below and the assignments, so "will this run
+    # save the config?" cannot drift from "did this run change the config?".
+    settings: list[tuple[object, Callable[[Any], None]]] = [
+        (provider, lambda v: setattr(cfg.summarize, "provider", v)),
+        (model, lambda v: setattr(cfg.summarize, "model", v)),
+        (quiet, lambda v: setattr(cfg.output, "quiet", v)),
+        (default_format, lambda v: setattr(cfg.output, "default_format", v)),
+        (chunk_size, lambda v: setattr(cfg.clustering, "chunk_size", v)),
+        (cache, lambda v: setattr(cfg, "cache_enabled", v)),
+        (enrich_consent, lambda v: setattr(cfg.enrich, "consent_given", v)),
+        (
             redact_fields_default,
-            ticket_provider,
-            ticket_url,
-            ticket_project,
-            ticket_jira_email,
-        )
-    )
+            lambda v: setattr(cfg.redaction, "fields", [f.strip() for f in v.split(",") if f.strip()]),
+        ),
+        (ticket_provider, lambda v: setattr(cfg.ticketing, "provider", v)),
+        (ticket_url, lambda v: setattr(cfg.ticketing, "url", v)),
+        (ticket_project, lambda v: setattr(cfg.ticketing, "project_key", v)),
+        (ticket_jira_email, lambda v: setattr(cfg.ticketing, "jira_email", v)),
+    ]
+    cfg_changed = any(value is not None for value, _ in settings)
+    for value, apply in settings:
+        if value is not None:
+            apply(value)
+
+    # --- Refuse an unusable config target BEFORE any credential is written ---
     config_target = config_path or default_config_path()
     config_is_new = False
-    if will_save:
+    if cfg_changed:
         try:
-            config_is_new = check_write_target(config_target, create_parent=config_path is None)
+            if config_path is None:
+                _ensure_config_dir()  # as save_config does: a 0500 ~/.sift is healed before the check
+            config_is_new = check_write_target(config_target)
         except ConfigError as exc:
             typer.echo(f"sift: {exc}", err=True)
             raise typer.Exit(2) from None
+        except OSError:
+            raise _cannot_write("config", config_target) from None
 
     # --- Credentials (never written to config.yaml) ---
     if api_key is not None:
@@ -2092,7 +2112,7 @@ def config_cmd(
             env_path = save_credentials(api_key)
         except (OSError, ValueError):
             raise _cannot_write("credentials file", credentials_path()) from None
-        console.print(f"[green]✓[/green] API key saved to {env_path}")
+        console.print(f"[green]✓[/green] API key saved to {_rich_path(env_path)}")
 
     if unset_api_key:
         try:
@@ -2103,32 +2123,6 @@ def config_cmd(
             console.print("[green]✓[/green] API key removed from ~/.sift/.env")
         else:
             console.print("[yellow]No API key found in ~/.sift/.env[/yellow]")
-
-    # --- Config fields ---
-    if provider is not None:
-        cfg.summarize.provider = provider
-        cfg_changed = True
-    if model is not None:
-        cfg.summarize.model = model
-        cfg_changed = True
-    if quiet is not None:
-        cfg.output.quiet = quiet
-        cfg_changed = True
-    if default_format is not None:
-        cfg.output.default_format = default_format
-        cfg_changed = True
-    if chunk_size is not None:
-        cfg.clustering.chunk_size = chunk_size
-        cfg_changed = True
-    if cache is not None:
-        cfg.cache_enabled = cache
-        cfg_changed = True
-    if enrich_consent is not None:
-        cfg.enrich.consent_given = enrich_consent
-        cfg_changed = True
-    if redact_fields_default is not None:
-        cfg.redaction.fields = [f.strip() for f in redact_fields_default.split(",") if f.strip()]
-        cfg_changed = True
 
     # --- Ticketing credentials (stored in ~/.sift/.env, never config.yaml) ---
     if ticket_token is not None:
@@ -2145,21 +2139,7 @@ def config_cmd(
             env_path = save_ticket_token(ticket_token, _tp_name)
         except (OSError, ValueError):
             raise _cannot_write("credentials file", credentials_path()) from None
-        console.print(f"[green]✓[/green] Ticket token saved to {env_path}")
-
-    # --- Ticketing config fields ---
-    if ticket_provider is not None:
-        cfg.ticketing.provider = ticket_provider
-        cfg_changed = True
-    if ticket_url is not None:
-        cfg.ticketing.url = ticket_url
-        cfg_changed = True
-    if ticket_project is not None:
-        cfg.ticketing.project_key = ticket_project
-        cfg_changed = True
-    if ticket_jira_email is not None:
-        cfg.ticketing.jira_email = ticket_jira_email
-        cfg_changed = True
+        console.print(f"[green]✓[/green] Ticket token saved to {_rich_path(env_path)}")
 
     if cfg_changed:
         from sift.config import save_config as _save_config
@@ -2168,9 +2148,7 @@ def config_cmd(
             saved_path = _save_config(cfg, config_path)
         except (OSError, ValueError):
             raise _cannot_write("config", config_target) from None
-        from rich.markup import escape
-
-        shown_path = escape(_safe_config_path(saved_path))
+        shown_path = _rich_path(saved_path)
         if config_is_new:
             console.print(f"[green]✓[/green] created new config {shown_path}")
         else:
