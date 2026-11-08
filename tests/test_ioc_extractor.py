@@ -494,6 +494,9 @@ class TestEnrichAlertIocsTyped:
 # ---------------------------------------------------------------------------
 
 _REDOS_SHAPES = {
+    "unicode_dotted": "é.",
+    "unicode_label": "éa",
+    "unicode_hyphen": "é-",
     "a.": "a.",
     "a.b-": "a.b-",
     "a-b.": "a-b.",
@@ -616,3 +619,87 @@ def test_email_local_part_boundary_is_exactly_64() -> None:
     ok = "x" * 64 + "@evil.com"
     assert ok in extract_iocs(f"mail {ok} now")
     assert not [v for v in extract_iocs("mail " + "x" * 65 + "@evil.com now") if "@" in v]
+
+
+_UNICODE_DOMAIN_CASES = {
+    "bucher_prose": ("visit bücher.example.com now", ["example.com"]),
+    "bucher_url": ("http://bücher.example.com/x", ["example.com"]),
+    "arzte": ("Ärzte.example.org", ["example.org"]),
+    "munchen_koln": ("münchen.de und köln.de", []),
+    "grosse": ("Größe.Info", []),
+    "e_acute_label": ("é.evil.com", ["evil.com"]),
+    "cyrillic_a_glued": ("\u0430evil.com", []),
+    "kelvin_glued": ("\u212aevil.com", []),
+    "dotless_i_glued": ("\u0131evil.com", []),
+}
+
+
+@pytest.mark.parametrize(("text", "expected"), list(_UNICODE_DOMAIN_CASES.values()), ids=list(_UNICODE_DOMAIN_CASES))
+def test_domain_scan_is_unicode_word_aware(text: str, expected: list[str]) -> None:
+    # A non-ASCII letter glued to a label is part of that label: no fabricated sub-label domain.
+    from sift.pipeline.ioc_extractor import _scan_domains
+
+    assert _scan_domains(text) == expected
+
+
+def test_domain_scan_matches_frozen_main_pattern_on_unicode_alphabet() -> None:
+    import random
+    import re
+
+    from sift.pipeline.ioc_extractor import _scan_domains
+
+    # Frozen copy of origin/main's domain pattern (it used \b, which is Unicode-aware).
+    main = re.compile(r"\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}\b")
+    alphabet = ["a", "b", "1", "-", ".", ".", "é", "ß", "٣", "ａ", "İ", "а", "K", "ı", " "]
+    rng = random.Random(4571)
+    for _ in range(4000):
+        text = "".join(rng.choice(alphabet) for _ in range(rng.randint(1, 16)))
+        assert _scan_domains(text) == [m.group() for m in main.finditer(text)], repr(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "9" + "a" * 65 + "%@a.uk",
+        "a" * 64 + "(dot).com.orgb@123-.COM",
+        "q " + "a." * 40 + "b@evil.com",
+        "x-" * 40 + "y@evil.com",
+    ],
+    ids=["percent_tail", "dot_tail", "dotted_run", "hyphen_run"],
+)
+def test_over_long_email_local_part_yields_no_fragment(text: str) -> None:
+    assert not [v for v in extract_iocs(text) if "@" in v]
+
+
+def test_email_with_local_part_after_other_text_still_extracted() -> None:
+    assert "a.b@evil.com" in extract_iocs("(a.b@evil.com)")
+    assert "ab@evil.com" in extract_iocs("--ab@evil.com")
+    assert "a" * 64 + "@evil.com" in extract_iocs(" " + "a" * 64 + "@evil.com")
+    assert "ab@evil.com" in extract_iocs("-" * 70 + " ab@evil.com")
+
+
+@pytest.mark.parametrize(
+    ("lead", "sep"),
+    [("x", "."), ("x", "%"), ("x", "+"), ("x", "-"), ("a", "%"), ("Z", "%"), ("9", "%"), ("_", ".")],
+)
+def test_over_long_email_run_is_dropped_whatever_its_characters(lead: str, sep: str) -> None:
+    # 65 local-part characters, with a word boundary inside: the last 63/64 must not surface as an address.
+    text = f"{lead}{sep}" + "a" * 63 + "@evil.com"
+    assert not [v for v in extract_iocs(text) if "@" in v], text
+
+
+def test_email_local_part_of_exactly_64_after_a_boundary_character_is_kept() -> None:
+    # The run is "." + 63 letters = 64 characters; the match starts after the "." (no boundary before it).
+    assert "a" * 63 + "@evil.com" in extract_iocs(" ." + "a" * 63 + "@evil.com")
+
+
+def test_email_run_of_65_is_dropped_at_start_of_text_and_after_a_boundary() -> None:
+    assert not [v for v in extract_iocs("." + "a" * 64 + "@evil.com") if "@" in v]
+    assert not [v for v in extract_iocs(" ." + "a" * 64 + "@evil.com") if "@" in v]
+
+
+@pytest.mark.parametrize("sep", [".", "%", "+", "-"])
+def test_over_long_email_run_is_dropped_when_the_separator_is_left_of_the_match(sep: str) -> None:
+    # The match starts after the separator (64 letters), so the check has to walk back across it.
+    text = f"x{sep}" + "a" * 64 + "@evil.com"
+    assert not [v for v in extract_iocs(text) if "@" in v], text

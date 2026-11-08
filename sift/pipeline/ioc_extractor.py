@@ -90,12 +90,15 @@ _RE_DOMAIN = re.compile(
 )
 
 # Scanning uses a looser, linear-time pattern. The strict form re-scans the rest of a long
-# "a.a.a.a." run from every start position (quadratic). Here a label is any run of [A-Za-z0-9_-],
-# so the pattern is unambiguous, and the lookbehind lets a match begin only at the start of a
-# dotted run (not inside a label, not right after "<label char>."): one attempt per run.
-# Label validity (63 characters, alphanumeric ends, no "_") is then checked in _scan_domains(),
-# which keeps the valid suffix: "_dmarc.evil.com" and "web_01.evil.com" still yield "evil.com".
-_RE_DOMAIN_SCAN = re.compile(r"(?<![A-Za-z0-9_\-])(?<![A-Za-z0-9_\-]\.)(?:[A-Za-z0-9_\-]+\.)+[A-Za-z]{2,}\b")
+# "a.a.a.a." run from every start position (quadratic). Here a label is any run of word
+# characters or "-" (\w is Unicode-aware, like the \b the strict form used, so "bücher.evil.com"
+# is one run and not "cher.evil.com"), so the pattern is unambiguous, and the lookbehind lets a
+# match begin only at the start of a dotted run (not inside a label, not right after
+# "<label char>."): one attempt per run.
+# Label validity (63 characters, ASCII alphanumeric ends, no "_" or non-ASCII) is then checked in
+# _scan_domains(), which keeps the valid suffix: "_dmarc.evil.com" and "web_01.evil.com" still
+# yield "evil.com", "bücher.evil.com" yields "evil.com".
+_RE_DOMAIN_SCAN = re.compile(r"(?<![\w\-])(?<![\w\-]\.)(?:[\w\-]+\.)+[A-Za-z]{2,}\b")
 _RE_DOMAIN_LABEL = re.compile(r"[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?")
 _RE_ALPHA_HEAD = re.compile(r"[A-Za-z]*")
 
@@ -191,8 +194,27 @@ _RE_FILENAME = re.compile(
 
 # Email addresses (RFC 5321-ish, intentionally loose). The local part is capped at 64 characters
 # (the RFC 5321 limit): an unbounded "+" makes every start position of a long run without "@"
-# rescan the whole run (quadratic).
+# rescan the whole run (quadratic). The cap alone would still match the last 64 characters of a
+# longer run (a tail fragment); _scan_emails() drops those, so an over-long local part gives no
+# email at all.
 _RE_EMAIL = re.compile(r"\b[a-zA-Z0-9._%+\-]{1,64}@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b")
+_EMAIL_LOCAL_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._%+-")
+_EMAIL_LOCAL_MAX = 64
+
+
+def _scan_emails(text: str) -> list[str]:
+    """Return the email addresses in *text*; a local part longer than 64 characters yields none."""
+    found: list[str] = []
+    for m in _RE_EMAIL.finditer(text):
+        # Count the local-part characters to the left of the match too (at most one more than the cap).
+        at = text.index("@", m.start())
+        i = m.start()
+        while i > 0 and at - i <= _EMAIL_LOCAL_MAX and text[i - 1] in _EMAIL_LOCAL_CHARS:
+            i -= 1
+        if at - i <= _EMAIL_LOCAL_MAX:
+            found.append(m.group())
+    return found
+
 
 # Windows registry keys. Lookahead ensures we stop at whitespace, quotes, or
 # common delimiters. Captures full path including value name when present.
@@ -656,8 +678,7 @@ def extract_iocs(text: str) -> list[str]:
             candidates.add(url)
 
     # --- Email addresses ---
-    for m in _RE_EMAIL.finditer(text):
-        candidates.add(m.group())
+    candidates.update(_scan_emails(text))
 
     # --- IPv4 (public only) ---
     for m in _RE_IPV4.finditer(text):
