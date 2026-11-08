@@ -9,6 +9,7 @@ stayed green because a crash satisfies it.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -146,8 +147,15 @@ def test_no_module_under_sift_imports_click() -> None:
     assert offenders == [], f"undeclared dependency click imported at: {offenders}"
 
 
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
 def _usage_line(output: str) -> str:
-    return next(line.strip() for line in output.splitlines() if line.strip().startswith("Usage:"))
+    plain = _ANSI.sub("", output)
+    for line in plain.splitlines():
+        if line.strip().startswith("Usage:"):
+            return line.strip()
+    raise AssertionError(f"no 'Usage:' line found in help output: {plain!r}")
 
 
 @pytest.mark.parametrize("name", _command_names())
