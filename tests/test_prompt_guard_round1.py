@@ -203,7 +203,7 @@ def test_list_valued_raw_entry_is_scanned_and_redacted():
 
 # --- structural isolation --------------------------------------------------------------------
 
-_BEGIN, _END = "<<<SIFT_DATA_BEGIN>>>", "<<<SIFT_DATA_END>>>"
+_BEGIN, _END = prompt_mod._FENCE_BEGIN, prompt_mod._FENCE_END
 
 
 def test_alert_derived_section_is_fenced_once_and_system_prompt_says_data():
@@ -225,6 +225,7 @@ def test_fence_cannot_be_forged_from_alert_text():
     )
     assert prompt.count(_BEGIN) == 1 and prompt.count(_END) == 1
     assert not re.search(r"<{3,}|>{3,}", prompt.replace(_BEGIN, "").replace(_END, ""))
+    assert not re.search(r"SIFT_DATA_(BEGIN|END)", prompt.replace(_BEGIN, "").replace(_END, ""), re.I)
 
 
 # --- remaining test gaps ---------------------------------------------------------------------

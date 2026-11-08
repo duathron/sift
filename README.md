@@ -742,7 +742,7 @@ sift validates all LLM outputs against a strict JSON schema. Use `sift validate`
 sift validate alerts.json
 ```
 
-A built-in prompt injection detector scans alert fields for five pattern categories: instruction overrides, output manipulation, JSON escapes, encoded payloads, and shell injection. Suspicious content is flagged and summarization falls back to the template provider automatically. The injection engine is shared with barb and vex via `shipwright_kit.security.injection` so a fix propagates to all three tools at once. The pattern guard is a heuristic, not a guarantee: it also scans cluster labels, reasons, techniques and IOCs and the assembled prompt (withholding only the attacker-controlled fragments that make a pattern match, or sending nothing if one cannot be removed), and the alert-derived part of the prompt is fenced as data with a system-prompt rule that fenced content is never instructions. The LLM response is validated against the output schema before it is used.
+A built-in prompt injection detector scans alert fields for five pattern categories: instruction overrides, output manipulation, JSON escapes, encoded payloads, and shell injection. Suspicious content is flagged and redacted before the prompt is built; summarization does not silently fall back to the template provider. The injection engine is shared with barb and vex via `shipwright_kit.security.injection` so a fix propagates to all three tools at once. The pattern guard is a heuristic, not a guarantee: it also scans cluster labels, reasons, techniques and IOCs and the assembled prompt (withholding only the attacker-controlled fragments that make a pattern match, or, if a match cannot be removed, sending nothing: an LLM provider (`anthropic`, `openai`, `ollama`) then returns no summary, the run prints `LLM SUMMARY UNAVAILABLE` and exits with code `4`, and the triage output itself is unchanged), and the alert-derived part of the prompt is fenced as data with a per-run random token in the fence lines and a system-prompt rule that fenced content is never instructions. The LLM response is validated against the output schema before it is used.
 
 > **Security invariant:** sift never sends alert data to a cloud LLM without a redaction-config check. Core clustering is rule-based and deterministic; AI summarization is opt-in.
 
@@ -755,6 +755,7 @@ A built-in prompt injection detector scans alert fields for five pattern categor
 | `0` | Triage complete — no HIGH or CRITICAL clusters found |
 | `1` | Triage complete — one or more HIGH or CRITICAL clusters found |
 | `2` | Error — invalid input, configuration failure, or LLM error |
+| `4` | Triage complete, but the requested LLM summary is unavailable (provider failure, or the prompt guard could not remove an injection pattern) — no summary is produced |
 
 Exit code `1` is designed for use in CI pipelines and automated response playbooks.
 

@@ -171,6 +171,9 @@ One or more critical clusters found.
 .TP
 .B 2
 Error (bad input, missing file, parse failure).
+.TP
+.B 4
+The requested LLM summary is unavailable (provider failure, or the prompt guard could not remove an injection pattern); no summary is produced and nothing is sent.
 .RE
 .
 .SS validate
@@ -469,6 +472,10 @@ one or more clusters with
 priority were found.
 .BR "sift doctor" :
 at least one diagnostic check failed.
+.TP
+.B 4
+.BR "sift triage \-\-summarize" :
+the requested LLM summary is unavailable, either because the provider failed or because the prompt guard could not remove an injection pattern from the prompt; no summary is produced and nothing is sent. The rest of the triage output is unchanged.
 .TP
 .B 2
 Error — bad input, missing file, parse failure, or invalid flag value.
