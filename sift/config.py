@@ -430,11 +430,13 @@ def credentials_path() -> Path:
 
 
 def check_write_target(path: Path) -> bool:
-    """Check that *path* can receive a saved config; True if it will be newly created.
+    """Check that the leaf *path* can receive a saved config; True if it will be newly created.
 
-    Raises ConfigError otherwise (symlink, non-regular file, missing or unwritable parent),
-    so the caller can refuse before any credential has been written. This is an early
-    refusal only: ``_write_private`` re-checks the leaf under a pinned directory descriptor.
+    Raises ConfigError for a symlink (dangling or not), a directory, a FIFO or any other
+    non-regular leaf, and for a parent that is not a directory or cannot be searched. It does
+    not test write permission: the config is saved before any credential, so a save that
+    fails (read-only directory, full disk) leaves no credential behind, and ``_write_private``
+    re-checks the leaf under a pinned directory descriptor.
     """
     shown = _safe_path(path)
     try:
@@ -446,11 +448,23 @@ def check_write_target(path: Path) -> bool:
     # lstat does not follow a symlink, so a symlink (even to a regular file) is not S_ISREG.
     if st is not None and not stat.S_ISREG(st.st_mode):
         raise ConfigError(f"cannot write config {shown}")
-    parent = path.parent
-    # A parent that is not a directory already failed above: lstat on "file/child" is ENOTDIR.
-    if not os.access(parent, os.W_OK | os.X_OK):
-        raise ConfigError(f"cannot write config {shown}")
     return st is None
+
+
+def check_credentials_target(path: Path) -> None:
+    """Refuse a credentials file that ``_write_private`` would refuse, before the config is saved.
+
+    The leaf must be absent or a regular file; a symlink (dangling or not), directory or FIFO
+    raises ConfigError, as does a path that cannot be examined. Same rules as check_write_target.
+    """
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return
+    except OSError:
+        raise ConfigError(f"cannot write credentials file {_safe_path(path)}") from None
+    if not stat.S_ISREG(st.st_mode):
+        raise ConfigError(f"cannot write credentials file {_safe_path(path)}")
 
 
 def save_config(config: AppConfig, path: Optional[Path] = None) -> Path:

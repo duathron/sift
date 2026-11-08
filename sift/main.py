@@ -21,7 +21,7 @@ from rich.markup import escape as _markup_escape
 
 from . import __version__
 from .banner import show_banner
-from .config import ConfigError, check_write_target, credentials_path, default_config_path
+from .config import ConfigError, check_credentials_target, check_write_target, credentials_path, default_config_path
 from .config import _ensure_app_dir as _ensure_config_dir
 from .config import _safe_path as _safe_config_path
 from .config import load_config as _load_config
@@ -2095,7 +2095,16 @@ def config_cmd(
         if value is not None:
             apply(value)
 
-    # --- Refuse an unusable config target BEFORE any credential is written ---
+    # --- Every refusal that can be decided up front happens BEFORE the first write ---
+    # A run that exits 2 on one of these changes neither config.yaml nor ~/.sift/.env.
+    if ticket_token is not None:
+        _tp_name = ticket_provider or cfg.ticketing.provider
+        if not _tp_name or _tp_name == "dry-run":
+            console.print(
+                "[red]Error:[/red] --ticket-token requires --ticket-provider thehive or jira "
+                "(or set a default first: sift config --ticket-provider thehive)."
+            )
+            raise typer.Exit(2)
     config_target = config_path or default_config_path()
     config_is_new = False
     if cfg_changed:
@@ -2108,9 +2117,15 @@ def config_cmd(
             raise typer.Exit(2) from None
         except OSError:
             raise _cannot_write("config", config_target) from None
+    if api_key is not None or unset_api_key or ticket_token is not None:
+        try:
+            check_credentials_target(credentials_path())
+        except (ConfigError, OSError):
+            raise _cannot_write("credentials file", credentials_path()) from None
 
-    # --- Config first, credentials second: a config save that fails after the pre-write check
-    # (disk full, quota) must not leave a credential written behind a failed run ---
+    # --- Config first, credentials second. A config save that fails after the pre-checks (disk
+    # full, quota) then leaves no credential behind; a credentials write that fails after its
+    # pre-check leaves the config change applied and exits 2 ---
     if cfg_changed:
         from sift.config import save_config as _save_config
 
@@ -2146,13 +2161,6 @@ def config_cmd(
     if ticket_token is not None:
         from sift.config import save_ticket_token
 
-        _tp_name = ticket_provider or cfg.ticketing.provider
-        if not _tp_name or _tp_name == "dry-run":
-            console.print(
-                "[red]Error:[/red] --ticket-token requires --ticket-provider thehive or jira "
-                "(or set a default first: sift config --ticket-provider thehive)."
-            )
-            raise typer.Exit(2)
         try:
             env_path = save_ticket_token(ticket_token, _tp_name)
         except (OSError, ValueError):
