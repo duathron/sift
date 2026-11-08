@@ -222,6 +222,13 @@ _DEGRADED_NOTICE = (
 )
 
 
+def _partial_notice(n: int) -> str:
+    return (
+        f"⚠ AI SUMMARY PARTIAL — the prompt guard withheld the alert text of {n} cluster(s); "
+        "their part of this summary is based on counts only."
+    )
+
+
 def _render_summary_unavailable(report: TriageReport, con: Console) -> None:
     """Print a loud panel when a REQUESTED LLM summary failed (F2 cut-1).
 
@@ -393,6 +400,9 @@ def format_report_rich(
         if report.summary_degraded:
             con.print(f"[bold yellow]{_DEGRADED_NOTICE}[/bold yellow]")
             con.print()
+        elif report.summary_withheld_clusters:
+            con.print(f"[bold yellow]{_partial_notice(report.summary_withheld_clusters)}[/bold yellow]")
+            con.print()
     elif report.summary_error:
         _render_summary_unavailable(report, con)
         con.print()
@@ -447,6 +457,9 @@ def format_report_console(report: TriageReport) -> None:
         print()
     elif report.summary_degraded:
         print(_DEGRADED_NOTICE)
+        print()
+    elif report.summary_withheld_clusters:
+        print(_partial_notice(report.summary_withheld_clusters))
         print()
 
     sorted_clusters = _sorted_clusters(report.clusters)

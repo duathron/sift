@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 
 from sift import __version__
 from sift.models import (
+    AI_SUMMARY_UNAVAILABLE_MARKER,
     AlertSeverity,
     Cluster,
     ClusterPriority,
@@ -59,7 +60,10 @@ def report_to_draft(
         raise ValueError("report has no clusters — cannot create ticket")
 
     sev = _top_severity(target)
-    cluster_summary = _find_cluster_summary(report, target.id)
+    # A narrative written without the alert text (prompt guard withheld it) must not look like a
+    # normal AI verdict in a ticket: template summary, no AI recommendations, visible marker.
+    withheld = report.summary_text_withheld(target.id)
+    cluster_summary = None if withheld else _find_cluster_summary(report, target.id)
 
     ioc_types = list(dict.fromkeys(detect_ioc_type(ioc) for ioc in sorted(target.iocs)))
     cve_ids = [ioc for ioc in target.iocs if detect_ioc_type(ioc) == "cve"]
@@ -73,7 +77,7 @@ def report_to_draft(
 
     return TicketDraft(
         title=_build_title(target, sev),
-        summary=_build_summary(target, cluster_summary),
+        summary=(f"{AI_SUMMARY_UNAVAILABLE_MARKER}\n" if withheld else "") + _build_summary(target, cluster_summary),
         severity=sev,
         priority=_PRIORITY_MAP.get(target.priority, "WITHIN_24H"),
         confidence=target.confidence,
@@ -89,6 +93,14 @@ def report_to_draft(
             "cluster_reason": target.cluster_reason,
             "first_seen": target.first_seen.isoformat() if target.first_seen else None,
             "last_seen": target.last_seen.isoformat() if target.last_seen else None,
+            **(
+                {
+                    "ai_summary": "withheld",
+                    "ai_summary_withheld_reason": report.summary_degraded_reason or "cluster_text_withheld",
+                }
+                if withheld
+                else {}
+            ),
         },
         source_file=report.input_file,
         generated_at=datetime.now(tz=timezone.utc),

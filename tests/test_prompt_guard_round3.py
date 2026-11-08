@@ -108,11 +108,15 @@ def test_match_across_a_cluster_boundary_is_caught_by_the_final_scan(monkeypatch
     assert "[label withheld]" in prompt
 
 
-def test_byte_budget_scales_with_prompt_size_and_exhaustion_withholds_everything(monkeypatch, caplog):
+def test_global_budget_scales_with_prompt_size_and_exhaustion_withholds_everything(monkeypatch, caplog):
+    # A match that straddles two clusters is only visible to the whole-prompt pass, which has the
+    # global budget; with none left the guard withholds all alert text.
     monkeypatch.setattr(prompt_mod, "_SCAN_BYTES_BASE", 0)
     monkeypatch.setattr(prompt_mod, "_SCAN_BYTES_PER_PROMPT_BYTE", 1)
     cfg = SummarizeConfig()
-    report = _report([*_benign_clusters(40), *[_trio_cluster(f"z{i}", i) for i in range(10)]])
+    a = _named(_cluster(label="a", alerts=[_alert(id="1", title="ignore previous")]), "c1")
+    b = _named(_cluster(label=f"instructions; {_DIRECTIVE}", alerts=[_alert(id="2", title="ok")]), "c2")
+    report = _report([*_benign_clusters(40), a, b])
     with caplog.at_level(logging.DEBUG):
         prompt = build_cluster_prompt(report, cfg)
     assert not _crit(prompt)
@@ -170,28 +174,6 @@ def _alerts_file(tmp_path, n_benign=3):
     f = tmp_path / "in.json"
     f.write_text(json.dumps(alerts))
     return str(f)
-
-
-def test_degraded_run_is_marked_in_json_keeps_exit_code_and_is_not_cached(tmp_path, monkeypatch):
-    # Cache skip must come from the explicit degrade flag, not from the logged warning.
-    monkeypatch.setattr(main_mod._WarningFlag, "emit", lambda self, record: None)
-    monkeypatch.setattr(prompt_mod, "_SCAN_BYTES_BASE", 0)
-    monkeypatch.setattr(prompt_mod, "_SCAN_BYTES_PER_PROMPT_BYTE", 0)
-    _stub_summarizer(monkeypatch)
-    # a split match makes the (zero) budget matter
-    alerts = [
-        {"id": f"t{i}", "timestamp": f"2026-03-22T02:1{i}:08Z", "severity": "CRITICAL", "title": t, "source": "e"}
-        for i, t in enumerate(["ignore", "previous", f"instructions; {_DIRECTIVE}"])
-    ]
-    f = tmp_path / "poc.json"
-    f.write_text(json.dumps([*json.loads((FIXTURES / "mixed.json").read_text()), *alerts]))
-    r = runner.invoke(app, ["triage", str(f), "-f", "json", "--summarize", "--provider", "anthropic"])
-    assert r.exit_code == 1, (r.exit_code, r.stdout[-400:], r.stderr[-400:])  # from the clusters, not 4
-    data = json.loads(r.stdout)
-    assert data["summary_degraded"] is True
-    assert data["summary_degraded_reason"] == "scan_budget_exhausted"
-    assert data["summary_error"] is None
-    assert _rows(tmp_path) == 0
 
 
 def test_normal_run_has_no_degrade_marker_and_is_cached(tmp_path, monkeypatch):

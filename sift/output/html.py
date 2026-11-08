@@ -321,7 +321,13 @@ def render_html_report(report: "TriageReport") -> str:
                 '<p style="font-size:0.8rem; color:#f7c97e;">&#9888; AI summary degraded: '
                 "the prompt guard withheld all alert text; counts only.</p>"
                 if report.summary_degraded
-                else ""
+                else (
+                    '<p style="font-size:0.8rem; color:#f7c97e;">&#9888; AI summary partial: the prompt guard '
+                    f"withheld the alert text of {report.summary_withheld_clusters} cluster(s); "
+                    "counts only for those.</p>"
+                    if report.summary_withheld_clusters
+                    else ""
+                )
             )
             + "</section>"
         )

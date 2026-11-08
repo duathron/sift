@@ -364,9 +364,17 @@ class _Frag:
         return self.marker if self.withheld else self.scan
 
 
-# Scan budget, in bytes of prompt text handed to the detector, so worst-case time is bounded by
-# size and not by a scan count: base + factor x the size of the assembled prompt. The detector
-# costs about 0.4 ms per KB, so a prompt of any size stays within a few seconds of scanning.
+# Scan budgets, in bytes of prompt text handed to the detector, so worst-case time is bounded by
+# size and not by a scan count (the detector costs about 0.4 ms per KB).
+#
+# Every cluster block has its OWN budget, proportional to its size: base + factor x block bytes x
+# ceil(log2(fragments + 1)). A block that uses it up has all of its own alert text withheld and
+# nothing else: one padded hostile cluster cannot make the benign clusters pay for its rescans. The
+# budgets are independent, so their sum is the worst-case cost of the block pass (linear in prompt
+# size). The whole-prompt pass (the invariant check and the cross-block backstop) has the global
+# budget below; only when that one runs out, or a match survives it, is ALL alert text withheld.
+_BLOCK_SCAN_BYTES_BASE = 32 * 1024
+_BLOCK_SCAN_FACTOR = 4
 _SCAN_BYTES_BASE = 2 * 1024 * 1024
 _SCAN_BYTES_PER_PROMPT_BYTE = 6
 
@@ -378,9 +386,17 @@ _SCAN_BYTES_PER_PROMPT_BYTE = 6
 # a match that the per-block pass missed is resolved on the whole prompt.
 
 
+def _block_budget(block_bytes: int, n_frags: int) -> int:
+    return _BLOCK_SCAN_BYTES_BASE + _BLOCK_SCAN_FACTOR * block_bytes * max(
+        1, n_frags.bit_length()
+    )  # = ceil(log2(n_frags + 1))
+
+
 def _render(lines: list[list], *, scan: bool = False) -> str:
     def part_text(part) -> str:
         if isinstance(part, _Frag):
+            # The kit detector folds NFKC itself, so scan view and sent view agree today; the scan
+            # view still matters for a detector that does not.
             return part.scan_str() if scan else str(part)
         return part
 
@@ -402,6 +418,7 @@ class _Scanner:
 
     def crit(self, text: str, *, mandatory: bool = False) -> list[InjectionFinding]:
         size = len(text.encode("utf-8", "surrogatepass"))
+        # '<' vs '<=' is equivalent: a budget that exactly equals the size buys no further scan.
         if not mandatory and self.left < size:
             raise _BudgetExhausted
         self.left -= size
@@ -427,7 +444,8 @@ def _resolve_scope(
         return scanner.crit(_render(scope_lines, scan=True))
 
     settled = {id(f) for f in scope_frags if f.withheld}  # withheld for good (part of a match)
-    # Nothing the attacker controls can remove a match that sits in fixed template text.
+    # Nothing the attacker controls can remove a match that sits in fixed template text. (Without
+    # this early exit the search below ends in _NotIsolated and the same final state.)
     for f in scope_frags:
         f.withheld = True
     if scan():
@@ -473,46 +491,63 @@ _DEGRADED_TEXT = {
 
 def _enforce_final_scan(
     detector: _TextDetector, lines: list[list], frags: list[_Frag], blocks: list[_Block]
-) -> tuple[list[InjectionFinding], bool, Optional[str]]:
+) -> tuple[list[InjectionFinding], bool, Optional[str], list[int]]:
     """Scan the assembled prompt; withhold the attacker fragments that make a pattern match.
 
-    Every cluster block is scanned and resolved on its own, then the whole prompt is scanned as
-    the invariant check. If the scan budget runs out or a match cannot be isolated, every
-    fragment is withheld (less data, never attacker text) and the result is verified.
+    Every cluster block is scanned and resolved on its own budget. A block that runs out of
+    budget (or whose match cannot be isolated) has ALL its own fragments withheld, nothing else
+    (block-local degrade). Then the whole prompt is scanned as the invariant check. If the global
+    budget runs out or a match cannot be isolated there, every fragment is withheld (less data,
+    never attacker text) and the result is verified.
 
     Returns the CRITICAL findings seen, whether the prompt is clean at the end (False means
-    nothing may be sent) and a degrade reason (None, ``scan_budget_exhausted`` or
-    ``match_not_isolated``) when all alert text had to be withheld.
+    nothing may be sent), a global degrade reason (None, ``scan_budget_exhausted`` or
+    ``match_not_isolated``) when all alert text had to be withheld, and the indices of the
+    blocks withheld on their own (always empty after a global degrade).
     """
-    total = len(_render(lines, scan=True).encode("utf-8", "surrogatepass"))
-    scanner = _Scanner(detector, _SCAN_BYTES_BASE + _SCAN_BYTES_PER_PROMPT_BYTE * total)
     findings: list[InjectionFinding] = []
-    try:
-        for l0, l1, f0, f1 in blocks:
-            if f0 == f1:
-                continue
-            found = scanner.crit(_render(lines[l0:l1], scan=True))
+    withheld_blocks: list[int] = []
+    for index, (l0, l1, f0, f1) in enumerate(blocks):
+        if f0 == f1:
+            continue
+        block_lines = lines[l0:l1]
+        block_text = _render(block_lines, scan=True)
+        block_bytes = len(block_text.encode("utf-8", "surrogatepass"))
+        block_scanner = _Scanner(detector, _block_budget(block_bytes, f1 - f0))
+        try:
+            found = block_scanner.crit(block_text)
             if found:
                 findings.extend(found)
-                if not _resolve_scope(scanner, lines[l0:l1], frags[f0:f1], found):
-                    return findings, False, None
+                if not _resolve_scope(block_scanner, block_lines, frags[f0:f1], found):
+                    return findings, False, None, []
+        except (_BudgetExhausted, _NotIsolated):
+            for f in frags[f0:f1]:
+                f.withheld = True
+            withheld_blocks.append(index)
+    total = len(_render(lines, scan=True).encode("utf-8", "surrogatepass"))
+    scanner = _Scanner(detector, _SCAN_BYTES_BASE + _SCAN_BYTES_PER_PROMPT_BYTE * total)
+    try:
+        # Mandatory: the invariant check never depends on the budget (a budgeted one would only
+        # degrade more often, which is the safe direction, so that variant is behaviourally equivalent).
         final = scanner.crit(_render(lines, scan=True), mandatory=True)
         if final:
             findings.extend(final)
             if not _resolve_scope(scanner, lines, frags, final):
-                return findings, False, None
+                return findings, False, None, []
         sent = _render(lines)
         if sent != _render(lines, scan=True) and scanner.crit(sent, mandatory=True):
             raise _NotIsolated
-        return findings, True, None
+        return findings, True, None, withheld_blocks
     except (_BudgetExhausted, _NotIsolated) as exc:
         reason = "scan_budget_exhausted" if isinstance(exc, _BudgetExhausted) else "match_not_isolated"
-    # Withhold every fragment and verify what is left (mandatory scans, outside the budget).
+    # Withhold every fragment and verify what is left (mandatory scans, outside the budget). With
+    # everything withheld the scan view and the sent view are the same text, so the two scans are
+    # redundant on purpose (defence in depth, equivalent today).
     for f in frags:
         f.withheld = True
     if scanner.crit(_render(lines, scan=True), mandatory=True) or scanner.crit(_render(lines), mandatory=True):
-        return findings, False, None
-    return findings, True, reason if frags else None
+        return findings, False, None, []
+    return findings, True, reason if frags else None, []
 
 
 def _safe_ioc_for_prompt(ioc: str) -> str:
@@ -624,6 +659,7 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
     # Honour operator-defined whitelist_patterns from PromptInjectionConfig
     # (passed via the parent AppConfig → injected into SummarizeConfig callers).
     config._prompt_degraded = None  # set below when the guard had to withhold all alert text
+    config._prompt_withheld = []  # set below: ids of clusters whose own alert text was withheld
     whitelist = getattr(config, "_injection_whitelist", None) or []
     verbose_injection = getattr(config, "_injection_verbose", False)
     findings_log_path: Optional[str] = getattr(config, "_injection_log_file", None)
@@ -671,6 +707,7 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
 
     frags: list[_Frag] = []
     blocks: list[_Block] = []
+    block_cluster_ids: list[str] = []
 
     def frag(text: str, marker: str) -> _Frag:
         f = _Frag(text, marker)
@@ -810,6 +847,7 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
 
         lines.append([""])  # blank line between clusters
         blocks.append((block_start[0], len(lines), block_start[1], len(frags)))
+        block_cluster_ids.append(cluster.id)
 
     lines.append([_FENCE_END])
 
@@ -825,7 +863,7 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
 
     # Final net: the text that is actually sent is scanned, not just the pieces that were
     # known to be untrusted when this builder was written (e.g. alert IP fields).
-    net_findings, net_clean, degraded = _enforce_final_scan(text_detector, lines, frags, blocks)
+    net_findings, net_clean, degraded, withheld_blocks = _enforce_final_scan(text_detector, lines, frags, blocks)
     if net_findings:
         cluster_hits.append(("prompt", net_findings))
     n_fields = sum(1 for cid, _ in cluster_hits if cid != "prompt")
@@ -843,6 +881,13 @@ def build_cluster_prompt(report: TriageReport, config: SummarizeConfig) -> str:
             "the AI summary is based on counts only"
         )
         config._prompt_degraded = degraded
+    if withheld_blocks:
+        config._prompt_withheld = [block_cluster_ids[i] for i in withheld_blocks]
+        logger.warning(
+            f"Prompt guard: all alert text of {len(withheld_blocks)} cluster(s) withheld "
+            "(scan budget exhausted or match not isolated in that cluster); their part of the AI summary "
+            "is based on counts only"
+        )
     if not net_clean:
         raise PromptGuardError(
             "Prompt guard: an injection pattern could not be removed from the prompt; nothing was sent"

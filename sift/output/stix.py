@@ -205,8 +205,9 @@ class STIXExporter:
                     self.objects.append(note)
                     seen_ids.add(note["id"])
 
-            # 4. Additional note for AI narrative (if summary exists)
-            if self.report.summary:
+            # 4. Additional note for AI narrative (if summary exists). A narrative written without
+            # the alert text (prompt guard withheld it) is not a verdict: no note is emitted.
+            if self.report.summary and not self.report.summary_text_withheld(cluster.id):
                 for cs in self.report.summary.cluster_summaries:
                     if cs.cluster_id == cluster.id and cs.narrative:
                         narrative_note = self._create_narrative_note(cluster, cs.narrative, grouping_id)

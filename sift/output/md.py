@@ -179,6 +179,12 @@ def render_md_report(report: "TriageReport") -> str:
         if report.summary_degraded:
             lines.append("> ⚠ **AI SUMMARY DEGRADED** — the prompt guard withheld all alert text; counts only.")
             lines.append("")
+        elif report.summary_withheld_clusters:
+            lines.append(
+                f"> ⚠ **AI SUMMARY PARTIAL** — the prompt guard withheld the alert text of "
+                f"{report.summary_withheld_clusters} cluster(s); counts only for those."
+            )
+            lines.append("")
     elif report.summary_error:
         provider = _md_escape(report.summary_provider or "unknown")
         error = _md_escape(report.summary_error)

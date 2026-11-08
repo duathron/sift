@@ -1440,7 +1440,9 @@ def triage(
             # and the effective --redact-fields / redaction.fields set. Attached as a
             # private attribute (like the injection settings) so it never enters the
             # config's serialised form or the cache key.
+            # (the prompt builder resets both as well; this reset is redundant defence)
             cfg.summarize._prompt_degraded = None
+            cfg.summarize._prompt_withheld = []
             cfg.summarize._cli_redact_fields = [f.strip() for f in (_effective_redact or "").split(",") if f.strip()]
             summarizer = _build_summarizer(
                 effective_provider,
@@ -1455,6 +1457,16 @@ def triage(
                 # (explicit, not a side effect of the logged warning).
                 report = report.model_copy(
                     update={"summary_degraded": True, "summary_degraded_reason": _prompt_degraded}
+                )
+                _summary_degraded = True
+            _prompt_withheld = list(getattr(cfg.summarize, "_prompt_withheld", None) or [])
+            if _prompt_withheld:
+                # Block-local: only these clusters' alert text was withheld. Marked and not cached.
+                report = report.model_copy(
+                    update={
+                        "summary_withheld_clusters": len(_prompt_withheld),
+                        "summary_withheld_cluster_ids": _prompt_withheld,
+                    }
                 )
                 _summary_degraded = True
         except Exception as exc:

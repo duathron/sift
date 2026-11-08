@@ -230,6 +230,10 @@ class PipelineManifest(BaseModel):
     enrich_mode: Optional[str] = None  # "library" | "local" | None
 
 
+# Shown in place of AI text that was written without the alert text (prompt guard withheld it).
+AI_SUMMARY_UNAVAILABLE_MARKER = "[AI summary unavailable: alert text withheld by the prompt guard]"
+
+
 class TriageReport(BaseModel):
     """The complete triage report — primary output of sift."""
 
@@ -252,9 +256,17 @@ class TriageReport(BaseModel):
     # not be isolated). The run still exits 0/1 from the clusters; a degraded run is never cached.
     summary_degraded: bool = False
     summary_degraded_reason: Optional[str] = None
+    # Block-local variant: the guard withheld ALL alert text of only these clusters (their own scan
+    # budget ran out or their match could not be isolated); the other clusters' text was sent.
+    summary_withheld_clusters: int = 0
+    summary_withheld_cluster_ids: list[str] = Field(default_factory=list)
     enrichment: Optional[EnrichmentContext] = None
     manifest: Optional[PipelineManifest] = None
     analyzed_at: datetime
+
+    def summary_text_withheld(self, cluster_id: str) -> bool:
+        """True when the AI text for *cluster_id* was written without that cluster's alert text."""
+        return self.summary_degraded or cluster_id in self.summary_withheld_cluster_ids
 
     @property
     def has_critical(self) -> bool:
