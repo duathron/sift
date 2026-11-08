@@ -526,11 +526,82 @@ def test_domain_regex_still_extracts_suffix_domains(text: str) -> None:
     assert values & {"evil.com", "x.evil.com", "a.b.evil.com"}, values
 
 
-@pytest.mark.parametrize("text", ["_x.evil.com", "foo_bar.evil.com"])
-def test_domain_regex_underscore_label_delta_is_documented(text: str) -> None:
-    # Accepted trade-off of the linear-time guard: a label glued to the domain by an underscore
-    # yields no domain at all (no linear lookbehind can both keep it and stay linear).
-    assert not [v for v in extract_iocs(text) if "evil" in v]
+_UNDERSCORE_SHAPES = {
+    "dmarc": ("query _dmarc.evil.com TXT", "evil.com"),
+    "srv": ("srv _ldap._tcp.evil.com", "evil.com"),
+    "assign": ("host=_x.evil.com", "evil.com"),
+    "path": ("path/_x.evil.com", "evil.com"),
+    "double": ("q__x.evil.com", "evil.com"),
+    "glued": ("ping foo_bar.evil.com", "evil.com"),
+    "glued_sub": ("beacon to web_01.c2.evil.com", "c2.evil.com"),
+    "x_y": ("x_y.evil.com", "evil.com"),
+    "leading": ("_x.evil.com", "evil.com"),
+    "label_64": ("q " + "a" * 64 + ".evil.com", "evil.com"),
+    "label_70_sub": ("q " + "a" * 70 + ".c2.evil.com", "c2.evil.com"),
+    "hyphen_end": ("see x-.evil.com now", "evil.com"),
+    "hyphen_lead": ("see -abc.evil.com now", "abc.evil.com"),
+    "suffix_before_bad_label": ("evil.com._x.foo.bar", "evil.com"),
+}
+
+
+@pytest.mark.parametrize(("text", "expected"), list(_UNDERSCORE_SHAPES.values()), ids=list(_UNDERSCORE_SHAPES))
+def test_domain_extracted_despite_underscore_or_invalid_label(text: str, expected: str) -> None:
+    # An attacker must not hide a domain by gluing "_x." or an over-long label in front of it.
+    assert expected in extract_iocs(text)
+
+
+def test_domain_scan_matches_strict_pattern_on_label_edge_cases() -> None:
+    # The linear scanner must give what the strict per-label pattern gives, text by text.
+    from sift.pipeline.ioc_extractor import _RE_DOMAIN, _scan_domains
+
+    texts = [
+        "c.bb-.cb",
+        "evil.com._x.foo",
+        "a.b.c.com_x.org",
+        "x1." + "a" * 64 + ".b-",
+        "ab-c.de-fg.hi",
+        "a..b.com",
+        ".-evil.com",
+    ]
+    for text in texts:
+        assert _scan_domains(text) == [m.group() for m in _RE_DOMAIN.finditer(text)], text
+
+
+def test_domain_scan_long_underscore_runs_are_linear() -> None:
+    for unit in ("_a.", "a_.", "a-_.", "a." * 3 + "_"):
+        text = unit * (400_000 // len(unit)) + "_x.evil.com"
+        assert _timed_extract(text) < 2.0, unit
+
+
+def test_hash_dedupe_scales_linearly() -> None:
+    # 20,000 distinct MD5s: the pairwise prefix scan took ~13 s; the prefix index takes well under 1 s.
+    text = " ".join(f"{i:032x}" for i in range(1, 20_001))
+    start = time.perf_counter()
+    found = extract_iocs(text)
+    elapsed = time.perf_counter() - start
+    assert len(found) == 20_000
+    assert elapsed < 3.0
+
+
+def test_hash_that_prefixes_a_longer_candidate_is_still_suppressed() -> None:
+    md5 = "d41d8cd98f00b204e9800998ecf8427e"
+    other = "d41d8cd98f00b204e9800998ecf8427f"
+    found = extract_iocs(f"{md5}.evil.com and {other}")
+    assert f"{md5}.evil.com" in found
+    assert md5 not in found
+    assert other in found
+
+
+@pytest.mark.parametrize(
+    ("length", "tail"),
+    [(64, "c3" * 32), (62, "c3"), (40, ".evil.com"), (32, ".evil.com")],
+    ids=["sha256", "jarm", "sha1", "md5"],
+)
+def test_each_hash_kind_is_prefix_suppressed_by_a_longer_candidate(length: int, tail: str) -> None:
+    h = "a1" * (length // 2)
+    found = extract_iocs(f"{h}{tail} and {h}")
+    assert f"{h}{tail}" in found
+    assert h not in found
 
 
 def test_email_still_extracted_and_local_part_capped() -> None:
@@ -539,3 +610,9 @@ def test_email_still_extracted_and_local_part_capped() -> None:
     found = extract_iocs("x" * 70 + "@evil.com")
     assert not [v for v in found if "@" in v]
     assert found.count("evil.com") == 1
+
+
+def test_email_local_part_boundary_is_exactly_64() -> None:
+    ok = "x" * 64 + "@evil.com"
+    assert ok in extract_iocs(f"mail {ok} now")
+    assert not [v for v in extract_iocs("mail " + "x" * 65 + "@evil.com now") if "@" in v]

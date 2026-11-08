@@ -83,14 +83,60 @@ _URL_TRAILING_PUNCT = ".,;:!?)]}\"'"
 
 # Domain names — at least one label, a dot, and a recognised TLD-length suffix.
 # Filtered post-match against _NON_IOC_TLDS.
-# The two leading lookbehinds keep matching linear: without them every starting position inside a long
-# "a.a.a.a." run re-scans the rest of the run (quadratic). A match may not begin in the middle of a
-# label, nor right after "<alnum>." / "<alnum>-"; the full domain is matched from its first label.
-# Trade-off: a label glued on by "_" ("_x.evil.com") no longer yields the suffix domain.
+# _RE_DOMAIN is the strict form, used only with fullmatch() for type detection.
 _RE_DOMAIN = re.compile(
-    r"(?<![A-Za-z0-9])(?<![A-Za-z0-9][.-])\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)"
+    r"\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)"
     r"+[a-zA-Z]{2,}\b"
 )
+
+# Scanning uses a looser, linear-time pattern. The strict form re-scans the rest of a long
+# "a.a.a.a." run from every start position (quadratic). Here a label is any run of [A-Za-z0-9_-],
+# so the pattern is unambiguous, and the lookbehind lets a match begin only at the start of a
+# dotted run (not inside a label, not right after "<label char>."): one attempt per run.
+# Label validity (63 characters, alphanumeric ends, no "_") is then checked in _scan_domains(),
+# which keeps the valid suffix: "_dmarc.evil.com" and "web_01.evil.com" still yield "evil.com".
+_RE_DOMAIN_SCAN = re.compile(r"(?<![A-Za-z0-9_\-])(?<![A-Za-z0-9_\-]\.)(?:[A-Za-z0-9_\-]+\.)+[A-Za-z]{2,}\b")
+_RE_DOMAIN_LABEL = re.compile(r"[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?")
+_RE_ALPHA_HEAD = re.compile(r"[A-Za-z]*")
+
+
+def _scan_domains(text: str) -> list[str]:
+    """Return the domains in *text*, matching what the strict pattern finds one label at a time.
+
+    A dotted run may hold labels the strict pattern rejects ("_dmarc", "web_01", "ab-", 64+
+    characters). Such a label ends the domain before it (a trailing letters-only label, or the
+    letters in front of a "-", serves as the suffix) and a valid tail after a "-" inside it
+    starts the next one, so "_x.evil.com" and "x_y.evil.com" still yield "evil.com".
+    """
+    found: list[str] = []
+    for m in _RE_DOMAIN_SCAN.finditer(text):
+        labels = m.group().split(".")
+        tld = labels.pop()
+        cur: list[str] = []
+        for label in labels:
+            if _RE_DOMAIN_LABEL.fullmatch(label):
+                cur.append(label)
+                continue
+            if cur:
+                head = _RE_ALPHA_HEAD.match(label).end()  # type: ignore[union-attr]
+                if head >= 2 and (head == len(label) or label[head] == "-"):
+                    found.append(".".join([*cur, label[:head]]))
+                else:
+                    for t in range(len(cur) - 1, 0, -1):
+                        stem = cur[t][: _RE_ALPHA_HEAD.match(cur[t]).end()]  # type: ignore[union-attr]
+                        if len(stem) >= 2 and (len(stem) == len(cur[t]) or cur[t][len(stem)] == "-"):
+                            found.append(".".join([*cur[:t], stem]))
+                            break
+            cur = []
+            # Only a tail of at most 63 characters can be a label; bounded so a huge label stays linear.
+            for i in range(max(1, len(label) - 63), len(label)):
+                if label[i - 1] == "-" and _RE_DOMAIN_LABEL.fullmatch(label, i):
+                    cur = [label[i:]]
+                    break
+        if cur:
+            found.append(".".join([*cur, tld]))
+    return found
+
 
 # ---------------------------------------------------------------------------
 # Compiled regex patterns — hashes
@@ -576,6 +622,15 @@ def classify_severity_hint(ioc: str) -> str | None:
     return None
 
 
+def _longer_prefixes(candidates: set[str], length: int) -> set[str]:
+    """Return the first *length* characters of every candidate longer than *length*.
+
+    One pass over the candidates, so the hash loops can test "is this hash a prefix of a longer
+    candidate?" in constant time per match instead of scanning all candidates each time.
+    """
+    return {c[:length] for c in candidates if len(c) > length}
+
+
 def extract_iocs(text: str) -> list[str]:
     """
     Extract all IOC candidates from an arbitrary text string.
@@ -617,8 +672,7 @@ def extract_iocs(text: str) -> list[str]:
             candidates.add(addr)
 
     # --- Domain names (non-internal TLDs only) ---
-    for m in _RE_DOMAIN.finditer(text):
-        domain = m.group()
+    for domain in _scan_domains(text):
         if _tld_of(domain) not in _NON_IOC_TLDS:
             try:
                 ipaddress.ip_address(domain)
@@ -648,32 +702,36 @@ def extract_iocs(text: str) -> list[str]:
             continue
         candidates.add(h)
 
+    longer = _longer_prefixes(candidates, 64)
     for m in _RE_SHA256.finditer(text):
         h = m.group().lower()
         if _is_null_hash(h):
             continue
-        if not any(existing.startswith(h) and len(existing) > len(h) for existing in candidates):
+        if h not in longer:
             candidates.add(h)
 
+    longer = _longer_prefixes(candidates, 62)
     for m in _RE_JARM.finditer(text):
         h = m.group().lower()
         if _is_null_hash(h):
             continue
-        if not any(existing.startswith(h) and len(existing) > len(h) for existing in candidates):
+        if h not in longer:
             candidates.add(h)
 
+    longer = _longer_prefixes(candidates, 40)
     for m in _RE_SHA1.finditer(text):
         h = m.group().lower()
         if _is_null_hash(h):
             continue
-        if not any(existing.startswith(h) and len(existing) > len(h) for existing in candidates):
+        if h not in longer:
             candidates.add(h)
 
+    longer = _longer_prefixes(candidates, 32)
     for m in _RE_MD5.finditer(text):
         h = m.group().lower()
         if _is_null_hash(h):
             continue
-        if not any(existing.startswith(h) and len(existing) > len(h) for existing in candidates):
+        if h not in longer:
             candidates.add(h)
 
     # --- Keyword-anchored fingerprints (JA3 / JA3S / imphash) ---
