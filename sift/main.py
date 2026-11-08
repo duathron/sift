@@ -20,7 +20,8 @@ from rich.markup import escape as _markup_escape
 
 from . import __version__
 from .banner import show_banner
-from .config import load_config
+from .config import ConfigError
+from .config import load_config as _load_config
 from .models import PipelineManifest, TriageReport
 
 app = typer.Typer(
@@ -32,6 +33,21 @@ app = typer.Typer(
     pretty_exceptions_show_locals=False,  # a traceback must never print config values or keys
 )
 console = Console(stderr=True)
+
+
+def load_config(config_path: Optional[Path] = None, *, must_exist: bool = True):
+    """Load the config; a config error is one value-free line on stderr and exit code 2.
+
+    ``must_exist=False`` is only for ``sift config``, where ``--config PATH`` may name a file
+    that is about to be created.
+
+    Exit 1 means "HIGH/CRITICAL cluster found" and must never mean "bad config".
+    """
+    try:
+        return _load_config(config_path, must_exist=must_exist)
+    except ConfigError as exc:
+        typer.echo(f"sift: {exc}", err=True)
+        raise typer.Exit(2) from None
 
 
 # ---------------------------------------------------------------------------
@@ -372,7 +388,7 @@ def _print_triage_setup_status() -> None:
         from rich.text import Text
 
         _c = _Console()
-        cfg = load_config()
+        cfg = _load_config()  # help must not print a config error; the except below hides it
 
         key = cfg.summarize.api_key or ""
         key_line = (
@@ -2015,7 +2031,8 @@ def config_cmd(
     _VALID_PROVIDERS = {"template", "mock", "anthropic", "openai", "ollama"}
     _VALID_FORMATS = {"rich", "console", "json", "csv", "stix"}
 
-    cfg = load_config(config_path)
+    # `sift config --config NEW.yaml --provider x` creates NEW.yaml; only a pure --show needs it to exist.
+    cfg = load_config(config_path, must_exist=show)
     cfg_changed = False
     rich_console = Console()
 

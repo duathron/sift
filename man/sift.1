@@ -471,7 +471,13 @@ priority were found.
 at least one diagnostic check failed.
 .TP
 .B 2
-Error — bad input, missing file, parse failure, or invalid flag value.
+Error \(em bad input, missing file, parse failure, invalid flag value, or a configuration failure.
+A configuration failure is a
+.B \-\-config
+file that is missing, unreadable, not valid UTF\-8 or YAML, not a mapping of settings, or has invalid values;
+sift prints one line on standard error, never the file contents, and does not fall back to
+.I ~/.sift/config.yaml
+or the defaults.
 .
 .SH SEE ALSO
 .BR jq (1),

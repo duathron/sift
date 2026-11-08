@@ -610,7 +610,7 @@ sift triage alerts.json --redact-fields source_ip,user,host
 sift config --redact-fields source_ip,user,host
 ```
 
-**Forensic override.** Setting `redaction.keep_raw: true` in `~/.sift/config.yaml` keeps `alert.raw` in the output even when `--redact-fields` is active — for forensic captures where the raw dict is needed despite redaction. The key was called `redact_raw` before; the old name is still read (with a one-time notice) and `sift config` rewrites it as `keep_raw`.
+**Forensic override.** Setting `redaction.keep_raw: true` in `~/.sift/config.yaml` keeps `alert.raw` in the output even when `--redact-fields` is active — for forensic captures where the raw dict is needed despite redaction. The key was called `redact_raw` before, and `redact_raw: true` meant keep raw output (the opposite of what the name suggests); the old name is still read (with a one-time notice) and `sift config` rewrites it as `keep_raw`.
 
 ```yaml
 # ~/.sift/config.yaml
@@ -757,6 +757,8 @@ A built-in prompt injection detector scans alert fields for five pattern categor
 | `0` | Triage complete — no HIGH or CRITICAL clusters found |
 | `1` | Triage complete — one or more HIGH or CRITICAL clusters found |
 | `2` | Error — invalid input, configuration failure, or LLM error |
+
+A configuration failure (a `--config` file that is missing, unreadable, not valid UTF-8 or YAML, not a mapping of settings, or with invalid values) prints one line on stderr (`sift: config file … is not valid YAML`) and exits `2`. The line never contains file contents, so an API key in a bad file is not echoed. A missing `--config` file is an error; sift does not fall back to `~/.sift/config.yaml` or defaults. An empty config file means defaults.
 
 Exit code `1` is designed for use in CI pipelines and automated response playbooks.
 

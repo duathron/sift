@@ -7,6 +7,7 @@ current directory is never loaded (it may come from an untrusted download).
 
 from __future__ import annotations
 
+import inspect
 import os
 import tempfile
 import warnings
@@ -125,11 +126,16 @@ class AlertRedactionConfig(BaseModel):
             data.setdefault("keep_raw", legacy)  # an explicit keep_raw wins
             if not _LEGACY_REDACT_RAW_WARNED:
                 _LEGACY_REDACT_RAW_WARNED = True
-                warnings.warn(
-                    "config key redaction.redact_raw is renamed to redaction.keep_raw; "
+                # warn_explicit: no stacklevel lands on user code from inside pydantic's validator
+                # machinery, so name this module instead of a pydantic internal line.
+                warnings.warn_explicit(
+                    "config key redaction.redact_raw is renamed to redaction.keep_raw "
+                    "(redact_raw: true meant KEEP raw output, so it now reads keep_raw: true); "
                     "the old name still works for now (run `sift config` to rewrite the file)",
                     FutureWarning,
-                    stacklevel=2,
+                    filename=__file__,
+                    lineno=inspect.currentframe().f_lineno,  # type: ignore[union-attr]
+                    module=__name__,
                 )
         return data
 
@@ -201,12 +207,22 @@ def _write_private(path: Path, text: str) -> None:
 
 
 def _load_yaml(path: Path) -> dict:
+    # No cause is chained anywhere below: parser and decoder messages quote the offending
+    # line or byte, which may hold a secret.
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
     except yaml.YAMLError:
-        # No cause chained: the YAML parser quotes the offending line, which may hold a secret.
         raise ConfigError(f"config file {path} is not valid YAML") from None
+    except UnicodeDecodeError:
+        raise ConfigError(f"config file {path} is not valid UTF-8 text") from None
+    except OSError:
+        raise ConfigError(f"config file {path} cannot be read") from None
+    except (ValueError, RecursionError):
+        # PyYAML leaks bare ValueError for e.g. an impossible date, RecursionError for deep nesting.
+        raise ConfigError(f"config file {path} is not valid YAML") from None
+    # An empty file or a bare `null` means "no settings" (defaults). Any other top level
+    # that is not a mapping - including falsy ones such as [] 0 '' false - is an error.
     if data is None:
         return {}
     if not isinstance(data, dict):
@@ -223,11 +239,19 @@ def _validate(data: dict) -> AppConfig:
         raise ConfigError(f"config has invalid settings: {bad}") from None
 
 
-def load_config(config_path: Optional[Path] = None) -> AppConfig:
+def load_config(config_path: Optional[Path] = None, *, must_exist: bool = True) -> AppConfig:
     """Load configuration from YAML with env var overrides.
 
     Priority: CLI flags > env vars > ~/.sift/.env > ~/.sift/config.yaml > defaults.
+
+    An explicit *config_path* that does not exist raises ConfigError (``must_exist=False``
+    is for ``sift config``, whose ``--config`` may name a file about to be created).
     """
+    if must_exist and config_path is not None and not config_path.exists():
+        # An explicit --config must never fall back silently to ~/.sift/config.yaml or defaults:
+        # a typo would drop the operator's redaction and provider settings without a word.
+        raise ConfigError(f"--config file not found: {config_path}")
+
     # Load credentials from ~/.sift/.env before reading SIFT_LLM_KEY from environment.
     _env_file = _APP_DIR / ".env"
     if _env_file.exists():

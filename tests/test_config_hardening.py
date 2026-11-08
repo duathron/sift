@@ -200,6 +200,21 @@ def test_redact_raw_deprecation_warns_once(_fresh_legacy_warning: None) -> None:
     assert len([w for w in caught if issubclass(w.category, FutureWarning)]) == 1
 
 
+def test_legacy_notice_states_the_polarity(_fresh_legacy_warning: None) -> None:
+    with pytest.warns(FutureWarning) as rec:
+        config_mod.AlertRedactionConfig(redact_raw=False)
+    text = str(rec[0].message)
+    assert "redaction.redact_raw is renamed to redaction.keep_raw" in text
+    assert "redact_raw: true meant KEEP raw output" in text
+
+
+def test_legacy_notice_is_not_attributed_to_pydantic(_fresh_legacy_warning: None) -> None:
+    with pytest.warns(FutureWarning) as rec:
+        config_mod.AlertRedactionConfig(redact_raw=True)
+    assert "pydantic" not in rec[0].filename
+    assert rec[0].filename == config_mod.__file__
+
+
 def test_new_key_does_not_warn(_fresh_legacy_warning: None) -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("error")
@@ -218,13 +233,61 @@ def test_yaml_error_is_value_free(app_dir: Path, tmp_path: Path) -> None:
     assert ei.value.__cause__ is None and ei.value.__suppress_context__
 
 
-@pytest.mark.parametrize("text", ["- sk-LEAKME-123\n", "sk-LEAKME-123\n", "42\n"])
+@pytest.mark.parametrize(
+    "text",
+    ["- sk-LEAKME-123\n", "sk-LEAKME-123\n", "42\n", "[]\n", "0\n", "''\n", "false\n"],
+)
 def test_non_mapping_config_is_value_free(app_dir: Path, tmp_path: Path, text: str) -> None:
     f = tmp_path / "list.yaml"
     f.write_text(text)
     with pytest.raises(ConfigError) as ei:
         load_config(f)
     assert "sk-LEAKME" not in str(ei.value)
+
+
+@pytest.mark.parametrize("text", ["", "\n", "# only a comment\n", "null\n", "~\n"])
+def test_empty_or_null_config_means_defaults(app_dir: Path, tmp_path: Path, text: str) -> None:
+    # Documented behaviour: an empty file or a bare `null` is "no settings" (defaults);
+    # any other top level that is not a mapping, falsy or not, is an error.
+    f = tmp_path / "empty.yaml"
+    f.write_text(text)
+    assert load_config(f) == AppConfig()
+
+
+def test_non_utf8_config_is_a_value_free_config_error(app_dir: Path, tmp_path: Path) -> None:
+    f = tmp_path / "latin.yaml"
+    f.write_bytes(b"summarize:\n  api_key: sk-LEAKME-\xff\xfe\n")
+    with pytest.raises(ConfigError) as ei:
+        load_config(f)
+    assert "sk-LEAKME" not in str(ei.value)
+    assert "0xff" not in str(ei.value)
+    assert "UTF-8" in str(ei.value)
+    assert ei.value.__cause__ is None and ei.value.__suppress_context__
+
+
+def test_yaml_value_error_is_a_config_error(app_dir: Path, tmp_path: Path) -> None:
+    f = tmp_path / "date.yaml"
+    f.write_text("summarize:\n  model: 2020-13-45\n")  # PyYAML raises a bare ValueError here
+    with pytest.raises(ConfigError):
+        load_config(f)
+
+
+def test_config_path_that_is_a_directory_is_a_config_error(app_dir: Path, tmp_path: Path) -> None:
+    with pytest.raises(ConfigError):
+        load_config(tmp_path)
+
+
+def test_explicit_missing_config_is_an_error_not_a_fallback(app_dir: Path, tmp_path: Path) -> None:
+    app_dir.mkdir(parents=True)
+    (app_dir / "config.yaml").write_text(yaml.dump({"redaction": {"fields": ["user"]}}))
+    missing = tmp_path / "strict-typo.yaml"
+    with pytest.raises(ConfigError) as ei:
+        load_config(missing)
+    assert "--config" in str(ei.value) and str(missing) in str(ei.value)
+
+
+def test_no_explicit_config_still_falls_back_to_defaults(app_dir: Path) -> None:
+    assert load_config() == AppConfig()
 
 
 def test_schema_error_is_value_free(app_dir: Path, tmp_path: Path) -> None:
