@@ -693,9 +693,139 @@ def test_email_local_part_of_exactly_64_after_a_boundary_character_is_kept() -> 
     assert "a" * 63 + "@evil.com" in extract_iocs(" ." + "a" * 63 + "@evil.com")
 
 
-def test_email_run_of_65_is_dropped_at_start_of_text_and_after_a_boundary() -> None:
-    assert not [v for v in extract_iocs("." + "a" * 64 + "@evil.com") if "@" in v]
-    assert not [v for v in extract_iocs(" ." + "a" * 64 + "@evil.com") if "@" in v]
+def _emails(text: str) -> list[str]:
+    return [v for v in extract_iocs(text) if "@" in v]
+
+
+_A64 = "a" * 64
+
+# (text, emails origin/main extracted). Main starts an address at the leftmost word boundary of the
+# run of local-part characters, so a leading ". % + -" is never part of its local part.
+_EMAIL_KEPT_CASES = {
+    "dash_70": ("-" * 70 + "john@example.com", ["john@example.com"]),
+    "dot_70": ("." * 70 + "john@example.com", ["john@example.com"]),
+    "plus_66": ("+" * 66 + "john@example.com", ["john@example.com"]),
+    "percent_70": ("%" * 70 + "john@example.com", ["john@example.com"]),
+    "dash_63_c2": ("-" * 63 + "c2@evil.com", ["c2@evil.com"]),
+    "dot_then_64a": ("." + _A64 + "@evil.com", [_A64 + "@evil.com"]),
+    "percent_then_64a": ("%" + _A64 + "@evil.com", [_A64 + "@evil.com"]),
+    "dash_70_then_64a": ("-" * 70 + _A64 + "@evil.com", [_A64 + "@evil.com"]),
+    "dot_70_then_64a": ("." * 70 + _A64 + "@evil.com", [_A64 + "@evil.com"]),
+    "plus_66_then_64a": ("+" * 66 + _A64 + "@evil.com", [_A64 + "@evil.com"]),
+    "slash_then_64a": ("/" + _A64 + "@evil.com", [_A64 + "@evil.com"]),
+    "paren_then_64a": ("(" + _A64 + "@evil.com", [_A64 + "@evil.com"]),
+    "word_slash_then_64a": ("z/" + _A64 + "@evil.com", [_A64 + "@evil.com"]),
+    "word_paren_then_64a": ("z(" + _A64 + "@evil.com", [_A64 + "@evil.com"]),
+    "word_colon_then_64a": ("z:" + _A64 + "@evil.com", [_A64 + "@evil.com"]),
+    "word_space_then_64a": ("z " + _A64 + "@evil.com", [_A64 + "@evil.com"]),
+    "earlier_at_then_64a": ("z@" + _A64 + "@evil.com", [_A64 + "@evil.com"]),
+    "underscore_dot_then_62a": ("_." + "a" * 62 + "@evil.com", ["_." + "a" * 62 + "@evil.com"]),
+    "dot_then_63a": (" ." + "a" * 63 + "@evil.com", ["a" * 63 + "@evil.com"]),
+}
+
+
+@pytest.mark.parametrize(("text", "expected"), list(_EMAIL_KEPT_CASES.values()), ids=list(_EMAIL_KEPT_CASES))
+def test_email_whose_local_part_is_at_most_64_from_where_the_old_pattern_started_is_kept(
+    text: str, expected: list[str]
+) -> None:
+    assert _emails(text) == expected
+
+
+_EMAIL_DROPPED_CASES = {
+    "dot_then_63a_after_letter": "x." + "a" * 63 + "@evil.com",
+    "65a": "a" * 65 + "@evil.com",
+    "65a_after_space": " " + "a" * 65 + "@evil.com",
+    "underscore_dot_63a": "_." + "a" * 63 + "@evil.com",
+    "underscore_dot_64a": "_." + _A64 + "@evil.com",
+    "letter_dash_70_then_64a": "x" + "-" * 70 + _A64 + "@evil.com",
+    "dash_run_after_letter": "x" + "-" * 70 + "c2@evil.com",
+    "acute_then_dash_64a": "\u00e9-" + _A64 + "@evil.com",
+}
+
+
+@pytest.mark.parametrize("text", list(_EMAIL_DROPPED_CASES.values()), ids=list(_EMAIL_DROPPED_CASES))
+def test_email_whose_local_part_is_over_64_from_where_the_old_pattern_started_is_dropped(text: str) -> None:
+    assert _emails(text) == []
+
+
+def test_glued_unicode_word_character_hides_the_email_exactly_as_main_did() -> None:
+    # No word boundary between an accented letter and the local part: main (and now) find no address.
+    assert _emails("\u00e9" + _A64 + "@evil.com") == []
+    assert _emails("\u00e9" + "a" * 10 + "@evil.com") == []
+    assert _emails("\u0663" + "a" * 10 + "@evil.com") == []
+
+
+def test_second_email_after_an_earlier_at_is_found_from_its_own_position() -> None:
+    text = "x@y.zz " + "a" * 65 + "%@a.uk ok@fine.org"
+    assert sorted(_emails(text)) == ["ok@fine.org", "x@y.zz"]
+
+
+def test_email_directly_after_a_dropped_address_domain_is_not_resurrected() -> None:
+    # Main's long match consumed "x.com"; the glued "@y.org" never had a local part of its own.
+    assert _emails("a" + "." * 100 + "@x.com@y.org") == []
+
+
+def test_scan_emails_returns_exactly_the_old_match_for_kept_and_dropped() -> None:
+    import re
+
+    from sift.pipeline.ioc_extractor import _scan_emails
+
+    main = re.compile(r"\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b")
+    text = "-" * 70 + "john@example.com x." + "a" * 63 + "@evil.com _." + "a" * 62 + "@evil.com"
+    kept, dropped = _scan_emails(text)
+    assert kept == ["john@example.com", "_." + "a" * 62 + "@evil.com"]
+    assert dropped == ["x." + "a" * 63 + "@evil.com"]
+    assert sorted(kept + dropped) == sorted(m.group() for m in main.finditer(text))
+
+
+def test_email_scan_matches_frozen_main_pattern_minus_over_long_local_parts() -> None:
+    import random
+    import re
+
+    from sift.pipeline.ioc_extractor import _scan_emails
+
+    # Frozen copy of origin/main's email pattern. Invariant: kept == main's addresses with a local
+    # part of at most 64, dropped == the rest; nothing else, nothing different.
+    main = re.compile(r"\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b")
+    seps = [".", "-", "%", "+", "_", ".-"]
+    alphabet = ["a", "b", "1", "\u00e9", "\u0663", "@", "/", ":", " ", "\u00df", "\u0301", "\u200d"]
+    ends = ["@evil.com", "@a.b.org", "@x.com@y.org", "%@a.uk", " x@evil.com", "@a.b"]
+    lens = [1, 2, 3, 30, 62, 63, 64, 65, 66, 70]
+    rng = random.Random(4572)
+    for _ in range(3000):
+        parts = []
+        for _ in range(rng.randint(1, 4)):
+            r = rng.random()
+            if r < 0.4:
+                parts.append(rng.choice(seps) * rng.choice(lens))
+            elif r < 0.6:
+                parts.append(rng.choice("abc9") * rng.choice(lens))
+            elif r < 0.8:
+                parts.append("".join(rng.choice(alphabet) for _ in range(rng.randint(1, 6))))
+            else:
+                parts.append(rng.choice(ends))
+        text = "".join(parts) + rng.choice(ends)
+        expected = [m.group() for m in main.finditer(text)]
+        kept, dropped = _scan_emails(text)
+        assert kept == [e for e in expected if len(e.split("@")[0]) <= 64], repr(text)
+        assert dropped == [e for e in expected if len(e.split("@")[0]) > 64], repr(text)
+
+
+@pytest.mark.parametrize(
+    ("text", "hash_len"),
+    [
+        ("a" * 64 + "+bAc@9.c.com", 64),
+        ("a" * 62 + "+bAc@9.c.com", 62),
+        ("a" * 40 + ".." + "b" * 30 + "@evil.com", 40),
+        ("a" * 32 + "-" + "b" * 40 + "@evil.com", 32),
+    ],
+    ids=["sha256", "jarm", "sha1", "md5"],
+)
+def test_hash_shaped_prefix_of_a_dropped_email_stays_hidden_as_on_main(text: str, hash_len: int) -> None:
+    # The over-long address is not an IOC, but main hid its hash-shaped prefix behind it; so do we.
+    found = extract_iocs(text)
+    assert not [v for v in found if "@" in v]
+    assert text[:hash_len] not in found
 
 
 @pytest.mark.parametrize("sep", [".", "%", "+", "-"])

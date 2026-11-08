@@ -192,28 +192,45 @@ _RE_FILENAME = re.compile(
     re.IGNORECASE,
 )
 
-# Email addresses (RFC 5321-ish, intentionally loose). The local part is capped at 64 characters
-# (the RFC 5321 limit): an unbounded "+" makes every start position of a long run without "@"
-# rescan the whole run (quadratic). The cap alone would still match the last 64 characters of a
-# longer run (a tail fragment); _scan_emails() drops those, so an over-long local part gives no
-# email at all.
+# Email addresses (RFC 5321-ish, intentionally loose). origin/main used one pattern with an
+# unbounded local part, ``\b[a-zA-Z0-9._%+\-]+@<domain>``: every start position of a long run
+# without "@" rescans the whole run (quadratic). _scan_emails() therefore finds each "@" plus its
+# domain first (``_RE_EMAIL_AT``) and works out where main's match would have started.
+_RE_EMAIL_AT = re.compile(r"@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b")
+# ``\b`` in the same (Unicode-aware) sense as main's pattern; only used through search(pos, endpos).
+_RE_WORD_BOUNDARY = re.compile(r"\b")
+# The local-part character class of main's pattern, and the matching full address (used to classify
+# one candidate; the local part is capped so a long run cannot be rescanned).
 _RE_EMAIL = re.compile(r"\b[a-zA-Z0-9._%+\-]{1,64}@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b")
 _EMAIL_LOCAL_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._%+-")
 _EMAIL_LOCAL_MAX = 64
 
 
-def _scan_emails(text: str) -> list[str]:
-    """Return the email addresses in *text*; a local part longer than 64 characters yields none."""
-    found: list[str] = []
-    for m in _RE_EMAIL.finditer(text):
-        # Count the local-part characters to the left of the match too (at most one more than the cap).
-        at = text.index("@", m.start())
-        i = m.start()
-        while i > 0 and at - i <= _EMAIL_LOCAL_MAX and text[i - 1] in _EMAIL_LOCAL_CHARS:
+def _scan_emails(text: str) -> tuple[list[str], list[str]]:
+    """Return ``(kept, dropped)`` email addresses found in *text*.
+
+    Both lists hold exactly what origin/main's unbounded pattern would have matched. An address is
+    *dropped* when its local part, counted from where main's match starts, is longer than 64
+    characters (RFC 5321 limit); main's match starts at the leftmost word boundary inside the run of
+    local-part characters, so leading ``. % + -`` that main never counted are not counted here.
+    The dropped strings are still returned so that hash extraction keeps treating them as the longer
+    candidate main hid its prefix behind.
+    """
+    kept: list[str] = []
+    dropped: list[str] = []
+    floor = 0  # main resumes scanning where its previous match ended
+    for m in _RE_EMAIL_AT.finditer(text):
+        at = m.start()
+        i = at
+        while i > floor and text[i - 1] in _EMAIL_LOCAL_CHARS:
             i -= 1
-        if at - i <= _EMAIL_LOCAL_MAX:
-            found.append(m.group())
-    return found
+        boundary = _RE_WORD_BOUNDARY.search(text, i, at)
+        if boundary is None or boundary.start() >= at:
+            continue  # no start position for main's pattern in this run: no match
+        start = boundary.start()
+        (kept if at - start <= _EMAIL_LOCAL_MAX else dropped).append(text[start : m.end()])
+        floor = m.end()
+    return kept, dropped
 
 
 # Windows registry keys. Lookahead ensures we stop at whitespace, quotes, or
@@ -678,7 +695,10 @@ def extract_iocs(text: str) -> list[str]:
             candidates.add(url)
 
     # --- Email addresses ---
-    candidates.update(_scan_emails(text))
+    kept_emails, dropped_emails = _scan_emails(text)
+    candidates.update(kept_emails)
+    # Over-long addresses are not IOCs, but main hid hash-shaped prefixes behind them; keep doing so.
+    hidden = set(dropped_emails)
 
     # --- IPv4 (public only) ---
     for m in _RE_IPV4.finditer(text):
@@ -723,7 +743,7 @@ def extract_iocs(text: str) -> list[str]:
             continue
         candidates.add(h)
 
-    longer = _longer_prefixes(candidates, 64)
+    longer = _longer_prefixes(candidates | hidden, 64)
     for m in _RE_SHA256.finditer(text):
         h = m.group().lower()
         if _is_null_hash(h):
@@ -731,7 +751,7 @@ def extract_iocs(text: str) -> list[str]:
         if h not in longer:
             candidates.add(h)
 
-    longer = _longer_prefixes(candidates, 62)
+    longer = _longer_prefixes(candidates | hidden, 62)
     for m in _RE_JARM.finditer(text):
         h = m.group().lower()
         if _is_null_hash(h):
@@ -739,7 +759,7 @@ def extract_iocs(text: str) -> list[str]:
         if h not in longer:
             candidates.add(h)
 
-    longer = _longer_prefixes(candidates, 40)
+    longer = _longer_prefixes(candidates | hidden, 40)
     for m in _RE_SHA1.finditer(text):
         h = m.group().lower()
         if _is_null_hash(h):
@@ -747,7 +767,7 @@ def extract_iocs(text: str) -> list[str]:
         if h not in longer:
             candidates.add(h)
 
-    longer = _longer_prefixes(candidates, 32)
+    longer = _longer_prefixes(candidates | hidden, 32)
     for m in _RE_MD5.finditer(text):
         h = m.group().lower()
         if _is_null_hash(h):
