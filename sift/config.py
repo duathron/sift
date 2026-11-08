@@ -39,7 +39,7 @@ _ESCAPED_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
 
 
 def _safe_path(path: Any) -> str:
-    """Render *path* for a one-line message: invisible and control characters become escapes.
+    """Render *path* for a one-line message: control, format and separator characters become escapes.
 
     A path comes from the operator (``--config``) and may hold ESC/BEL/CR/LF, bidi overrides,
     zero-width characters or undecodable bytes. Printed raw they could retitle the terminal,
@@ -271,7 +271,7 @@ def _write_private(path: Path, text: str) -> None:
         return
     parent = os.path.realpath(path.parent)
     dir_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    tmp = f".{path.name}.{secrets.token_hex(8)}.tmp"
+    tmp = f".sift-{secrets.token_hex(8)}.tmp"  # fixed length: independent of the target's name
     created = False
     try:
         _after_parent_pinned()
@@ -304,9 +304,13 @@ def _write_private_by_path(path: Path, text: str) -> None:
     """Path-based variant for platforms without ``dir_fd`` support (same leaf refusal, no pinning)."""
     import tempfile
 
-    if path.is_symlink():
-        raise OSError(f"refusing to write through a symlink: {path}")
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        st = None
+    if st is not None and not stat.S_ISREG(st.st_mode):
+        raise OSError(f"refusing to write through a symlink or non-regular file: {path}")
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".sift-", suffix=".tmp")
     try:
         os.chmod(tmp, _FILE_MODE)
         with os.fdopen(fd, "w") as f:
@@ -374,9 +378,14 @@ def read_credentials(env_file: Path) -> dict[str, Optional[str]]:
 
 def _load_credentials_file(env_file: Path) -> None:
     """Load ~/.sift/.env into the environment (the environment wins over the file)."""
-    for key, value in read_credentials(env_file).items():
-        if value is not None and key not in os.environ:
-            os.environ[key] = value
+    entries = read_credentials(env_file)
+    try:
+        for key, value in entries.items():
+            if value is not None and key not in os.environ:
+                os.environ[key] = value
+    except (ValueError, OSError):
+        # A NUL or an illegal variable name cannot enter the environment; the message names neither.
+        raise ConfigError(f"credentials file {_safe_path(env_file)} contains an invalid entry") from None
 
 
 def load_config(config_path: Optional[Path] = None, *, must_exist: bool = True) -> AppConfig:

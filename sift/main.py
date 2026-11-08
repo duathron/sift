@@ -54,7 +54,10 @@ def load_config(config_path: Optional[Path] = None, *, must_exist: bool = True):
 
 
 def _rich_path(path: Path) -> str:
-    """A path for a Rich-printed line: control characters escaped, then markup escaped."""
+    """A path for a Rich-printed line: control characters escaped, then markup escaped.
+
+    The print that shows it must also pass ``emoji=False``, or ``:skull:`` in a path becomes a glyph.
+    """
     from rich.markup import escape
 
     return escape(_safe_config_path(path))
@@ -2106,13 +2109,28 @@ def config_cmd(
         except OSError:
             raise _cannot_write("config", config_target) from None
 
+    # --- Config first, credentials second: a config save that fails after the pre-write check
+    # (disk full, quota) must not leave a credential written behind a failed run ---
+    if cfg_changed:
+        from sift.config import save_config as _save_config
+
+        try:
+            saved_path = _save_config(cfg, config_path)
+        except (OSError, ValueError):
+            raise _cannot_write("config", config_target) from None
+        shown_path = _rich_path(saved_path)
+        if config_is_new:
+            console.print(f"[green]✓[/green] created new config {shown_path}", emoji=False)
+        else:
+            console.print(f"[green]✓[/green] Config saved to {shown_path}", emoji=False)
+
     # --- Credentials (never written to config.yaml) ---
     if api_key is not None:
         try:
             env_path = save_credentials(api_key)
         except (OSError, ValueError):
             raise _cannot_write("credentials file", credentials_path()) from None
-        console.print(f"[green]✓[/green] API key saved to {_rich_path(env_path)}")
+        console.print(f"[green]✓[/green] API key saved to {_rich_path(env_path)}", emoji=False)
 
     if unset_api_key:
         try:
@@ -2139,20 +2157,7 @@ def config_cmd(
             env_path = save_ticket_token(ticket_token, _tp_name)
         except (OSError, ValueError):
             raise _cannot_write("credentials file", credentials_path()) from None
-        console.print(f"[green]✓[/green] Ticket token saved to {_rich_path(env_path)}")
-
-    if cfg_changed:
-        from sift.config import save_config as _save_config
-
-        try:
-            saved_path = _save_config(cfg, config_path)
-        except (OSError, ValueError):
-            raise _cannot_write("config", config_target) from None
-        shown_path = _rich_path(saved_path)
-        if config_is_new:
-            console.print(f"[green]✓[/green] created new config {shown_path}")
-        else:
-            console.print(f"[green]✓[/green] Config saved to {shown_path}")
+        console.print(f"[green]✓[/green] Ticket token saved to {_rich_path(env_path)}", emoji=False)
 
     # --- Show ---
     if show:

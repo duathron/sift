@@ -21,8 +21,8 @@ from pathlib import Path
 from pydantic import BaseModel
 from rich import box
 from rich.console import Console
-from rich.markup import escape as _markup_escape
 from rich.table import Table
+from rich.text import Text
 
 from .config import _MISSING_ERRNOS, ConfigError, _safe_path, _stat_config_file, read_credentials
 
@@ -428,7 +428,7 @@ def print_doctor_report(
         table.add_row(
             f"[{style}]{result.status.value}[/{style}]",
             result.name,
-            _markup_escape(result.message),
+            Text(result.message),  # plain text: no markup, no emoji shortcodes from a path
         )
         if result.status is CheckStatus.FAIL:
             has_fail = True

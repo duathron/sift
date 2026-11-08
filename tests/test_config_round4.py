@@ -510,7 +510,7 @@ def test_parent_that_became_a_symlink_before_the_open_is_refused(
 
 def test_existing_temp_name_is_never_overwritten_or_removed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config_mod.secrets, "token_hex", lambda _n: "fixed")
-    foreign = tmp_path / ".c.yaml.fixed.tmp"
+    foreign = tmp_path / ".sift-fixed.tmp"
     foreign.write_text("FOREIGN")
     with pytest.raises(FileExistsError):
         config_mod._write_private(tmp_path / "c.yaml", "data: 1\n")
@@ -821,9 +821,14 @@ def test_missing_errnos_are_exactly_the_not_there_cases() -> None:
     assert set(config_mod._MISSING_ERRNOS) == {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}
 
 
-def test_load_yaml_refuses_a_fifo_by_itself(tmp_path: Path) -> None:
+def test_load_yaml_refuses_a_fifo_by_itself(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fifo = tmp_path / "pipe.yaml"
     os.mkfifo(fifo)
+
+    def never(*_a, **_k):
+        raise AssertionError("open() was reached for a FIFO; it would block forever")
+
+    monkeypatch.setattr(config_mod, "open", never, raising=False)  # fail fast instead of hanging
     with pytest.raises(ConfigError, match="not a regular file"):
         config_mod._load_yaml(fifo)  # called directly: no earlier stat protects it
 

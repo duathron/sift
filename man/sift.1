@@ -487,9 +487,16 @@ or the defaults.
 A FIFO or a device such as
 .I /dev/null
 is not a regular file and is refused; use an empty file to mean "defaults only".
-Control and invisible characters in a path are printed as escapes.
+Control, format and line/paragraph-separator characters in a path are printed as escapes.
 .BR "sift doctor" ,
 which reads the same files, reports such a problem as a FAIL row (exit code 1) instead.
+.IP
+.B sift config
+writes into the directory it has opened once, so swapping that directory for a symlink after it was opened cannot redirect the write.
+A symlink or swap placed before then is followed, including by anyone who can write to an ancestor of an operator-named
+.B \-\-config
+path.
+Platforms without dir_fd, O_DIRECTORY or O_NOFOLLOW support (for example Windows) use a path-based write without this pinning.
 .
 .SH SEE ALSO
 .BR jq (1),
