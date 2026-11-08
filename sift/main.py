@@ -9,9 +9,10 @@ from __future__ import annotations
 import io as _io
 import logging
 import sys
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
 
 import typer
 import typer.core
@@ -20,7 +21,10 @@ from rich.markup import escape as _markup_escape
 
 from . import __version__
 from .banner import show_banner
-from .config import load_config
+from .config import ConfigError, check_credentials_target, check_write_target, credentials_path, default_config_path
+from .config import _ensure_app_dir as _ensure_config_dir
+from .config import _safe_path as _safe_config_path
+from .config import load_config as _load_config
 from .models import PipelineManifest, TriageReport
 
 app = typer.Typer(
@@ -29,8 +33,40 @@ app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
     rich_markup_mode="rich",
+    pretty_exceptions_show_locals=False,  # a traceback must never print config values or keys
 )
 console = Console(stderr=True)
+
+
+def load_config(config_path: Optional[Path] = None, *, must_exist: bool = True):
+    """Load the config; a config error is one value-free line on stderr and exit code 2.
+
+    ``must_exist=False`` is only for ``sift config``, where ``--config PATH`` may name a file
+    that is about to be created.
+
+    Exit 1 means "HIGH/CRITICAL cluster found" and must never mean "bad config".
+    """
+    try:
+        return _load_config(config_path, must_exist=must_exist)
+    except ConfigError as exc:
+        typer.echo(f"sift: {exc}", err=True)
+        raise typer.Exit(2) from None
+
+
+def _rich_path(path: Path) -> str:
+    """A path for a Rich-printed line: control characters escaped, then markup escaped.
+
+    The print that shows it must also pass ``emoji=False``, or ``:skull:`` in a path becomes a glyph.
+    """
+    from rich.markup import escape
+
+    return escape(_safe_config_path(path))
+
+
+def _cannot_write(what: str, path: Path) -> "typer.Exit":
+    """One value-free stderr line for a failed config or credentials write; exit code 2."""
+    typer.echo(f"sift: cannot write {what} {_safe_config_path(path)}", err=True)
+    return typer.Exit(2)
 
 
 # ---------------------------------------------------------------------------
@@ -371,7 +407,7 @@ def _print_triage_setup_status() -> None:
         from rich.text import Text
 
         _c = _Console()
-        cfg = load_config()
+        cfg = _load_config()  # help must not print a config error; the except below hides it
 
         key = cfg.summarize.api_key or ""
         key_line = (
@@ -546,7 +582,7 @@ def triage(
                 "inside it. Fix: also add that field to --redact-fields. "
                 "Phase 2 (value-scrub) closes both without manual enumeration. "
                 "IOC counts decrease when redaction is active (expected). "
-                "Forensic override: set redaction.redact_raw=true in config.yaml to "
+                "Forensic override: set redaction.keep_raw=true in config.yaml to "
                 "keep raw in output even when redaction is active."
             ),
             rich_help_panel="Privacy",
@@ -627,6 +663,7 @@ def triage(
         Optional[Path],
         typer.Option(
             "--config",
+            readable=False,  # an unreadable file is reported by the loader as one line, not click's panel
             help="Path to a custom config.yaml (default: ~/.sift/config.yaml).",
             show_default=False,
             hidden=True,
@@ -782,7 +819,7 @@ def triage(
                 from .pipeline.redaction import apply_redact_and_enrich
 
                 _fields = [f.strip() for f in _effective_redact.split(",") if f.strip()]
-                _keep_raw_forensic = cfg.redaction.redact_raw
+                _keep_raw_forensic = cfg.redaction.keep_raw
                 _deduped = [apply_redact_and_enrich(a, _fields, keep_raw=_keep_raw_forensic) for a in _deduped]
                 if drop_raw:
                     _deduped = [a.model_copy(update={"raw": {}}) for a in _deduped]
@@ -1237,13 +1274,13 @@ def triage(
         #   Ch1: raw blanked (→ not serialised into output)
         #   Ch2: raw blank means _collect_text_fields skips raw extraction
         #   Ch3: IOC entries matching redacted values dropped post-extraction
-        # keep_raw support: wire cfg.redaction.redact_raw as the forensic override
-        # (redact_raw=True keeps raw even when redaction is active).
+        # keep_raw support: wire cfg.redaction.keep_raw as the forensic override
+        # (keep_raw=True keeps raw even when redaction is active).
         if _effective_redact:
             fields_to_redact = [f.strip() for f in _effective_redact.split(",") if f.strip()]
             from .pipeline.redaction import apply_redact_and_enrich
 
-            _keep_raw_forensic = cfg.redaction.redact_raw  # True → forensic override, preserve raw
+            _keep_raw_forensic = cfg.redaction.keep_raw  # True → forensic override, preserve raw
             try:
                 alerts_for_clustering = [
                     apply_redact_and_enrich(a, fields_to_redact, keep_raw=_keep_raw_forensic)
@@ -1656,6 +1693,7 @@ def validate(
         Optional[Path],
         typer.Option(
             "--config",
+            readable=False,  # an unreadable file is reported by the loader as one line, not click's panel
             help="Path to a custom config.yaml.",
             show_default=False,
             hidden=True,
@@ -1759,6 +1797,7 @@ def metrics(
         Optional[Path],
         typer.Option(
             "--config",
+            readable=False,  # an unreadable file is reported by the loader as one line, not click's panel
             help="Path to config.yaml",
             show_default=False,
         ),
@@ -1864,7 +1903,7 @@ def metrics(
 def config_cmd(
     show: Annotated[bool, typer.Option("--show", help="Print current configuration as YAML.")] = False,
     config_path: Annotated[
-        Optional[Path], typer.Option("--config", show_default=False, help="Path to config.yaml.")
+        Optional[Path], typer.Option("--config", readable=False, show_default=False, help="Path to config.yaml.")
     ] = None,
     # --- Credentials (stored in ~/.sift/.env, never in config.yaml) ---
     api_key: Annotated[
@@ -2014,8 +2053,8 @@ def config_cmd(
     _VALID_PROVIDERS = {"template", "mock", "anthropic", "openai", "ollama"}
     _VALID_FORMATS = {"rich", "console", "json", "csv", "stix"}
 
-    cfg = load_config(config_path)
-    cfg_changed = False
+    # `sift config --config NEW.yaml --provider x` creates NEW.yaml; only a pure --show needs it to exist.
+    cfg = load_config(config_path, must_exist=show)
     rich_console = Console()
 
     # --- Validate inputs early ---
@@ -2031,48 +2070,34 @@ def config_cmd(
         console.print("[red]Error:[/red] --chunk-size must be >= 0.")
         raise typer.Exit(2)
 
-    # --- Credentials (never written to config.yaml) ---
-    if api_key is not None:
-        env_path = save_credentials(api_key)
-        console.print(f"[green]✓[/green] API key saved to {env_path}")
+    # --- Every setting flag is listed ONCE here ---
+    # The same table drives the pre-write refusal below and the assignments, so "will this run
+    # save the config?" cannot drift from "did this run change the config?".
+    settings: list[tuple[object, Callable[[Any], None]]] = [
+        (provider, lambda v: setattr(cfg.summarize, "provider", v)),
+        (model, lambda v: setattr(cfg.summarize, "model", v)),
+        (quiet, lambda v: setattr(cfg.output, "quiet", v)),
+        (default_format, lambda v: setattr(cfg.output, "default_format", v)),
+        (chunk_size, lambda v: setattr(cfg.clustering, "chunk_size", v)),
+        (cache, lambda v: setattr(cfg, "cache_enabled", v)),
+        (enrich_consent, lambda v: setattr(cfg.enrich, "consent_given", v)),
+        (
+            redact_fields_default,
+            lambda v: setattr(cfg.redaction, "fields", [f.strip() for f in v.split(",") if f.strip()]),
+        ),
+        (ticket_provider, lambda v: setattr(cfg.ticketing, "provider", v)),
+        (ticket_url, lambda v: setattr(cfg.ticketing, "url", v)),
+        (ticket_project, lambda v: setattr(cfg.ticketing, "project_key", v)),
+        (ticket_jira_email, lambda v: setattr(cfg.ticketing, "jira_email", v)),
+    ]
+    cfg_changed = any(value is not None for value, _ in settings)
+    for value, apply in settings:
+        if value is not None:
+            apply(value)
 
-    if unset_api_key:
-        removed = clear_credentials()
-        if removed:
-            console.print("[green]✓[/green] API key removed from ~/.sift/.env")
-        else:
-            console.print("[yellow]No API key found in ~/.sift/.env[/yellow]")
-
-    # --- Config fields ---
-    if provider is not None:
-        cfg.summarize.provider = provider
-        cfg_changed = True
-    if model is not None:
-        cfg.summarize.model = model
-        cfg_changed = True
-    if quiet is not None:
-        cfg.output.quiet = quiet
-        cfg_changed = True
-    if default_format is not None:
-        cfg.output.default_format = default_format
-        cfg_changed = True
-    if chunk_size is not None:
-        cfg.clustering.chunk_size = chunk_size
-        cfg_changed = True
-    if cache is not None:
-        cfg.cache_enabled = cache
-        cfg_changed = True
-    if enrich_consent is not None:
-        cfg.enrich.consent_given = enrich_consent
-        cfg_changed = True
-    if redact_fields_default is not None:
-        cfg.redaction.fields = [f.strip() for f in redact_fields_default.split(",") if f.strip()]
-        cfg_changed = True
-
-    # --- Ticketing credentials (stored in ~/.sift/.env, never config.yaml) ---
+    # --- Every refusal that can be decided up front happens BEFORE the first write ---
+    # A run that exits 2 on one of these changes neither config.yaml nor ~/.sift/.env.
     if ticket_token is not None:
-        from sift.config import save_ticket_token
-
         _tp_name = ticket_provider or cfg.ticketing.provider
         if not _tp_name or _tp_name == "dry-run":
             console.print(
@@ -2080,28 +2105,67 @@ def config_cmd(
                 "(or set a default first: sift config --ticket-provider thehive)."
             )
             raise typer.Exit(2)
-        env_path = save_ticket_token(ticket_token, _tp_name)
-        console.print(f"[green]✓[/green] Ticket token saved to {env_path}")
+    config_target = config_path or default_config_path()
+    config_is_new = False
+    if cfg_changed:
+        try:
+            if config_path is None:
+                _ensure_config_dir()  # as save_config does: a 0500 ~/.sift is healed before the check
+            config_is_new = check_write_target(config_target)
+        except ConfigError as exc:
+            typer.echo(f"sift: {exc}", err=True)
+            raise typer.Exit(2) from None
+        except OSError:
+            raise _cannot_write("config", config_target) from None
+    if api_key is not None or unset_api_key or ticket_token is not None:
+        try:
+            check_credentials_target(credentials_path())
+        except (ConfigError, OSError):
+            raise _cannot_write("credentials file", credentials_path()) from None
 
-    # --- Ticketing config fields ---
-    if ticket_provider is not None:
-        cfg.ticketing.provider = ticket_provider
-        cfg_changed = True
-    if ticket_url is not None:
-        cfg.ticketing.url = ticket_url
-        cfg_changed = True
-    if ticket_project is not None:
-        cfg.ticketing.project_key = ticket_project
-        cfg_changed = True
-    if ticket_jira_email is not None:
-        cfg.ticketing.jira_email = ticket_jira_email
-        cfg_changed = True
-
+    # --- Config first, credentials second. A config save that fails after the pre-checks (disk
+    # full, quota) then leaves no credential behind; a credentials write that fails after its
+    # pre-check leaves the config change applied and exits 2 ---
     if cfg_changed:
         from sift.config import save_config as _save_config
 
-        saved_path = _save_config(cfg, config_path)
-        console.print(f"[green]✓[/green] Config saved to {saved_path}")
+        try:
+            saved_path = _save_config(cfg, config_path)
+        except (OSError, ValueError):
+            raise _cannot_write("config", config_target) from None
+        shown_path = _rich_path(saved_path)
+        if config_is_new:
+            console.print(f"[green]✓[/green] created new config {shown_path}", emoji=False)
+        else:
+            console.print(f"[green]✓[/green] Config saved to {shown_path}", emoji=False)
+
+    # --- Credentials (never written to config.yaml) ---
+    if api_key is not None:
+        try:
+            env_path = save_credentials(api_key)
+        except (OSError, ValueError):
+            raise _cannot_write("credentials file", credentials_path()) from None
+        console.print(f"[green]✓[/green] API key saved to {_rich_path(env_path)}", emoji=False)
+
+    if unset_api_key:
+        try:
+            removed = clear_credentials()
+        except (OSError, ValueError):
+            raise _cannot_write("credentials file", credentials_path()) from None
+        if removed:
+            console.print("[green]✓[/green] API key removed from ~/.sift/.env")
+        else:
+            console.print("[yellow]No API key found in ~/.sift/.env[/yellow]")
+
+    # --- Ticketing credentials (stored in ~/.sift/.env, never config.yaml) ---
+    if ticket_token is not None:
+        from sift.config import save_ticket_token
+
+        try:
+            env_path = save_ticket_token(ticket_token, _tp_name)
+        except (OSError, ValueError):
+            raise _cannot_write("credentials file", credentials_path()) from None
+        console.print(f"[green]✓[/green] Ticket token saved to {_rich_path(env_path)}", emoji=False)
 
     # --- Show ---
     if show:

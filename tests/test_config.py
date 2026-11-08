@@ -5,7 +5,7 @@ refactored onto shipwright_kit.config without changing behavior. They cover:
   (a) defaults when no config file exists,
   (b) an explicit config_path wins over other candidates,
   (c) ~/.sift/config.yaml is used when present,
-  (d) ./config.yaml is the fallback,
+  (d) ./config.yaml is NOT read (only ~/.sift/config.yaml or --config),
   (e) the SIFT_LLM_KEY env var overrides summarize.api_key,
   (f) a ~/.sift/.env containing SIFT_LLM_KEY=... is honored (dotenv load).
 
@@ -69,12 +69,13 @@ def test_app_dir_config_used(app_dir: Path, tmp_path: Path, monkeypatch: pytest.
     assert cfg.clustering.time_window_minutes == 99
 
 
-def test_cwd_config_fallback(app_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # No explicit path, no ~/.sift/config.yaml -> ./config.yaml is the fallback.
+def test_cwd_config_is_ignored(app_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # ./config.yaml is NOT a fallback any more (a dropped file in an untrusted directory must not
+    # change behaviour); the detailed attacker-shaped case lives in test_config_hardening.py.
     monkeypatch.chdir(tmp_path)
     Path("config.yaml").write_text(yaml.dump({"output": {"default_format": "json"}}))
     cfg = load_config()
-    assert cfg.output.default_format == "json"
+    assert cfg.output.default_format != "json"
 
 
 def test_sift_llm_key_env_override(app_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

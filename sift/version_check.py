@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from shipwright_kit.config import app_dir
+
 from . import __version__
 
 _CACHE_FILE = Path.home() / ".sift" / "version_check.json"
@@ -69,6 +71,7 @@ def _load_cache() -> dict:
 
 def _save_cache(data: dict) -> None:
     try:
+        app_dir("sift", create=True)
         _CACHE_FILE.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         _CACHE_FILE.write_text(json.dumps(data))
     except Exception:

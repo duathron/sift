@@ -164,10 +164,10 @@ Exit codes:
 .RS 4
 .TP
 .B 0
-No critical clusters found.
+No HIGH or CRITICAL clusters found.
 .TP
 .B 1
-One or more critical clusters found.
+One or more HIGH or CRITICAL clusters found.
 .TP
 .B 2
 Error (bad input, missing file, parse failure).
@@ -460,18 +460,43 @@ Files larger than 500 MB are processed in batches of 100,000 alerts (sub-file ch
 Success.
 For
 .B sift triage
-this means no critical clusters were found.
+this means no HIGH or CRITICAL clusters were found.
 .TP
 .B 1
 .BR "sift triage" :
 one or more clusters with
+.B HIGH
+or
 .B CRITICAL
 priority were found.
 .BR "sift doctor" :
 at least one diagnostic check failed.
 .TP
 .B 2
-Error — bad input, missing file, parse failure, or invalid flag value.
+Error \(em bad input, missing file, parse failure, invalid flag value, or a configuration failure.
+A configuration failure is a
+.B \-\-config
+file that is missing, unreadable, not a regular file, not valid UTF\-8 or YAML, not a mapping of settings, or has invalid values,
+an unreadable \fI~/.sift/.env\fR, or a config or credentials file that
+.B sift config
+cannot write;
+sift prints one line on standard error, never the file contents, and does not fall back to
+.I ~/.sift/config.yaml
+or the defaults.
+.IP
+A FIFO or a device such as
+.I /dev/null
+is not a regular file and is refused; use an empty file to mean "defaults only".
+Control, format and line/paragraph-separator characters in a path are printed as escapes.
+.BR "sift doctor" ,
+which reads the same files, reports such a problem as a FAIL row (exit code 1) instead.
+.IP
+.B sift config
+writes into the directory it has opened once, so swapping that directory for a symlink after it was opened cannot redirect the write.
+A symlink or swap placed before then is followed, including by anyone who can write to an ancestor of an operator-named
+.B \-\-config
+path.
+Platforms without dir_fd, O_DIRECTORY or O_NOFOLLOW support (for example Windows) use a path-based write without this pinning.
 .
 .SH SEE ALSO
 .BR jq (1),
