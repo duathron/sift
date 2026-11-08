@@ -150,21 +150,35 @@ def test_no_module_under_sift_imports_click() -> None:
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 
+_WIDE = {"COLUMNS": "200"}
+
+
 def _usage_line(output: str) -> str:
-    plain = _ANSI.sub("", output)
-    for line in plain.splitlines():
+    """The whole usage statement, joined across wrapped lines, ANSI-free."""
+    lines = _ANSI.sub("", output).splitlines()
+    for i, line in enumerate(lines):
         if line.strip().startswith("Usage:"):
-            return line.strip()
-    raise AssertionError(f"no 'Usage:' line found in help output: {plain!r}")
+            parts = [line.strip()]
+            for cont in lines[i + 1 :]:
+                if not cont.strip():
+                    break
+                parts.append(cont.strip())
+            return " ".join(parts)
+    raise AssertionError(f"no 'Usage:' line found in help output: {output!r}")
 
 
 @pytest.mark.parametrize("name", _command_names())
 def test_usage_line_has_no_placeholder_token(name: str) -> None:
     """typer 0.27 prints a bare argument as `{files}...`; keep a plain metavar."""
-    usage = _usage_line(runner.invoke(app, [name, "--help"]).output)
+    usage = _usage_line(runner.invoke(app, [name, "--help"], env=_WIDE).output)
     assert "{" not in usage and "}" not in usage, usage
 
 
 def test_triage_usage_line_ends_with_files() -> None:
-    usage = _usage_line(runner.invoke(app, ["triage", "--help"]).output)
+    usage = _usage_line(runner.invoke(app, ["triage", "--help"], env=_WIDE).output)
     assert usage.endswith("FILES..."), usage
+
+
+def test_usage_line_joins_wrapped_continuation() -> None:
+    wrapped = " Usage: sift validate [OPTIONS]\n {FILES}...\n\n Validate alert files\n"
+    assert _usage_line(wrapped) == "Usage: sift validate [OPTIONS] {FILES}..."
