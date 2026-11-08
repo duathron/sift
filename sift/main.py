@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Annotated, Optional
 
 import typer
+import typer.core
 from rich.console import Console
 from rich.markup import escape as _markup_escape
 
@@ -398,9 +399,7 @@ def _print_triage_setup_status() -> None:
 def _triage_help_callback(ctx: "typer.Context", param: "typer.CallbackParam", value: bool) -> None:
     if not value or ctx.resilient_parsing:
         return
-    import click
-
-    click.echo(ctx.get_help())
+    typer.echo(ctx.get_help())
     _print_triage_setup_status()
     raise typer.Exit()
 
@@ -410,9 +409,7 @@ def _help_all_callback(ctx: "typer.Context", param: "typer.CallbackParam", value
         return
     for p in ctx.command.params:
         p.hidden = False
-    import click
-
-    click.echo(ctx.get_help())
+    typer.echo(ctx.get_help())
     _print_triage_setup_status()
     raise typer.Exit()
 
@@ -422,11 +419,24 @@ def _help_all_callback(ctx: "typer.Context", param: "typer.CallbackParam", value
 # ---------------------------------------------------------------------------
 
 
-@app.command(context_settings={"help_option_names": []})
+class _PlainUsageCommand(typer.core.TyperCommand):
+    """Keep `FILES...` in the usage line.
+
+    typer 0.27 wraps every required argument's metavar in braces (`{FILES...}`);
+    typer 0.24 prints it as given. Strip the braces so both read the same.
+    """
+
+    def collect_usage_pieces(self, ctx):  # type: ignore[no-untyped-def]
+        pieces = super().collect_usage_pieces(ctx)
+        return [p[1:-1] if p.startswith("{") and p.endswith("}") else p for p in pieces]
+
+
+@app.command(cls=_PlainUsageCommand, context_settings={"help_option_names": []})
 def triage(
     files: Annotated[
         list[Path],
         typer.Argument(
+            metavar="FILES...",
             help=(
                 "Alert files or directories to triage (JSON, NDJSON, Splunk JSON or NDJSON, CSV, Sysmon CSV, .log). "
                 "Pass multiple paths to correlate alerts across sources. "
@@ -1624,11 +1634,12 @@ def _render_output(
 # ---------------------------------------------------------------------------
 
 
-@app.command()
+@app.command(cls=_PlainUsageCommand)
 def validate(
     files: Annotated[
         list[Path],
         typer.Argument(
+            metavar="FILES...",
             help="Alert files or directories to validate (JSON, Splunk JSON, CSV). Use '-' for stdin.",
             show_default=False,
         ),
@@ -1719,11 +1730,12 @@ def doctor() -> None:
 # ---------------------------------------------------------------------------
 
 
-@app.command()
+@app.command(cls=_PlainUsageCommand)
 def metrics(
     file: Annotated[
         Path,
         typer.Argument(
+            metavar="FILE",
             help="Alert file to analyze (JSON, Splunk JSON, CSV). Use '-' for stdin.",
             show_default=False,
         ),
