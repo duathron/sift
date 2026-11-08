@@ -279,7 +279,7 @@ def _set(path: str, value):
     "mutate",
     [
         _set("scoring.thresholds.high", 51),
-        _set("redaction.redact_raw", True),
+        _set("redaction.keep_raw", True),
         _set("injection.enabled", False),
         _set("enrich.consent_given", True),
         _set("clustering.max_cluster_size", 7),

@@ -164,10 +164,10 @@ Exit codes:
 .RS 4
 .TP
 .B 0
-No critical clusters found.
+No HIGH or CRITICAL clusters found.
 .TP
 .B 1
-One or more critical clusters found.
+One or more HIGH or CRITICAL clusters found.
 .TP
 .B 2
 Error (bad input, missing file, parse failure).
@@ -463,21 +463,49 @@ Files larger than 500 MB are processed in batches of 100,000 alerts (sub-file ch
 Success.
 For
 .B sift triage
-this means no critical clusters were found.
+this means no HIGH or CRITICAL clusters were found.
 .TP
 .B 1
 .BR "sift triage" :
 one or more clusters with
+.B HIGH
+or
 .B CRITICAL
 priority were found.
 .BR "sift doctor" :
 at least one diagnostic check failed.
 .TP
+.B 2
+Error \(em bad input, missing file, parse failure, invalid flag value, or a configuration failure.
+A configuration failure is a
+.B \-\-config
+file that is missing, unreadable, not a regular file, not valid UTF\-8 or YAML, not a mapping of settings, or has invalid values,
+an unreadable \fI~/.sift/.env\fR, or a config or credentials file that
+.B sift config
+cannot write;
+sift prints one line on standard error, never the file contents, and does not fall back to
+.I ~/.sift/config.yaml
+or the defaults.
+.IP
+A FIFO or a device such as
+.I /dev/null
+is not a regular file and is refused; use an empty file to mean "defaults only".
+Control, format and line/paragraph-separator characters in a path are printed as escapes.
+.BR "sift doctor" ,
+which reads the same files, reports such a problem as a FAIL row (exit code 1) instead.
+.IP
+.B sift config
+writes into the directory it has opened once, so swapping that directory for a symlink after it was opened cannot redirect the write.
+A symlink or swap placed before then is followed, including by anyone who can write to an ancestor of an operator-named
+.B \-\-config
+path.
+Platforms without dir_fd, O_DIRECTORY or O_NOFOLLOW support (for example Windows) use a path-based write without this pinning.
+.TP
 .B 4
 .BR "sift triage \-\-summarize" :
 the requested LLM summary is unavailable, either because the provider failed or because the prompt guard could not remove an injection pattern from the prompt; no summary is produced and nothing is sent. The rest of the triage output is unchanged. Code 4 takes priority over 1: it is returned even when HIGH or CRITICAL clusters were found.
 A summary written without the alert text does not change the exit code and is not cached. Two cases exist.
-Every alert-derived fragment (title, user, host, IOC, cluster label, reason, technique) is cut to 1024 characters (and to 1024 characters after Unicode normalisation, so a character such as U+FDFA that expands to 18 is cut earlier) and marked " [\(el truncated by sift]" before it is scanned and sent; the AI summary sees only the beginning of a cut fragment and the run logs one info line with the number of cut fragments. The prompt is checked block by block plus the seams between blocks, never as one text of prompt size. Every cluster block is scanned on its own scan budget, which is proportional to the size of that block; all block budgets draw on one shared pool, and a cluster with a match that finds the pool empty is withheld as a whole. Known limits: about six crafted alerts (roughly 340 bytes) that share an IOC with a real alert can make that cluster's alert text withheld, and once many hostile clusters (about fifty) have drained the shared pool, every later cluster that has any match is withheld wholesale. Both cases are marked per cluster in every output (see below); clusters without a match are never affected. When one block runs out of budget, or a match in it cannot be isolated, only the alert text of that cluster is withheld: the report carries
+Every alert-derived fragment (title, user, host, IOC, cluster label, reason, technique) is cut to 1024 characters (and to 1024 characters after Unicode normalisation, so a character such as U+FDFA that expands to 18 is cut earlier) and marked " [\[u2026] truncated by sift]" before it is scanned and sent; the AI summary sees only the beginning of a cut fragment and the run logs one info line with the number of cut fragments. The prompt is checked block by block plus the seams between blocks, never as one text of prompt size. Every cluster block is scanned on its own scan budget, which is proportional to the size of that block; all block budgets draw on one shared pool, and a cluster with a match that finds the pool empty is withheld as a whole. Known limits: about six crafted alerts (roughly 340 bytes) that share an IOC with a real alert can make that cluster's alert text withheld, and once many hostile clusters (about fifty) have drained the shared pool, every later cluster that has any match is withheld wholesale. Both cases are marked per cluster in every output (see below); clusters without a match are never affected. When one block runs out of budget, or a match in it cannot be isolated, only the alert text of that cluster is withheld: the report carries
 .B summary_withheld_clusters
 (a count) and
 .B summary_withheld_cluster_ids
@@ -493,9 +521,6 @@ set to
 or
 .BR match_not_isolated .
 In every output sink the summary text of a degraded run (or of a withheld cluster) is not presented as a normal AI verdict: the text formats show a notice, STIX output omits the "AI Analysis Narrative" notes, and ticket drafts (including TheHive and Jira) use the template summary with no AI recommendations, start with "[AI summary unavailable: alert text withheld by the prompt guard]" and carry the reason in the evidence.
-.TP
-.B 2
-Error — bad input, missing file, parse failure, or invalid flag value.
 .
 .SH SEE ALSO
 .BR jq (1),

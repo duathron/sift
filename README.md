@@ -223,6 +223,8 @@ sift stores settings in `~/.sift/config.yaml` and credentials in `~/.sift/.env` 
 
 **Priority chain:** CLI flags > `SIFT_LLM_KEY` env var > `~/.sift/.env` > `~/.sift/config.yaml` > defaults
 
+> sift no longer reads a `config.yaml` from the current directory (it could come from an untrusted download). Use `~/.sift/config.yaml`, or pass a file explicitly with `--config`.
+
 ### Show current config
 
 ```bash
@@ -608,12 +610,12 @@ sift triage alerts.json --redact-fields source_ip,user,host
 sift config --redact-fields source_ip,user,host
 ```
 
-**Forensic override.** Setting `redaction.redact_raw: true` in `~/.sift/config.yaml` keeps `alert.raw` in the output even when `--redact-fields` is active — for forensic captures where the raw dict is needed despite redaction.
+**Forensic override.** Setting `redaction.keep_raw: true` in `~/.sift/config.yaml` keeps `alert.raw` in the output even when `--redact-fields` is active — for forensic captures where the raw dict is needed despite redaction. The key was called `redact_raw` before, and `redact_raw: true` meant keep raw output (the opposite of what the name suggests); the old name is still read (with a one-time notice) and `sift config` rewrites it as `keep_raw`.
 
 ```yaml
 # ~/.sift/config.yaml
 redaction:
-  redact_raw: true   # Keep raw in output for forensic captures (default: false = suppress raw)
+  keep_raw: true   # Keep raw in output for forensic captures (default: false = suppress raw)
 ```
 
 > **Security invariant:** sift never sends alert data to a cloud LLM without a redaction-config check.
@@ -757,7 +759,13 @@ A built-in prompt injection detector scans alert fields for five pattern categor
 | `2` | Error — invalid input or configuration failure |
 | `4` | Triage complete, but the requested LLM summary is unavailable (provider failure, or the prompt guard could not remove an injection pattern) — no summary is produced |
 
-Exit code `4` takes priority over `1`: a run with a failed LLM summary (or a prompt the guard could not clean) exits `4` even when HIGH or CRITICAL clusters were found, so a CI job keyed on exit `1` should treat `4` as "clusters may be elevated, read the report". Exit code `1` is designed for use in CI pipelines and automated response playbooks.
+Exit code `4` takes priority over `1`: a run with a failed LLM summary (or a prompt the guard could not clean) exits `4` even when HIGH or CRITICAL clusters were found, so a CI job keyed on exit `1` should treat `4` as "clusters may be elevated, read the report".
+
+A configuration or credentials failure (a `--config` file that is missing, unreadable, not a regular file, not valid UTF-8 or YAML, not a mapping of settings, or with invalid values; an unreadable `~/.sift/.env`; or a config or credentials file that `sift config` cannot write) prints one line on stderr (`sift: config file … is not valid YAML`) and exits `2`. The line never contains file contents, so an API key in a bad file is not echoed, and control, format and line/paragraph-separator characters in a path (terminal escapes, bidi overrides, zero-width and tag characters) are shown as escapes (`\x1b`, `\u202e`); other blank-looking characters such as a no-break space are printed as they are. A missing `--config` file is an error; sift does not fall back to `~/.sift/config.yaml` or defaults. An empty regular config file means defaults. Only a regular file is accepted: a FIFO or a device such as `/dev/null` is refused with exit `2` (it used to mean "ignore the home config"; pass an empty file for "defaults only").
+
+`sift doctor` reads the same files and never exits `2` for them: an unreadable or non-UTF-8 `~/.sift/.env` or config file is shown as a `FAIL` row with the same value-free text, and the command exits `1` ("a check failed"). `sift config` writes into the directory it has opened once, so swapping that directory for a symlink after it was opened cannot redirect the write. That protection starts at the moment the directory is opened: a symlink or swap placed before then is followed, including by anyone who can write to an ancestor of an operator-named `--config` path. A symlinked leaf (`config.yaml`, `.env`) is refused, while a symlinked `~/.sift` directory (for example one managed by a dotfiles tool) is followed. Platforms without `dir_fd`, `O_DIRECTORY` or `O_NOFOLLOW` support (for example Windows) use a path-based write without this pinning. When `sift config` saves both settings and a credential, the config is written first, so a failed config save never leaves a credential behind. Both targets are checked before anything is written, so a refused target (a symlinked `.env`, a missing `--ticket-provider` for `--ticket-token`) changes nothing. The config is saved before the credentials: a credentials write that still fails after that check (for example a full disk) leaves the config change applied and exits `2`.
+
+Exit code `1` is designed for use in CI pipelines and automated response playbooks.
 
 ---
 
