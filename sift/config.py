@@ -7,8 +7,9 @@ current directory is never loaded (it may come from an untrusted download).
 
 from __future__ import annotations
 
-import inspect
+import errno
 import os
+import stat
 import tempfile
 import warnings
 from pathlib import Path
@@ -26,6 +27,44 @@ _FILE_MODE = 0o600
 
 class ConfigError(Exception):
     """A config file could not be used. The message never contains file contents."""
+
+
+def _safe_path(path: Any) -> str:
+    """Render *path* for a one-line message: control characters become visible escapes.
+
+    A path comes from the operator (``--config``) and may hold ESC/BEL/CR/LF, C1 controls,
+    U+2028/2029 or undecodable bytes (lone surrogates). Printed raw they could retitle the
+    terminal or forge a second ``sift:`` line.
+    """
+    out: list[str] = []
+    for ch in str(path):
+        o = ord(ch)
+        if o < 0x20 or 0x7F <= o <= 0x9F or o in (0x2028, 0x2029) or 0xD800 <= o <= 0xDFFF:
+            out.append(f"\\x{o:02x}" if o < 0x100 else f"\\u{o:04x}")
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+_MISSING_ERRNOS = (errno.ENOENT, errno.ENOTDIR, errno.ELOOP)
+
+
+def _stat_config_file(path: Path, what: str) -> bool:
+    """True if *path* is a regular file, False if it does not exist; ConfigError otherwise.
+
+    One ``os.stat`` mapped by errno, so a permission or name-length failure is a ConfigError
+    on every Python version (``Path.exists`` raises on some and swallows on others), and a
+    FIFO or device is refused instead of blocking or reading forever.
+    """
+    try:
+        st = os.stat(path)
+    except OSError as exc:
+        if exc.errno in _MISSING_ERRNOS:
+            return False
+        raise ConfigError(f"{what} {_safe_path(path)} cannot be read") from None
+    if not stat.S_ISREG(st.st_mode):
+        raise ConfigError(f"{what} {_safe_path(path)} cannot be read (not a regular file)")
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -127,14 +166,15 @@ class AlertRedactionConfig(BaseModel):
             if not _LEGACY_REDACT_RAW_WARNED:
                 _LEGACY_REDACT_RAW_WARNED = True
                 # warn_explicit: no stacklevel lands on user code from inside pydantic's validator
-                # machinery, so name this module instead of a pydantic internal line.
+                # machinery, so name this module; lineno 0 keeps the notice to one stderr line.
                 warnings.warn_explicit(
                     "config key redaction.redact_raw is renamed to redaction.keep_raw "
                     "(redact_raw: true meant KEEP raw output, so it now reads keep_raw: true); "
-                    "the old name still works for now (run `sift config` to rewrite the file)",
+                    "the old name still works for now (edit the file, or run `sift config` with any setting flag "
+                    "to rewrite it)",
                     FutureWarning,
                     filename=__file__,
-                    lineno=inspect.currentframe().f_lineno,  # type: ignore[union-attr]
+                    lineno=0,  # 0 = no source line is quoted under the notice
                     module=__name__,
                 )
         return data
@@ -209,24 +249,26 @@ def _write_private(path: Path, text: str) -> None:
 def _load_yaml(path: Path) -> dict:
     # No cause is chained anywhere below: parser and decoder messages quote the offending
     # line or byte, which may hold a secret.
+    shown = _safe_path(path)
+    _stat_config_file(path, "config file")  # refuse a FIFO/device before open() can block
     try:
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
     except yaml.YAMLError:
-        raise ConfigError(f"config file {path} is not valid YAML") from None
+        raise ConfigError(f"config file {shown} is not valid YAML") from None
     except UnicodeDecodeError:
-        raise ConfigError(f"config file {path} is not valid UTF-8 text") from None
+        raise ConfigError(f"config file {shown} is not valid UTF-8 text") from None
     except OSError:
-        raise ConfigError(f"config file {path} cannot be read") from None
+        raise ConfigError(f"config file {shown} cannot be read") from None
     except (ValueError, RecursionError):
         # PyYAML leaks bare ValueError for e.g. an impossible date, RecursionError for deep nesting.
-        raise ConfigError(f"config file {path} is not valid YAML") from None
+        raise ConfigError(f"config file {shown} is not valid YAML") from None
     # An empty file or a bare `null` means "no settings" (defaults). Any other top level
     # that is not a mapping - including falsy ones such as [] 0 '' false - is an error.
     if data is None:
         return {}
     if not isinstance(data, dict):
-        raise ConfigError(f"config file {path} must be a mapping of settings at the top level")
+        raise ConfigError(f"config file {shown} must be a mapping of settings at the top level")
     return data
 
 
@@ -239,31 +281,45 @@ def _validate(data: dict) -> AppConfig:
         raise ConfigError(f"config has invalid settings: {bad}") from None
 
 
+def _load_credentials_file(env_file: Path) -> None:
+    """Load ~/.sift/.env into the environment; any problem is a value-free ConfigError."""
+    if not _stat_config_file(env_file, "credentials file"):
+        return
+    from dotenv import load_dotenv
+
+    shown = _safe_path(env_file)
+    try:
+        load_dotenv(env_file, override=False)
+    except UnicodeDecodeError:
+        raise ConfigError(f"credentials file {shown} is not valid UTF-8 text") from None
+    except (OSError, ValueError):
+        raise ConfigError(f"credentials file {shown} cannot be read") from None
+
+
 def load_config(config_path: Optional[Path] = None, *, must_exist: bool = True) -> AppConfig:
     """Load configuration from YAML with env var overrides.
 
     Priority: CLI flags > env vars > ~/.sift/.env > ~/.sift/config.yaml > defaults.
 
     An explicit *config_path* that does not exist raises ConfigError (``must_exist=False``
-    is for ``sift config``, whose ``--config`` may name a file about to be created).
+    is for ``sift config``, whose ``--config`` may name a file about to be created; such a
+    new file starts from the defaults, never from ``~/.sift/config.yaml``).
     """
-    if must_exist and config_path is not None and not config_path.exists():
-        # An explicit --config must never fall back silently to ~/.sift/config.yaml or defaults:
-        # a typo would drop the operator's redaction and provider settings without a word.
-        raise ConfigError(f"--config file not found: {config_path}")
+    chosen: Optional[Path] = None
+    if config_path is not None:
+        if _stat_config_file(config_path, "config file"):
+            chosen = config_path
+        elif must_exist:
+            # An explicit --config must never fall back silently to ~/.sift/config.yaml or defaults:
+            # a typo would drop the operator's redaction and provider settings without a word.
+            raise ConfigError(f"--config file not found: {_safe_path(config_path)}")
+    elif _stat_config_file(_APP_DIR / "config.yaml", "config file"):
+        chosen = _APP_DIR / "config.yaml"
 
     # Load credentials from ~/.sift/.env before reading SIFT_LLM_KEY from environment.
-    _env_file = _APP_DIR / ".env"
-    if _env_file.exists():
-        from dotenv import load_dotenv
+    _load_credentials_file(_APP_DIR / ".env")
 
-        load_dotenv(_env_file, override=False)
-
-    config = _resolve_config(
-        [config_path, _APP_DIR / "config.yaml"],
-        loader=_load_yaml,
-        validator=_validate,
-    )
+    config = _resolve_config([chosen], loader=_load_yaml, validator=_validate)
 
     # Env var overrides (includes values just loaded from ~/.sift/.env)
     llm_key = os.getenv("SIFT_LLM_KEY")
@@ -271,6 +327,38 @@ def load_config(config_path: Optional[Path] = None, *, must_exist: bool = True) 
         config.summarize.api_key = llm_key
 
     return config
+
+
+def default_config_path() -> Path:
+    return _APP_DIR / "config.yaml"
+
+
+def credentials_path() -> Path:
+    return _APP_DIR / ".env"
+
+
+def check_write_target(path: Path, *, create_parent: bool = False) -> bool:
+    """Check that *path* can receive a saved config; True if it will be newly created.
+
+    Raises ConfigError otherwise (symlink, non-regular file, missing or unwritable parent),
+    so the caller can refuse before any credential has been written.
+    """
+    shown = _safe_path(path)
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        st = None
+    except OSError:
+        raise ConfigError(f"cannot write config {shown}") from None
+    if st is not None:
+        if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+            raise ConfigError(f"cannot write config {shown}")
+    parent = path.parent
+    if create_parent and not os.path.lexists(parent):
+        return st is None  # ~/.sift is created on save
+    if not parent.is_dir() or not os.access(parent, os.W_OK | os.X_OK):
+        raise ConfigError(f"cannot write config {shown}")
+    return st is None
 
 
 def save_config(config: AppConfig, path: Optional[Path] = None) -> Path:

@@ -20,7 +20,8 @@ from rich.markup import escape as _markup_escape
 
 from . import __version__
 from .banner import show_banner
-from .config import ConfigError
+from .config import ConfigError, check_write_target, credentials_path, default_config_path
+from .config import _safe_path as _safe_config_path
 from .config import load_config as _load_config
 from .models import PipelineManifest, TriageReport
 
@@ -48,6 +49,12 @@ def load_config(config_path: Optional[Path] = None, *, must_exist: bool = True):
     except ConfigError as exc:
         typer.echo(f"sift: {exc}", err=True)
         raise typer.Exit(2) from None
+
+
+def _cannot_write(what: str, path: Path) -> "typer.Exit":
+    """One value-free stderr line for a failed config or credentials write; exit code 2."""
+    typer.echo(f"sift: cannot write {what} {_safe_config_path(path)}", err=True)
+    return typer.Exit(2)
 
 
 # ---------------------------------------------------------------------------
@@ -644,6 +651,7 @@ def triage(
         Optional[Path],
         typer.Option(
             "--config",
+            readable=False,  # an unreadable file is reported by the loader as one line, not click's panel
             help="Path to a custom config.yaml (default: ~/.sift/config.yaml).",
             show_default=False,
             hidden=True,
@@ -1673,6 +1681,7 @@ def validate(
         Optional[Path],
         typer.Option(
             "--config",
+            readable=False,  # an unreadable file is reported by the loader as one line, not click's panel
             help="Path to a custom config.yaml.",
             show_default=False,
             hidden=True,
@@ -1776,6 +1785,7 @@ def metrics(
         Optional[Path],
         typer.Option(
             "--config",
+            readable=False,  # an unreadable file is reported by the loader as one line, not click's panel
             help="Path to config.yaml",
             show_default=False,
         ),
@@ -1881,7 +1891,7 @@ def metrics(
 def config_cmd(
     show: Annotated[bool, typer.Option("--show", help="Print current configuration as YAML.")] = False,
     config_path: Annotated[
-        Optional[Path], typer.Option("--config", show_default=False, help="Path to config.yaml.")
+        Optional[Path], typer.Option("--config", readable=False, show_default=False, help="Path to config.yaml.")
     ] = None,
     # --- Credentials (stored in ~/.sift/.env, never in config.yaml) ---
     api_key: Annotated[
@@ -2049,13 +2059,46 @@ def config_cmd(
         console.print("[red]Error:[/red] --chunk-size must be >= 0.")
         raise typer.Exit(2)
 
+    # --- Refuse an unusable config target BEFORE any credential is written ---
+    will_save = any(
+        v is not None
+        for v in (
+            provider,
+            model,
+            quiet,
+            default_format,
+            chunk_size,
+            cache,
+            enrich_consent,
+            redact_fields_default,
+            ticket_provider,
+            ticket_url,
+            ticket_project,
+            ticket_jira_email,
+        )
+    )
+    config_target = config_path or default_config_path()
+    config_is_new = False
+    if will_save:
+        try:
+            config_is_new = check_write_target(config_target, create_parent=config_path is None)
+        except ConfigError as exc:
+            typer.echo(f"sift: {exc}", err=True)
+            raise typer.Exit(2) from None
+
     # --- Credentials (never written to config.yaml) ---
     if api_key is not None:
-        env_path = save_credentials(api_key)
+        try:
+            env_path = save_credentials(api_key)
+        except (OSError, ValueError):
+            raise _cannot_write("credentials file", credentials_path()) from None
         console.print(f"[green]✓[/green] API key saved to {env_path}")
 
     if unset_api_key:
-        removed = clear_credentials()
+        try:
+            removed = clear_credentials()
+        except (OSError, ValueError):
+            raise _cannot_write("credentials file", credentials_path()) from None
         if removed:
             console.print("[green]✓[/green] API key removed from ~/.sift/.env")
         else:
@@ -2098,7 +2141,10 @@ def config_cmd(
                 "(or set a default first: sift config --ticket-provider thehive)."
             )
             raise typer.Exit(2)
-        env_path = save_ticket_token(ticket_token, _tp_name)
+        try:
+            env_path = save_ticket_token(ticket_token, _tp_name)
+        except (OSError, ValueError):
+            raise _cannot_write("credentials file", credentials_path()) from None
         console.print(f"[green]✓[/green] Ticket token saved to {env_path}")
 
     # --- Ticketing config fields ---
@@ -2118,8 +2164,17 @@ def config_cmd(
     if cfg_changed:
         from sift.config import save_config as _save_config
 
-        saved_path = _save_config(cfg, config_path)
-        console.print(f"[green]✓[/green] Config saved to {saved_path}")
+        try:
+            saved_path = _save_config(cfg, config_path)
+        except (OSError, ValueError):
+            raise _cannot_write("config", config_target) from None
+        from rich.markup import escape
+
+        shown_path = escape(_safe_config_path(saved_path))
+        if config_is_new:
+            console.print(f"[green]✓[/green] created new config {shown_path}")
+        else:
+            console.print(f"[green]✓[/green] Config saved to {shown_path}")
 
     # --- Show ---
     if show:

@@ -758,7 +758,7 @@ A built-in prompt injection detector scans alert fields for five pattern categor
 | `1` | Triage complete — one or more HIGH or CRITICAL clusters found |
 | `2` | Error — invalid input, configuration failure, or LLM error |
 
-A configuration failure (a `--config` file that is missing, unreadable, not valid UTF-8 or YAML, not a mapping of settings, or with invalid values) prints one line on stderr (`sift: config file … is not valid YAML`) and exits `2`. The line never contains file contents, so an API key in a bad file is not echoed. A missing `--config` file is an error; sift does not fall back to `~/.sift/config.yaml` or defaults. An empty config file means defaults.
+A configuration or credentials failure (a `--config` file that is missing, unreadable, not a regular file, not valid UTF-8 or YAML, not a mapping of settings, or with invalid values; an unreadable `~/.sift/.env`; or a config or credentials file that `sift config` cannot write) prints one line on stderr (`sift: config file … is not valid YAML`) and exits `2`. The line never contains file contents, so an API key in a bad file is not echoed, and control characters in a path are shown as escapes (`\x1b`). A missing `--config` file is an error; sift does not fall back to `~/.sift/config.yaml` or defaults. An empty config file means defaults.
 
 Exit code `1` is designed for use in CI pipelines and automated response playbooks.
 
