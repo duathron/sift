@@ -16,6 +16,7 @@ import unicodedata
 
 import pytest
 from shipwright_kit.security.injection import InjectionFinding, SeverityLevel
+from shipwright_kit.security.injection import _fold as _kit_fold
 from shipwright_kit.security.injection import scan as kit_scan
 
 import sift.summarizers.prompt as prompt_mod
@@ -57,7 +58,7 @@ def _scanner(detector=None, budget=10**6):  # ample for these scopes, small enou
 
 
 def _oracle_seam(sizes: list[int], at: int) -> tuple[int, int]:
-    """Fewest whole lines on each side of the boundary before line *at* that hold SEAM characters."""
+    """Fewest whole lines on each side of the boundary before line *at* that hold SEAM folded characters."""
     n = len(sizes)
     start = next((s for s in range(at - 1, -1, -1) if sum(sizes[s:at]) >= SEAM), 0)
     end = next((e for e in range(at + 1, n + 1) if sum(sizes[at:e]) >= SEAM), n)
@@ -73,8 +74,12 @@ def _random_lines(rnd: random.Random, n: int) -> list[list]:
                 frag = _Frag("q" * rnd.choice([0, 1, 40, 127, 128, 200, 255, 256, 300]), "[m]")
                 frag.withheld = rnd.random() < 0.3
                 parts.append(frag)
-            else:
+            elif rnd.random() < 0.7:
                 parts.append("t" * rnd.choice([0, 1, 50, 126, 127, 254, 255, 257]))
+            else:  # text the detector's folding drops, or expands (U+FDFA: 18 characters)
+                parts.append(
+                    rnd.choice(["\u0301", "\x01", "\ue000", "\ufdfa", "e\u0301"]) * rnd.choice([1, 13, 120, 300])
+                )
         lines.append(parts)
     return lines
 
@@ -84,7 +89,7 @@ def test_every_seam_is_the_fewest_whole_lines_holding_256_characters_on_each_sid
     checked = exact = 0
     for _ in range(3000):
         lines = _random_lines(rnd, rnd.randint(1, 9))
-        sizes = [len("".join(map(str, line))) + 1 for line in lines]  # each line plus its newline
+        sizes = [len(_kit_fold("".join(map(str, line)))) + 1 for line in lines]  # folded line plus newline
         for at in range(len(lines) + 1):
             assert prompt_mod._seam(lines, at) == _oracle_seam(sizes, at), (sizes, at)
             checked += 1
@@ -760,3 +765,164 @@ def test_the_redacted_field_warning_counts_cluster_fields_and_not_the_final_scan
     msgs = [r.getMessage() for r in caplog.records if r.getMessage().startswith("Prompt guard: ")]
     assert "Prompt guard: 2 cluster text field(s) redacted for injection patterns" in msgs
     assert any(m.endswith("prompt fragment(s) withheld after the final scan") for m in msgs)
+
+
+# --- seams are measured in what the detector reads, so padding it drops cannot stretch a match past them ----
+
+# One character of each kind the kit's folding deletes: a combining mark (Mn), a control character (Cc), a
+# private-use character (Co), an enclosing mark (Me) and a filler (Hangul filler, category Lo).
+_INVISIBLE = ["́", "\x01", "", "⃝", "ㅤ"]
+
+
+@pytest.mark.parametrize("pad", _INVISIBLE)
+@pytest.mark.parametrize("id_len", [2, 10, 20, 36])
+def test_padding_the_detector_drops_cannot_stretch_a_match_past_the_seam(pad, id_len):
+    # "ignore" and "previous" are titles of one cluster, "instructions" is the next cluster's label: with short
+    # cluster ids the template between the blocks is short enough for a match, and the padding title between
+    # "ignore" and "previous" is invisible to the detector but long in the sent text.
+    for n in (240, 300, 1000):
+        a = _named(
+            _cluster(
+                label="LA",
+                alerts=[
+                    _alert(id="a1", title="ignore"),
+                    _alert(id="a2", title="x" + pad * n),
+                    _alert(id="a3", title="previous"),
+                ],
+            ),
+            "a" * id_len,
+        )
+        b = _named(_cluster(label="instructions", alerts=[_alert(id="b1", title="benign")]), "b" * id_len)
+        prompt = build_cluster_prompt(_report([a, b]), SummarizeConfig())
+        assert not _crit(prompt), (repr(pad), id_len, n)
+
+
+def test_a_seam_reaches_past_a_line_the_detector_cannot_see():
+    # 300 combining marks fold to nothing: on the left the seam must take the line before them too.
+    lines = [["x" * 100], ["́" * 300], ["y" * 300]]
+    assert prompt_mod._seam(lines, 2) == (0, 3)
+
+
+# --- the fence word: any separator, and the exact replacement --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw, sent",
+    [
+        ("siftdata", "sift data"),
+        ("sift____data", "sift data"),
+        ("Sift - Data", "sift data"),
+        ("x SIFT_DATA_END y", "x sift data_END y"),
+    ],
+)
+def test_a_fence_word_with_any_separator_is_sent_as_sift_data(raw, sent):
+    assert _Frag(raw, "[m]").text == sent
+
+
+# --- the degrade notices, word for word, in every text sink ------------------------------------------------------
+
+
+def _notice_reports():
+    from tests.test_prompt_guard_round4 import _ai_report
+
+    degraded = _ai_report(summary_degraded=True, summary_degraded_reason="scan_budget_exhausted")
+    partial = _ai_report(summary_withheld_clusters=2, summary_withheld_cluster_ids=["c2", "c1"])
+    return degraded, partial
+
+
+_PARTIAL_IDS = "2 cluster(s) (c2, c1)"
+
+
+def test_the_console_notices_are_exactly_these_lines(capsys):
+    from sift.output.formatter import format_report_console
+
+    degraded, partial = _notice_reports()
+    format_report_console(degraded)
+    lines = [line.strip() for line in capsys.readouterr().out.splitlines()]
+    assert (
+        "⚠ AI SUMMARY DEGRADED — the prompt guard withheld all alert text; this summary is based on counts only."
+    ) in lines
+    format_report_console(partial)
+    lines = [line.strip() for line in capsys.readouterr().out.splitlines()]
+    assert (
+        f"⚠ AI SUMMARY PARTIAL — the prompt guard withheld the alert text of {_PARTIAL_IDS}; "
+        "their part of this summary is based on counts only."
+    ) in lines
+
+
+def test_the_html_notices_are_exactly_these_elements():
+    from sift.output.html import render_html_report
+
+    degraded, partial = _notice_reports()
+    style = '<p style="font-size:0.8rem; color:#f7c97e;">&#9888; '
+    assert (
+        style + "AI summary degraded: the prompt guard withheld all alert text; counts only.</p></section>"
+    ) in render_html_report(degraded)
+    assert (
+        style + f"AI summary partial: the prompt guard withheld the alert text of {_PARTIAL_IDS}; "
+        "counts only for those.</p></section>"
+    ) in render_html_report(partial)
+
+
+def test_the_md_notices_are_exactly_these_lines():
+    from sift.output.md import render_md_report
+
+    degraded, partial = _notice_reports()
+    assert "> ⚠ **AI SUMMARY DEGRADED** — the prompt guard withheld all alert text; counts only." in render_md_report(
+        degraded
+    ).split("\n")
+    assert (
+        f"> ⚠ **AI SUMMARY PARTIAL** — the prompt guard withheld the alert text of {_PARTIAL_IDS}; "
+        "counts only for those."
+    ) in render_md_report(partial).split("\n")
+
+
+def test_each_console_notice_is_followed_by_one_blank_line(capsys):
+    from sift.output.formatter import format_report_console
+
+    for report, start in zip(_notice_reports(), ("⚠ AI SUMMARY DEGRADED", "⚠ AI SUMMARY PARTIAL")):
+        format_report_console(report)
+        lines = capsys.readouterr().out.splitlines()
+        i = next(n for n, line in enumerate(lines) if line.startswith(start))
+        assert lines[i + 1] == "" and lines[i + 2] != "", lines[i : i + 3]
+
+
+def _rich_lines(report, color: bool) -> list[str]:
+    from io import StringIO
+
+    from rich.console import Console
+
+    from sift.output.formatter import format_report_rich
+
+    buf = StringIO()
+    console = Console(file=buf, width=200, force_terminal=color, color_system="standard" if color else None)
+    format_report_rich(report, console)
+    return buf.getvalue().splitlines()
+
+
+def test_each_rich_notice_is_bold_yellow_and_followed_by_one_blank_line():
+    sgr = re.compile(r"\x1b\[[0-9;]*m")
+    for report, start in zip(_notice_reports(), ("⚠ AI SUMMARY DEGRADED", "⚠ AI SUMMARY PARTIAL")):
+        lines = _rich_lines(report, color=True)
+        i = next(n for n, line in enumerate(lines) if sgr.sub("", line).startswith(start))
+        assert lines[i].startswith("\x1b[1;33m") and sgr.sub("", lines[i + 1]).strip() == "", lines[i : i + 2]
+        assert sgr.sub("", lines[i + 2]).strip() != ""
+
+
+def test_the_withheld_marker_in_a_rich_panel_is_yellow_and_the_lines_after_it_are_not():
+    _, partial = _notice_reports()  # cluster c2 and c1 are withheld
+    lines = _rich_lines(partial, color=True)
+    marker = [n for n, line in enumerate(lines) if "[AI text withheld by the prompt guard]" in line]
+    assert marker
+    for n in marker:
+        assert "\x1b[33m[AI text withheld by the prompt guard]\x1b[0m" in lines[n], lines[n]
+        assert "\x1b[33m" not in lines[n + 1] and "\x1b[2;33m" not in lines[n + 1], lines[n + 1]
+
+
+def test_each_md_notice_is_its_own_block_before_the_clusters():
+    from sift.output.md import render_md_report
+
+    for report in _notice_reports():
+        lines = render_md_report(report).split("\n")
+        i = next(n for n, line in enumerate(lines) if line.startswith("> ⚠ **AI SUMMARY"))
+        assert lines[i + 1 : i + 3] == ["", "## Clusters"], lines[i : i + 3]

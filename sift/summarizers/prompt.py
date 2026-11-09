@@ -20,6 +20,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 from shipwright_kit.security.injection import PromptInjectionDetector as _TextDetector
+from shipwright_kit.security.injection import _fold as _detector_fold  # what the detector matches on
 
 from sift.config import SummarizeConfig
 from sift.models import TriageReport
@@ -499,11 +500,14 @@ _DEGRADED_TEXT = {
 
 # The whole-prompt check reads the prompt in pieces (the lines before the first cluster block, each block,
 # the lines after the last) and, at every boundary between two pieces, a seam: on each side of the boundary
-# the fewest whole lines that hold _SEAM_CHARS characters (or every line up to the start or end of the
-# prompt). So a match of at most _SEAM_CHARS characters lies inside one piece or inside the seam of a
-# boundary it crosses; the kit's CRITICAL patterns span about 110 characters at most. A seam is whole lines
-# of the prompt, so it never cuts a word, and every text scanned is exactly text that is sent. Nothing is
-# scanned as one text of prompt size.
+# the fewest whole lines that hold _SEAM_CHARS characters as the detector reads them (or every line up to
+# the start or end of the prompt). The detector matches on a folded copy that drops combining and enclosing
+# marks, control, format and private-use characters and fillers, so the seam is counted in that copy: text
+# the detector cannot see cannot stretch a match past it. So a match of at most _SEAM_CHARS folded
+# characters lies inside one piece or inside the seam of a boundary it crosses (the kit's CRITICAL patterns
+# that can cross a line span about 110 folded characters; an operator whitelist that blanks text can make a
+# span longer, which is the operator's choice). A seam is whole lines of the prompt, so it never cuts a
+# word, and every text scanned is exactly text that is sent. Nothing is scanned as one text of prompt size.
 _SEAM_CHARS = 256
 _INVARIANT_PASSES = 3
 
@@ -517,16 +521,16 @@ def _pieces(n_lines: int, blocks: list[_Block]) -> list[tuple[int, int]]:
 def _seam(lines: list[list], at: int) -> tuple[int, int]:
     """Line range around the boundary before line *at*.
 
-    On each side, the fewest whole lines that hold ``_SEAM_CHARS`` characters, newlines included (or all
-    lines up to the start or the end of the prompt).
+    On each side, the fewest whole lines that hold ``_SEAM_CHARS`` characters of the detector's folded copy,
+    newlines included (or all lines up to the start or the end of the prompt).
     """
     start, held = at, 0
     while start > 0 and held < _SEAM_CHARS:
         start -= 1
-        held += len(_render([lines[start]])) + 1
+        held += len(_detector_fold(_render([lines[start]]))) + 1
     end, held = at, 0
     while end < len(lines) and held < _SEAM_CHARS:
-        held += len(_render([lines[end]])) + 1
+        held += len(_detector_fold(_render([lines[end]]))) + 1
         end += 1
     return start, end
 
