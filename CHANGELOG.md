@@ -7,6 +7,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.1](https://github.com/duathron/sift/compare/v1.4.0...v1.4.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* isolate tests from the user's config and require shipwright-kit 0.12.1 ([#39](https://github.com/duathron/sift/issues/39)) ([4855125](https://github.com/duathron/sift/commit/485512520db5101e2842b6306db1fec6388dd5ef))
+* keep FILES in the triage usage line on typer 0.27 ([#55](https://github.com/duathron/sift/issues/55)) ([b00b2a6](https://github.com/duathron/sift/commit/b00b2a6642b960cd0a2e9f953b09dc94b762883f))
+* key the triage cache on every output-affecting option ([#41](https://github.com/duathron/sift/issues/41)) ([ad8d0db](https://github.com/duathron/sift/commit/ad8d0db66cb41ea6391fbe5b117d007e2e35fe67))
+* make domain and email extraction linear-time ([#45](https://github.com/duathron/sift/issues/45)) ([2021b07](https://github.com/duathron/sift/commit/2021b0783e46d9e1932e2b38be0fe74cd4e90cde))
+* redact cluster text in LLM prompts whenever redaction is configured ([#42](https://github.com/duathron/sift/issues/42)) ([ef5a35c](https://github.com/duathron/sift/commit/ef5a35c9dae39a96416f9b833c16ceba695cb242))
+* require barb-phish 1.8.1 or newer for the barb enrichment ([#56](https://github.com/duathron/sift/issues/56)) ([717c430](https://github.com/duathron/sift/commit/717c4303d3c4efe4c503a4ad0025e75edb08d242))
+* run barb from sift's own environment in a neutral directory and check its version ([#58](https://github.com/duathron/sift/issues/58)) ([8133c34](https://github.com/duathron/sift/commit/8133c3475851df42c688ee602a13f647a20b3004))
+* scan cluster text and the final prompt for injection, keep raw PowerShell blobs out of labels ([#43](https://github.com/duathron/sift/issues/43)) ([b19b8c7](https://github.com/duathron/sift/commit/b19b8c7488521e191f529db5c35c61e72da35296))
+* stop importing click directly so triage --help works on typer 0.27 ([#52](https://github.com/duathron/sift/issues/52)) ([37b87b9](https://github.com/duathron/sift/commit/37b87b940b32abffd87702d217489ada95040c3d))
+* stop reading config from the current directory, keep sift files private and rename redact_raw to keep_raw ([#44](https://github.com/duathron/sift/issues/44)) ([a406a07](https://github.com/duathron/sift/commit/a406a07ef91a1a61479579aaf2cb5d16116167c7))
+* use shipwright-kit's public matched_length instead of the private _fold ([#57](https://github.com/duathron/sift/issues/57)) ([546626c](https://github.com/duathron/sift/commit/546626c76a02430e0abd530548b7a4ea09bd5696))
+
 ## [1.4.0](https://github.com/duathron/sift/compare/v1.3.4...v1.4.0) (2026-07-05)
 
 
