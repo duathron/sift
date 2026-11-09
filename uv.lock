@@ -828,11 +828,11 @@ wheels = [
 
 [[package]]
 name = "shipwright-kit"
-version = "0.12.1"
+version = "0.12.3"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/59/ad/7731364f77ab6aa045345b621def850dd5da14b38131e435e10cf42da709/shipwright_kit-0.12.1.tar.gz", hash = "sha256:5840421247122c7c01d2d5a759f732bf1e52736b221f0244e7f1d9f2f5fe4d28", size = 36010, upload-time = "2026-11-04T18:44:18.753Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2e/68/e59318574709102fcabd0f7e8751a590ff9147656b5af2606212fccced5b/shipwright_kit-0.12.3.tar.gz", hash = "sha256:001545a6da34797b554124ebd8ebd55bcc3fc41faebcb533534d1064587124c3", size = 39095, upload-time = "2026-11-09T19:19:22.304Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f3/89/63af298545dbce64a0ea4d99b3d7c174ca7ea718d34a6d1b2b2e4cdc0b96/shipwright_kit-0.12.1-py3-none-any.whl", hash = "sha256:081a7a09f3ae6d3dc4603ba163c954ba910e80acb91902e6f30eae2c6739c6a9", size = 31531, upload-time = "2026-11-04T18:44:17.492Z" },
+    { url = "https://files.pythonhosted.org/packages/6a/2b/87b250857f4e589a1eb856447186a469a5aa1bb7ccf2af179e891b071718/shipwright_kit-0.12.3-py3-none-any.whl", hash = "sha256:4043edec45780cff6bf542db88ee4c78ac233dab0bd34ac1161e9d1ecf818cbf", size = 31796, upload-time = "2026-11-09T19:19:21.113Z" },
 ]
 
 [[package]]
@@ -890,7 +890,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "pyyaml", specifier = ">=6.0.1" },
     { name = "rich", specifier = ">=13.7.0" },
-    { name = "shipwright-kit", specifier = ">=0.12.1,<0.13.0" },
+    { name = "shipwright-kit", specifier = ">=0.12.3,<0.13.0" },
     { name = "typer", specifier = ">=0.12.0" },
 ]
 provides-extras = ["llm", "enrich", "all", "ticket"]

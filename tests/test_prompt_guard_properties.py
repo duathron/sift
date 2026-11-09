@@ -16,7 +16,7 @@ import unicodedata
 
 import pytest
 from shipwright_kit.security.injection import InjectionFinding, SeverityLevel
-from shipwright_kit.security.injection import _fold as _kit_fold
+from shipwright_kit.security.injection import matched_length as _kit_matched_length
 from shipwright_kit.security.injection import scan as kit_scan
 
 import sift.summarizers.prompt as prompt_mod
@@ -89,7 +89,7 @@ def test_every_seam_is_the_fewest_whole_lines_holding_256_characters_on_each_sid
     checked = exact = 0
     for _ in range(3000):
         lines = _random_lines(rnd, rnd.randint(1, 9))
-        sizes = [len(_kit_fold("".join(map(str, line)))) + 1 for line in lines]  # folded line plus newline
+        sizes = [_kit_matched_length("".join(map(str, line))) + 1 for line in lines]  # folded line plus newline
         for at in range(len(lines) + 1):
             assert prompt_mod._seam(lines, at) == _oracle_seam(sizes, at), (sizes, at)
             checked += 1
