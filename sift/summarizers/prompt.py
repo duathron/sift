@@ -578,17 +578,21 @@ def _pieces(n_lines: int, blocks: list[_Block]) -> list[tuple[int, int]]:
     return [(a, b) for a, b in ranges if b > a]
 
 
-def _seam_lines(lines: list[list], prev: tuple[int, int], nxt: tuple[int, int]) -> tuple[int, int]:
-    """Line range of the seam window between two neighbouring pieces (whole lines)."""
+def _seam_lines(lines: list[list], prev: tuple[int, int], nxt: tuple[int, int], *, scan: bool) -> tuple[int, int]:
+    """Line range of the seam window between two neighbouring pieces (whole lines).
+
+    Sized by the view the window is taken from (``scan`` or sent), so the whole lines always hold
+    at least as many characters of that view as the window does.
+    """
     start = prev[1]
     size = 0
     while start > prev[0] and size < _SEAM_CHARS:
         start -= 1
-        size += len(_render([lines[start]], scan=True)) + 1
+        size += len(_render([lines[start]], scan=scan)) + 1
     end = nxt[0]
     size = 0
     while end < nxt[1] and size < _SEAM_CHARS:
-        size += len(_render([lines[end]], scan=True)) + 1
+        size += len(_render([lines[end]], scan=scan)) + 1
         end += 1
     return start, end
 
@@ -639,7 +643,7 @@ def _first_violation(
             if found:
                 # A character window can cut a word ("act as dan" | "gerous"), so a hit counts only
                 # when the whole lines around the seam, which contain the window, still match.
-                a, b = _seam_lines(lines, pieces[k], pieces[k + 1])
+                a, b = _seam_lines(lines, pieces[k], pieces[k + 1], scan=not view)
                 whole = _render(lines[a:b], scan=not view)
                 found = scanner.crit(whole, mandatory=True)
                 if found:
