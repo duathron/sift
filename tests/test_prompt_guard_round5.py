@@ -7,6 +7,7 @@ module under test.
 from __future__ import annotations
 
 import logging
+import unicodedata
 from io import StringIO
 
 import pytest
@@ -161,9 +162,9 @@ def _spy_block_scans(monkeypatch):
 
     monkeypatch.setattr(prompt_mod, "_first_violation", violation)
 
-    def enforce(detector, lines, frags, blocks):
-        seen["total"] = len(prompt_mod._render(lines, scan=True).encode("utf-8"))  # before anything is withheld
-        return orig_enforce(detector, lines, frags, blocks)
+    def enforce(detector, lines, blocks):
+        seen["total"] = len(prompt_mod._render(lines).encode("utf-8"))  # before anything is withheld
+        return orig_enforce(detector, lines, blocks)
 
     monkeypatch.setattr(prompt_mod._TextDetector, "detect", detect)
     monkeypatch.setattr(prompt_mod, "_enforce_final_scan", enforce)
@@ -200,8 +201,10 @@ def test_an_unconstrained_pool_resolves_the_same_blocks_without_withholding(monk
 
 
 def _all_kinds_cluster(cid="k"):
+    # one alert that carries every fragment kind, and a split trio so that the block has a match
     alerts = [
         _alert(id="a1", title="KINDTITLE one", user="KINDUSER", host="KINDHOST"),
+        *(_alert(id=f"t{i}", title=t) for i, t in enumerate(_TRIO)),
     ]
     return _named(
         _cluster(
@@ -233,18 +236,6 @@ def test_a_block_local_withhold_replaces_every_fragment_kind(monkeypatch):
     assert prompt.count("[value withheld]") == 2  # user and host
 
 
-def test_a_block_whose_match_cannot_be_isolated_is_withheld_not_fatal(monkeypatch):
-    def not_isolated(*a, **k):
-        raise prompt_mod._NotIsolated
-
-    monkeypatch.setattr(prompt_mod, "_resolve_scope", not_isolated)
-    cfg = SummarizeConfig()
-    clusters = [*_benign_clusters(2), _named(_cluster(label="t", alerts=[_alert(title=t) for t in _TRIO]), "tt")]
-    prompt = build_cluster_prompt(_report(clusters), cfg)
-    assert cfg._prompt_withheld == ["tt"] and cfg._prompt_degraded is None
-    assert not _crit(prompt) and "Benign event 0" in prompt
-
-
 def test_a_match_in_fixed_template_text_of_a_block_sends_nothing(monkeypatch):
     orig = prompt_mod._TextDetector.detect
 
@@ -260,7 +251,8 @@ def test_a_match_in_fixed_template_text_of_a_block_sends_nothing(monkeypatch):
 
 def _padded_hostile(cid):
     pad = _alert(id=f"pad{cid}", title="lorem ipsum dolor sit amet " * 200)
-    return _named(_cluster(label=f"pad {cid}", alerts=[pad]), cid)
+    trio = [_alert(id=f"{cid}t{i}", title=t) for i, t in enumerate(_TRIO)]
+    return _named(_cluster(label=f"pad {cid}", alerts=[pad, *trio]), cid)
 
 
 def _big_blocks_only(monkeypatch):
@@ -291,7 +283,7 @@ def test_the_block_budget_formula_is_pinned_independent_of_its_constants(monkeyp
     monkeypatch.setattr(prompt_mod, "_BLOCK_SCAN_BYTES_BASE", 100)
     monkeypatch.setattr(prompt_mod, "_BLOCK_SCAN_FACTOR", 1)
     # base + factor * bytes * ceil(log2(fragments + 1))
-    for n_frags, rounds in [(0, 1), (1, 1), (2, 2), (3, 2), (4, 3), (7, 3), (8, 4)]:
+    for n_frags, rounds in [(1, 1), (2, 2), (3, 2), (4, 3), (7, 3), (8, 4)]:
         assert prompt_mod._block_budget(1000, n_frags) == 100 + 1000 * rounds, n_frags
 
 
@@ -305,19 +297,29 @@ def test_each_block_budget_is_asked_for_its_own_size_and_fragment_count(monkeypa
         calls.append((block_bytes, n_frags))
         return orig_budget(block_bytes, n_frags)
 
-    def enforce(detector, lines, frags, blocks):
-        seen.update(lines=lines, blocks=list(blocks))
-        return orig_enforce(detector, lines, frags, blocks)
+    def enforce(detector, lines, blocks):
+        # size in bytes of the NFKC form, and fragment count, of every block before anything is withheld
+        seen["blocks"] = [
+            (
+                len(unicodedata.normalize("NFKC", prompt_mod._render(lines[l0:l1])).encode("utf-8")),
+                sum(isinstance(part, prompt_mod._Frag) for parts in lines[l0:l1] for part in parts),
+            )
+            for l0, l1 in blocks
+        ]
+        seen["utf8"] = [len(prompt_mod._render(lines[l0:l1]).encode("utf-8")) for l0, l1 in blocks]
+        return orig_enforce(detector, lines, blocks)
 
     monkeypatch.setattr(prompt_mod, "_block_budget", budget)
     monkeypatch.setattr(prompt_mod, "_enforce_final_scan", enforce)
-    clusters = [_all_kinds_cluster("k1"), *_benign_clusters(2)]
+    wide = _named(
+        _cluster(label="ｗｉｄｅ ｌａｂｅｌ", alerts=[_alert(id=f"w{i}", title=t) for i, t in enumerate(_TRIO)]), "w"
+    )
+    clusters = [*_benign_clusters(1), _hostile_cluster(0), wide, *_benign_clusters(1, "Other event")]
     build_cluster_prompt(_report(clusters), SummarizeConfig())
-    blocks = seen["blocks"]
-    assert [n for _, n in calls] == [g1 - g0 for _, _, g0, g1 in blocks]
+    # one budget per block with a match (blocks 1 and 2), in block order, for that block's own size and count
+    assert calls == [seen["blocks"][1], seen["blocks"][2]]
     assert len({n for _, n in calls}) == 2  # two different fragment counts
-    for (size, _), (l0, l1, _, _) in zip(calls, blocks):
-        assert size == len(prompt_mod._render(seen["lines"][l0:l1], scan=True).encode("utf-8"))
+    assert seen["utf8"][2] > seen["blocks"][2][0]  # the fullwidth label: the cost is the NFKC form, not the sent bytes
 
 
 def test_the_block_warning_text_is_pinned(monkeypatch, caplog):
@@ -326,7 +328,7 @@ def test_the_block_warning_text_is_pinned(monkeypatch, caplog):
         build_cluster_prompt(_report([_padded_hostile("p1"), _padded_hostile("p2")]), SummarizeConfig())
     msgs = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
     assert (
-        "Prompt guard: all alert text of 2 cluster(s) withheld (scan budget exhausted or match not isolated in "
+        "Prompt guard: all alert text of 2 cluster(s) withheld (scan budget exhausted in "
         "that cluster); their part of the AI summary is based on counts only" in msgs
     ), msgs
 

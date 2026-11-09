@@ -89,13 +89,13 @@ def test_each_block_is_scanned_and_resolved_on_exactly_its_own_range(monkeypatch
     orig_resolve = prompt_mod._resolve_scope
     orig_detect = prompt_mod._TextDetector.detect
 
-    def enforce(detector, lines, frags, blocks):
-        seen.update(lines=lines, frags=frags, blocks=list(blocks))
-        return orig_enforce(detector, lines, frags, blocks)
+    def enforce(detector, lines, blocks):
+        seen.update(lines=lines, blocks=list(blocks))
+        return orig_enforce(detector, lines, blocks)
 
-    def resolve(scanner, scope_lines, scope_frags, found):
-        seen["resolve"].append((len(scope_lines), len(scope_frags)))
-        return orig_resolve(scanner, scope_lines, scope_frags, found)
+    def resolve(scanner, scope):
+        seen["resolve"].append((len(scope), len(prompt_mod._frags_of(scope))))
+        return orig_resolve(scanner, scope)
 
     def detect(self, value, *a, **k):
         if value.startswith("### Cluster "):
@@ -110,22 +110,26 @@ def test_each_block_is_scanned_and_resolved_on_exactly_its_own_range(monkeypatch
     prompt = build_cluster_prompt(_report(clusters), SummarizeConfig())
     assert not _crit(prompt)
 
-    lines, frags, blocks = seen["lines"], seen["frags"], seen["blocks"]
+    lines, blocks = seen["lines"], seen["blocks"]
+    frags = prompt_mod._frags_of(lines)
     assert lines[blocks[0][0] - 1] == [prompt_mod._FENCE_BEGIN]
     assert lines[blocks[-1][1]] == [prompt_mod._FENCE_END]
-    assert blocks[-1][3] == len(frags) and blocks[0][2] == 0
-    for (a0, a1, g0, g1), (b0, _, h0, _) in zip(blocks, blocks[1:]):
-        assert a1 == b0 and g1 == h0  # contiguous: no line and no fragment belongs to two blocks or none
-    for i, (l0, l1, _, _) in enumerate(blocks):
+    for (_, a1), (b0, _) in zip(blocks, blocks[1:]):
+        assert a1 == b0  # contiguous: no line belongs to two blocks or none
+    # every fragment is inside exactly one block
+    assert sum(len(prompt_mod._frags_of(lines[l0:l1])) for l0, l1 in blocks) == len(frags)
+    for i, (l0, l1) in enumerate(blocks):
         assert str(lines[l0][0]).startswith(f"### Cluster k{i} — ")
         assert lines[l1 - 1] == [""]
     # Benign blocks are never modified, so the exact text of each must have been scanned as one unit.
     for i in (0, 1, 2, 3, 6, 7):
-        l0, l1, _, _ = blocks[i]
-        text = prompt_mod._render(lines[l0:l1], scan=True)
+        l0, l1 = blocks[i]
+        text = prompt_mod._render(lines[l0:l1])
         assert text in seen["scans"], i
     # Matches were resolved inside their own blocks, never on the whole prompt.
-    hostile_sizes = {(blocks[i][1] - blocks[i][0], blocks[i][3] - blocks[i][2]) for i in (4, 5)}
+    hostile_sizes = {
+        (blocks[i][1] - blocks[i][0], len(prompt_mod._frags_of(lines[blocks[i][0] : blocks[i][1]]))) for i in (4, 5)
+    }
     assert seen["resolve"], "no block-phase resolve ran"
     assert (len(lines), len(frags)) not in seen["resolve"]
     assert set(seen["resolve"]) <= hostile_sizes, (seen["resolve"], hostile_sizes)
@@ -175,11 +179,11 @@ def test_with_budget_the_whole_prompt_match_is_isolated_without_a_global_degrade
     assert all(f"Benign event {i}" in prompt for i in range(20))
 
 
-# --- Skeptic F3: the sent value is checked too --------------------------------------------------
+# --- Skeptic F3: the sent value is what is checked -----------------------------------------------
 
 
 def _sent_view_only_detector(monkeypatch):
-    """The real kit folds NFKC, so scan view and sent view agree; simulate a detector that does not."""
+    """The real kit folds NFKC itself; this one does not and sees a match only in the ligature itself."""
     orig = prompt_mod._TextDetector.detect
 
     def detect(self, value, *a, **k):
@@ -194,28 +198,27 @@ def _ligature_clusters():
     return [*_benign_clusters(5), _named(_cluster(label="lig", alerts=[_alert(id="l", title="ﬁle dump")]), "lg")]
 
 
-def test_a_match_only_in_the_sent_value_degrades_with_match_not_isolated(monkeypatch, caplog):
+def test_a_match_that_only_the_sent_characters_make_is_withheld_where_it_is(monkeypatch):
+    # The detector reads exactly the text that is sent, so whatever it flags there is resolved like any
+    # other match: only the fragment that carries it is withheld.
     _sent_view_only_detector(monkeypatch)
     cfg = SummarizeConfig()
-    with caplog.at_level(logging.DEBUG):
-        prompt = build_cluster_prompt(_report(_ligature_clusters()), cfg)
-    assert cfg._prompt_degraded == "match_not_isolated"
-    assert "ﬁ" not in prompt and "Benign event" not in prompt
-    msgs = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
-    assert (
-        "Prompt guard: could not isolate the matching fragments - all alert text withheld, "
-        "the AI summary is based on counts only" in msgs
-    ), msgs
+    prompt = build_cluster_prompt(_report(_ligature_clusters()), cfg)
+    assert cfg._prompt_degraded is None and cfg._prompt_withheld == []
+    assert "ﬁ" not in prompt and "[title withheld]" in prompt
+    assert all(f"Benign event {i}" in prompt for i in range(5))
 
 
-def test_the_sent_value_check_is_not_subject_to_the_budget(monkeypatch):
+def test_without_any_budget_a_match_is_still_found_and_never_sent(monkeypatch):
+    # The first scan of every block is made whatever the budget; with an empty pool the block is withheld.
     monkeypatch.setattr(prompt_mod, "_SCAN_BYTES_BASE", 0)
     monkeypatch.setattr(prompt_mod, "_SCAN_BYTES_PER_PROMPT_BYTE", 0)
     _sent_view_only_detector(monkeypatch)
     cfg = SummarizeConfig()
     prompt = build_cluster_prompt(_report(_ligature_clusters()), cfg)
-    assert cfg._prompt_degraded == "match_not_isolated"  # mandatory scan: not "scan_budget_exhausted"
+    assert cfg._prompt_degraded is None and cfg._prompt_withheld == ["lg"]
     assert "ﬁ" not in prompt
+    assert all(f"Benign event {i}" in prompt for i in range(5))
 
 
 # --- Skeptic F3: _neutralise overlap guard ------------------------------------------------------

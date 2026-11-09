@@ -257,7 +257,7 @@ class TriageReport(BaseModel):
     summary_degraded: bool = False
     summary_degraded_reason: Optional[str] = None
     # Block-local variant: the guard withheld ALL alert text of only these clusters (their own scan
-    # budget ran out or their match could not be isolated); the other clusters' text was sent.
+    # budget ran out); the other clusters' text was sent.
     summary_withheld_clusters: int = 0
     summary_withheld_cluster_ids: list[str] = Field(default_factory=list)
     enrichment: Optional[EnrichmentContext] = None
