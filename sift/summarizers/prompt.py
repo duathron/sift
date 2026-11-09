@@ -527,6 +527,13 @@ def _resolve_scope(
         d1 = explain(base + d2, bool(d2), first)
         return d1 + d2
 
+    live = [f for f in scope_frags if id(f) not in settled]
+    if live and not conflicts(live):
+        # Nothing is left that keeps a match alive: *found* does not hold in this scope, so there is
+        # no culprit (the search below would otherwise name its last element without evidence).
+        for f in scope_frags:
+            f.withheld = id(f) in settled
+        return True
     while True:
         live = [f for f in scope_frags if id(f) not in settled]
         part = explain([], False, live) if live else []
@@ -630,8 +637,13 @@ def _first_violation(
             seam = texts[k][view][-_SEAM_CHARS:] + "\n" + texts[k + 1][view][:_SEAM_CHARS]
             found = scanner.crit(seam, mandatory=True)
             if found:
+                # A character window can cut a word ("act as dan" | "gerous"), so a hit counts only
+                # when the whole lines around the seam, which contain the window, still match.
                 a, b = _seam_lines(lines, pieces[k], pieces[k + 1])
-                return a, b, found, bool(view)
+                whole = _render(lines[a:b], scan=not view)
+                found = scanner.crit(whole, mandatory=True)
+                if found:
+                    return a, b, found, bool(view)
     return None
 
 
