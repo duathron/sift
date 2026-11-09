@@ -171,6 +171,9 @@ One or more HIGH or CRITICAL clusters found.
 .TP
 .B 2
 Error (bad input, missing file, parse failure).
+.TP
+.B 4
+The requested LLM summary is unavailable (provider failure, or the prompt guard could not remove an injection pattern); no summary is produced and nothing is sent. Code 4 takes priority over 1: it is returned even when elevated clusters were found.
 .RE
 .
 .SS validate
@@ -497,6 +500,27 @@ A symlink or swap placed before then is followed, including by anyone who can wr
 .B \-\-config
 path.
 Platforms without dir_fd, O_DIRECTORY or O_NOFOLLOW support (for example Windows) use a path-based write without this pinning.
+.TP
+.B 4
+.BR "sift triage \-\-summarize" :
+the requested LLM summary is unavailable, either because the provider failed or because the prompt guard could not remove an injection pattern from the prompt; no summary is produced and nothing is sent. The rest of the triage output is unchanged. Code 4 takes priority over 1: it is returned even when HIGH or CRITICAL clusters were found.
+A summary written without the alert text does not change the exit code and is not cached. Two cases exist.
+Every alert-derived fragment (title, user, host, IOC, cluster label, reason, technique) is cut to 1024 characters (and to 1024 characters after Unicode normalisation, so a character such as U+FDFA that expands to 18 is cut earlier) and marked " [\[u2026] truncated by sift]" before it is scanned and sent; the AI summary sees only the beginning of a cut fragment and the run logs one info line with the number of cut fragments. The prompt is checked block by block plus the seams between blocks, never as one text of prompt size. Every cluster block is scanned on its own scan budget, which is proportional to the size of that block; all block budgets draw on one shared pool, and a cluster with a match that finds the pool empty is withheld as a whole. Known limits: about six crafted alerts (roughly 340 bytes) that share an IOC with a real alert can make that cluster's alert text withheld, and once many hostile clusters (about fifty) have drained the shared pool, every later cluster that has any match is withheld wholesale. Both cases are marked per cluster in every output (see below); clusters without a match are never affected. When one block runs out of budget, only the alert text of that cluster is withheld: the report carries
+.B summary_withheld_clusters
+(a count) and
+.B summary_withheld_cluster_ids
+(the cluster ids), the text formats show an "AI SUMMARY PARTIAL" notice that names the withheld cluster ids and their exact count (the rich view also marks the cluster's panel instead of showing its narrative), and the cluster is logged as withheld. With
+.B \-\-filter
+the count and ids still include withheld clusters that the filter hides.
+When the whole-prompt scan runs out of its (global) budget, the log says "Prompt guard: scan budget exhausted - all alert text withheld, the AI summary is based on counts only"; when a match survives that scan and cannot be isolated, it says "Prompt guard: could not isolate the matching fragments - all alert text withheld, the AI summary is based on counts only". In both cases all alert text is withheld and the report carries
+.B summary_degraded
+with
+.B summary_degraded_reason
+set to
+.B scan_budget_exhausted
+or
+.BR match_not_isolated .
+In every output sink the summary text of a degraded run (or of a withheld cluster) is not presented as a normal AI verdict: the text formats show a notice, STIX output omits the "AI Analysis Narrative" notes, and ticket drafts (including TheHive and Jira) use the template summary with no AI recommendations, start with "[AI summary unavailable: alert text withheld by the prompt guard]" and carry the reason in the evidence.
 .
 .SH SEE ALSO
 .BR jq (1),

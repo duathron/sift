@@ -19,6 +19,7 @@ prioritizer.py is responsible for the final assignment.
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections import deque
 from datetime import datetime, timedelta
@@ -163,6 +164,23 @@ def _within_window(a: Alert, b: Alert, window: timedelta) -> bool:
 # ---------------------------------------------------------------------------
 
 
+_PS_ENCODED_RE = re.compile(r"ps_encoded:([A-Za-z0-9+/=]{16,})")
+
+
+def _scrub_ps_encoded(text: str) -> str:
+    """Replace a raw ``ps_encoded:<base64>`` blob in a label/reason with a size stub.
+
+    The raw value stays in ``Cluster.iocs`` (``--include-raw-payload`` needs it); label
+    and reason are display text that every output sink and the LLM prompt print.
+    """
+
+    def _stub(m: re.Match[str]) -> str:
+        payload = m.group(1)
+        return f"ps_encoded:[{len(payload.rstrip('=')) * 3 // 4} bytes redacted]"
+
+    return _PS_ENCODED_RE.sub(_stub, text)
+
+
 def _build_cluster(
     cluster_id: str,
     alerts: list[Alert],
@@ -172,6 +190,8 @@ def _build_cluster(
 ) -> Cluster:
     """Construct a Cluster from a list of member alerts."""
     first_seen, last_seen = _time_bounds(alerts)
+    label = _scrub_ps_encoded(label)
+    cluster_reason = _scrub_ps_encoded(cluster_reason)
     return Cluster(
         id=cluster_id,
         label=label,

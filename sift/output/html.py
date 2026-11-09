@@ -317,7 +317,19 @@ def render_html_report(report: "TriageReport") -> str:
             f'<p style="font-size:0.8rem; color:#888;">Overall priority: '
             f"{_priority_badge(overall)} &bull; "
             f"Provider: {_esc(s.provider)}</p>"
-            "</section>"
+            + (
+                '<p style="font-size:0.8rem; color:#f7c97e;">&#9888; AI summary degraded: '
+                "the prompt guard withheld all alert text; counts only.</p>"
+                if report.summary_degraded
+                else (
+                    '<p style="font-size:0.8rem; color:#f7c97e;">&#9888; AI summary partial: the prompt guard '
+                    f"withheld the alert text of {report.summary_withheld_clusters} cluster(s)"
+                    f"{_esc(report.summary_withheld_ids_text())}; counts only for those.</p>"
+                    if report.summary_withheld_clusters
+                    else ""
+                )
+            )
+            + "</section>"
         )
     elif report.summary_error:
         provider = _esc(report.summary_provider or "unknown")

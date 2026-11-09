@@ -8,6 +8,7 @@ from typing import Optional
 
 from rich import box
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -217,6 +218,19 @@ def _render_executive_summary(report: TriageReport, con: Console) -> None:
     )
 
 
+_DEGRADED_NOTICE = (
+    "⚠ AI SUMMARY DEGRADED — the prompt guard withheld all alert text; this summary is based on counts only."
+)
+
+
+def _partial_notice(report: TriageReport) -> str:
+    return (
+        "⚠ AI SUMMARY PARTIAL — the prompt guard withheld the alert text of "
+        f"{report.summary_withheld_clusters} cluster(s){report.summary_withheld_ids_text()}; "
+        "their part of this summary is based on counts only."
+    )
+
+
 def _render_summary_unavailable(report: TriageReport, con: Console) -> None:
     """Print a loud panel when a REQUESTED LLM summary failed (F2 cut-1).
 
@@ -288,15 +302,24 @@ def _render_cluster_detail(
     cluster: Cluster,
     cluster_summary: Optional[ClusterSummary],
     con: Console,
+    withheld: bool = False,
 ) -> None:
-    """Print a detail panel for a single cluster."""
+    """Print a detail panel for a single cluster.
+
+    *withheld*: the AI text for this cluster was written without its alert text (prompt guard); the
+    narrative and recommendations are replaced by a marker.
+    """
+    if withheld:
+        cluster_summary = None
     pri_style = priority_color(cluster.priority)
     title = f"[{pri_style}]{cluster.priority.icon} {cluster.priority.value}[/{pri_style}]  [bold]{cluster.label}[/bold]"
 
     lines: list[str] = []
 
     # Narrative
-    if cluster_summary and cluster_summary.narrative:
+    if withheld:
+        lines.append(f"[yellow]{escape('[AI text withheld by the prompt guard]')}[/yellow]")
+    elif cluster_summary and cluster_summary.narrative:
         lines.append(cluster_summary.narrative)
 
     # Cluster reason (if no narrative, or as supplement)
@@ -385,6 +408,12 @@ def format_report_rich(
     if report.summary:
         _render_executive_summary(report, con)
         con.print()
+        if report.summary_degraded:
+            con.print(f"[bold yellow]{_DEGRADED_NOTICE}[/bold yellow]")
+            con.print()
+        elif report.summary_withheld_clusters:
+            con.print(f"[bold yellow]{escape(_partial_notice(report))}[/bold yellow]")
+            con.print()
     elif report.summary_error:
         _render_summary_unavailable(report, con)
         con.print()
@@ -401,7 +430,7 @@ def format_report_rich(
     if detail_clusters:
         for cluster in detail_clusters:
             cluster_summary = _find_cluster_summary(report, cluster.id)
-            _render_cluster_detail(cluster, cluster_summary, con)
+            _render_cluster_detail(cluster, cluster_summary, con, withheld=report.summary_text_withheld(cluster.id))
             con.print()
 
     # (e) Manifest footer
@@ -436,6 +465,12 @@ def format_report_console(report: TriageReport) -> None:
     if report.summary_error and not report.summary:
         provider = report.summary_provider or "unknown"
         print(f"⚠ LLM SUMMARY UNAVAILABLE — provider '{provider}' failed: {report.summary_error}")
+        print()
+    elif report.summary_degraded:
+        print(_DEGRADED_NOTICE)
+        print()
+    elif report.summary_withheld_clusters:
+        print(_partial_notice(report))
         print()
 
     sorted_clusters = _sorted_clusters(report.clusters)
