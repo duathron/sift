@@ -20,7 +20,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 from shipwright_kit.security.injection import PromptInjectionDetector as _TextDetector
-from shipwright_kit.security.injection import _fold as _detector_fold  # what the detector matches on
+from shipwright_kit.security.injection import matched_length as _matched_length  # shortest fold the detector scans
 
 from sift.config import SummarizeConfig
 from sift.models import TriageReport
@@ -521,16 +521,16 @@ def _pieces(n_lines: int, blocks: list[_Block]) -> list[tuple[int, int]]:
 def _seam(lines: list[list], at: int) -> tuple[int, int]:
     """Line range around the boundary before line *at*.
 
-    On each side, the fewest whole lines that hold ``_SEAM_CHARS`` characters of the detector's folded copy,
+    On each side, the fewest whole lines that hold ``_SEAM_CHARS`` characters of the detector's shortest folded copy,
     newlines included (or all lines up to the start or the end of the prompt).
     """
     start, held = at, 0
     while start > 0 and held < _SEAM_CHARS:
         start -= 1
-        held += len(_detector_fold(_render([lines[start]]))) + 1
+        held += _matched_length(_render([lines[start]])) + 1
     end, held = at, 0
     while end < len(lines) and held < _SEAM_CHARS:
-        held += len(_detector_fold(_render([lines[end]]))) + 1
+        held += _matched_length(_render([lines[end]])) + 1
         end += 1
     return start, end
 
