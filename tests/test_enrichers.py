@@ -21,6 +21,8 @@ from sift.models import (
     TriageReport,
 )
 
+_BARB_VERSION = "sift.enrichers.barb_bridge._installed_barb_version"
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -155,15 +157,15 @@ class TestBarbBridgeEnrich:
         mock_result.stdout = barb_output
         mock_result.stderr = ""
 
-        with patch("shutil.which", return_value="/usr/bin/barb"), patch("subprocess.run", return_value=mock_result):
+        with patch(_BARB_VERSION, return_value="1.8.1"), patch("subprocess.run", return_value=mock_result):
             bridge = BarbBridge()
             results = bridge.enrich(["https://phish.com"])
 
         assert len(results) == 1
         assert results[0]["verdict"] == "PHISHING"
 
-    def test_barb_not_in_path_returns_error_dict(self):
-        with patch("shutil.which", return_value=None):
+    def test_barb_not_installed_returns_error_dict(self):
+        with patch(_BARB_VERSION, return_value=None):
             bridge = BarbBridge()
             results = bridge.enrich(["https://phish.com"])
 
@@ -172,7 +174,7 @@ class TestBarbBridgeEnrich:
 
     def test_subprocess_timeout_returns_error_dict(self):
         with (
-            patch("shutil.which", return_value="/usr/bin/barb"),
+            patch(_BARB_VERSION, return_value="1.8.1"),
             patch(
                 "subprocess.run",
                 side_effect=subprocess.TimeoutExpired(cmd="barb", timeout=15),
@@ -190,7 +192,7 @@ class TestBarbBridgeEnrich:
         mock_result.stdout = "not valid json {"
         mock_result.stderr = ""
 
-        with patch("shutil.which", return_value="/usr/bin/barb"), patch("subprocess.run", return_value=mock_result):
+        with patch(_BARB_VERSION, return_value="1.8.1"), patch("subprocess.run", return_value=mock_result):
             bridge = BarbBridge()
             results = bridge.enrich(["https://phish.com"])
 
@@ -202,7 +204,7 @@ class TestBarbBridgeEnrich:
         mock_result.stdout = ""
         mock_result.stderr = "barb crashed"
 
-        with patch("shutil.which", return_value="/usr/bin/barb"), patch("subprocess.run", return_value=mock_result):
+        with patch(_BARB_VERSION, return_value="1.8.1"), patch("subprocess.run", return_value=mock_result):
             bridge = BarbBridge()
             results = bridge.enrich(["https://phish.com"])
 
@@ -216,7 +218,7 @@ class TestBarbBridgeEnrich:
         mock_result.stderr = ""
 
         with (
-            patch("shutil.which", return_value="/usr/bin/barb"),
+            patch(_BARB_VERSION, return_value="1.8.1"),
             patch("subprocess.run", return_value=mock_result) as mock_run,
         ):
             bridge = BarbBridge()

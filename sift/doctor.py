@@ -147,9 +147,15 @@ def _check_llm_ollama() -> CheckResult:
 
 
 def _check_enrich_barb() -> CheckResult:
-    """Check whether the barb-phish package (module: barb) is installed."""
+    """Check that barb-phish is installed and recent enough for the enrich bridge."""
     if _check_importable("barb"):
-        return CheckResult(name="Enrichment: barb", status=CheckStatus.PASS)
+        from sift.enrichers.barb_bridge import _installed_barb_version, barb_unavailable_reason
+
+        version = _installed_barb_version()
+        reason = barb_unavailable_reason(version)
+        if reason is not None:
+            return CheckResult(name="Enrichment: barb", status=CheckStatus.WARN, message=reason)
+        return CheckResult(name="Enrichment: barb", status=CheckStatus.PASS, message=f"barb-phish {version}")
     return CheckResult(
         name="Enrichment: barb",
         status=CheckStatus.WARN,
