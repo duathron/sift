@@ -2,14 +2,91 @@
 
 barb is called via subprocess to avoid internal API coupling. The bridge
 filters to URL/domain IOCs and parses the JSON output of `barb analyze`.
+
+Hardening (barb <= 1.8.0 read ``./config.yaml`` from the current directory, so
+a planted file could downgrade a verdict):
+
+* barb runs from *sift's own environment* (``sys.executable -I -m barb``), never
+  from whatever ``barb`` is first on ``PATH``.
+* the installed ``barb-phish`` must be >= 1.8.1; below that (or missing) the
+  enrichment is skipped with a warning and a marked error result. There is no
+  fallback to ``PATH``.
+* the child runs in a fresh, empty temporary directory (a stdlib
+  ``tempfile.TemporaryDirectory``, cleaned up by the stdlib), not in the
+  analyst's working directory.
+* the child's environment drops every ``PYTHON*`` variable (``PYTHONPATH``,
+  ``PYTHONHOME``, ``PYTHONSTARTUP``, ...); ``-I`` ignores them as well and also
+  keeps the working directory and user site out of ``sys.path``. All other
+  variables (HOME, ``BARB_*``, proxies) are passed through on purpose.
 """
 
 from __future__ import annotations
 
+import functools
 import ipaddress
 import json
-import shutil
+import logging
+import os
+import re
 import subprocess
+import sys
+import tempfile
+
+logger = logging.getLogger(__name__)
+
+# First barb-phish release that no longer reads ./config.yaml from the CWD.
+_MIN_BARB_VERSION = (1, 8, 1)
+_MIN_BARB_VERSION_TEXT = "1.8.1"
+_UPGRADE_HINT = "pip install -U 'sift-triage[enrich]'"
+
+
+@functools.cache
+def _installed_barb_version() -> str | None:
+    """Return the barb-phish version the *child* will run, or None.
+
+    Probed in an ``-I`` child with the same environment as the real call, so a
+    ``PYTHONPATH``/user-site shadow cannot make the gate see a different
+    barb-phish than the one ``python -I -m barb`` actually executes. Cached once
+    per process.
+    """
+    code = "import importlib.metadata as m; print(m.version('barb-phish'))"
+    try:
+        with tempfile.TemporaryDirectory(prefix="sift-barb-") as neutral_cwd:
+            r = subprocess.run(
+                [sys.executable, "-I", "-c", code],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=neutral_cwd,
+                env=_child_env(),
+            )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    out = r.stdout.strip()
+    return out if r.returncode == 0 and out else None
+
+
+def barb_unavailable_reason(version: str | None) -> str | None:
+    """Return why *version* is unusable, or None if it meets the minimum.
+
+    Pre-release / unparsable versions are treated as outdated (fail closed).
+    """
+    if version is None:
+        return f"barb-phish is not installed ({_UPGRADE_HINT})"
+    m = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version)
+    if m is None or tuple(int(g) for g in m.groups()) < _MIN_BARB_VERSION:
+        return f"barb-phish {version} is older than {_MIN_BARB_VERSION_TEXT} ({_UPGRADE_HINT})"
+    return None
+
+
+def _barb_command() -> list[str]:
+    """argv prefix that runs barb from this interpreter's environment."""
+    return [sys.executable, "-I", "-m", "barb"]
+
+
+def _child_env() -> dict[str, str]:
+    """Environment for the barb child: inherited minus every ``PYTHON*`` var."""
+    return {k: v for k, v in os.environ.items() if not k.startswith("PYTHON")}
 
 
 class BarbBridge:
@@ -20,8 +97,9 @@ class BarbBridge:
     """
 
     def __init__(self) -> None:
-        self._barb_bin: str | None = shutil.which("barb")
-        self.available: bool = self._barb_bin is not None
+        self.version: str | None = _installed_barb_version()
+        self.unavailable_reason: str | None = barb_unavailable_reason(self.version)
+        self.available: bool = self.unavailable_reason is None
 
     @property
     def name(self) -> str:
@@ -71,13 +149,15 @@ class BarbBridge:
 
     def enrich(self, iocs: list[str]) -> list[dict]:
         """Enrich URL/domain IOCs via barb CLI. Returns one dict per IOC."""
-        if not self.available:
-            return [{"ioc": ioc, "error": "barb not installed"} for ioc in iocs]
-
         url_iocs = [i for i in iocs if self.can_enrich(i)]
+        if not self.available:
+            if url_iocs:
+                logger.warning("barb enrichment skipped: %s", self.unavailable_reason)
+            return [{"ioc": ioc, "error": f"barb unavailable/outdated: {self.unavailable_reason}"} for ioc in url_iocs]
+
         results: list[dict] = []
         for ioc in url_iocs:
-            results.append(_call_barb_cli(ioc, self._barb_bin))
+            results.append(_call_barb_cli(ioc))
         return results
 
 
@@ -86,17 +166,17 @@ class BarbBridge:
 # ---------------------------------------------------------------------------
 
 
-def _call_barb_cli(ioc: str, barb_bin: str | None = None) -> dict:
-    bin_path = barb_bin or shutil.which("barb")
-    if not bin_path:
-        return {"ioc": ioc, "error": "barb not found in PATH"}
+def _call_barb_cli(ioc: str) -> dict:
     try:
-        result = subprocess.run(
-            [bin_path, "analyze", "-o", "json", "-q", "--", ioc],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
+        with tempfile.TemporaryDirectory(prefix="sift-barb-") as neutral_cwd:
+            result = subprocess.run(
+                [*_barb_command(), "analyze", "-o", "json", "-q", "--", ioc],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                cwd=neutral_cwd,
+                env=_child_env(),
+            )
         if result.stdout.strip():
             parsed = json.loads(result.stdout)
             if not isinstance(parsed, dict):

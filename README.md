@@ -475,6 +475,8 @@ sift triage alerts.json --enrich vex
 sift triage alerts.json --enrich all --yes
 ```
 
+barb always runs from sift's own Python environment (`python -I -m barb`), never from a `barb` found on `PATH`: install `sift-triage[enrich]` into the same environment as sift. A PATH-only barb is no longer used. The minimum is `barb-phish` 1.8.1 (older versions read a `config.yaml` from the working directory and could be steered by a planted file); with a missing or older barb, sift skips barb enrichment, prints a warning and marks the results "barb unavailable/outdated". barb is run in an empty temporary working directory, so files in the directory where you run sift have no effect on it. `sift doctor` shows the barb-phish version found.
+
 sift limits enrichment to 20 IOCs per run to avoid API rate limits.
 
 ---

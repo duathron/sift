@@ -72,9 +72,9 @@ _URL_ALERT = [
 def test_external_enrichment_is_never_replayed(tmp_path, monkeypatch):
     src = tmp_path / "url.json"
     src.write_text(json.dumps(_URL_ALERT))
-    empty = tmp_path / "empty_bin"
-    empty.mkdir()
-    monkeypatch.setenv("PATH", str(empty))
+    import sift.enrichers.barb_bridge as bb
+
+    monkeypatch.setattr(bb, "_installed_barb_version", lambda: None)
     r1 = _run(str(src), "-f", "json", "--enrich", "barb", "-y")
     assert "STUBVERDICT" not in r1.stdout
 
@@ -83,7 +83,8 @@ def test_external_enrichment_is_never_replayed(tmp_path, monkeypatch):
     stub = stub_dir / "barb"
     stub.write_text('#!/bin/sh\necho \'{"ioc": "x", "verdict": "STUBVERDICT"}\'\n')
     stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
-    monkeypatch.setenv("PATH", str(stub_dir))
+    monkeypatch.setattr(bb, "_installed_barb_version", lambda: "1.8.1")
+    monkeypatch.setattr(bb, "_barb_command", lambda: [str(stub)])
     r2 = _run(str(src), "-f", "json", "--enrich", "barb", "-y")
     assert "Cache hit" not in r2.stderr
     assert "STUBVERDICT" in r2.stdout
