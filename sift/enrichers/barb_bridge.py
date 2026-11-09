@@ -22,7 +22,7 @@ a planted file could downgrade a verdict):
 
 from __future__ import annotations
 
-import importlib.metadata
+import functools
 import ipaddress
 import json
 import logging
@@ -40,12 +40,30 @@ _MIN_BARB_VERSION_TEXT = "1.8.1"
 _UPGRADE_HINT = "pip install -U 'sift-triage[enrich]'"
 
 
+@functools.cache
 def _installed_barb_version() -> str | None:
-    """Return the barb-phish version installed in this environment, or None."""
+    """Return the barb-phish version the *child* will run, or None.
+
+    Probed in an ``-I`` child with the same environment as the real call, so a
+    ``PYTHONPATH``/user-site shadow cannot make the gate see a different
+    barb-phish than the one ``python -I -m barb`` actually executes. Cached once
+    per process.
+    """
+    code = "import importlib.metadata as m; print(m.version('barb-phish'))"
     try:
-        return importlib.metadata.version("barb-phish")
-    except importlib.metadata.PackageNotFoundError:
+        with tempfile.TemporaryDirectory(prefix="sift-barb-") as neutral_cwd:
+            r = subprocess.run(
+                [sys.executable, "-I", "-c", code],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=neutral_cwd,
+                env=_child_env(),
+            )
+    except (OSError, subprocess.SubprocessError):
         return None
+    out = r.stdout.strip()
+    return out if r.returncode == 0 and out else None
 
 
 def barb_unavailable_reason(version: str | None) -> str | None:

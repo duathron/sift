@@ -168,11 +168,31 @@ class TestVersionGate:
         with patch(_VERSION, return_value="1.8.1"):
             assert BarbBridge().available is True
 
-    def test_installed_version_lookup_missing_returns_none(self):
-        import importlib.metadata as md
+    def test_probe_returns_none_when_child_fails(self):
+        failed = MagicMock(returncode=1, stdout="", stderr="No module")
+        with patch("subprocess.run", return_value=failed):
+            assert barb_bridge._installed_barb_version.__wrapped__() is None
 
-        with patch("importlib.metadata.version", side_effect=md.PackageNotFoundError):
-            assert barb_bridge._installed_barb_version() is None
+    def test_probe_runs_isolated_child_with_clean_env(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("PYTHONPATH", "/evil")
+        ok = MagicMock(returncode=0, stdout="1.8.1\n", stderr="")
+        with patch("subprocess.run", return_value=ok) as run:
+            assert barb_bridge._installed_barb_version.__wrapped__() == "1.8.1"
+        assert run.call_args.args[0][:3] == [sys.executable, "-I", "-c"]
+        assert "PYTHONPATH" not in run.call_args.kwargs["env"]
+        assert Path(run.call_args.kwargs["cwd"]).resolve() != tmp_path.resolve()
+
+    def test_probe_ignores_pythonpath_shadow(self, tmp_path, monkeypatch):
+        pytest.importorskip("barb")
+        shadow = tmp_path / "shadow"
+        dist = shadow / "barb_phish-99.0.0.dist-info"
+        dist.mkdir(parents=True)
+        (dist / "METADATA").write_text("Metadata-Version: 2.1\nName: barb-phish\nVersion: 99.0.0\n")
+        monkeypatch.setenv("PYTHONPATH", str(shadow))
+        got = barb_bridge._installed_barb_version.__wrapped__()
+        assert got is not None
+        assert got != "99.0.0"
 
 
 class TestDoctorReportsVersion:
@@ -199,6 +219,7 @@ def test_module_does_not_import_shutil():
 
 def test_real_subprocess_module_runs_help_offline(tmp_path):
     """The real argv prefix resolves: ``python -I -m barb --help`` works in this env."""
+    pytest.importorskip("barb")
     r = subprocess.run(
         [*barb_bridge._barb_command(), "--help"],
         capture_output=True,
